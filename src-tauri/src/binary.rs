@@ -98,7 +98,10 @@ pub async fn ensure_binary(
 // Download + extract (download.py#L262-L304)
 // ---------------------------------------------------------------------------
 
-async fn download_and_extract(version: Option<&str>, progress: Option<ProgressFn<'_>>) -> Result<()> {
+async fn download_and_extract(
+    version: Option<&str>,
+    progress: Option<ProgressFn<'_>>,
+) -> Result<()> {
     let primary_url = config::get_download_url(version)?;
     let fallback_url = config::get_fallback_download_url(version)?;
     let binary_dir = config::get_binary_dir(version);
@@ -118,7 +121,9 @@ async fn download_and_extract(version: Option<&str>, progress: Option<ProgressFn
                 if config::has_custom_download_url() {
                     return Err(primary_err);
                 }
-                tracing::warn!("Primary download failed ({primary_err}); trying GitHub Releases...");
+                tracing::warn!(
+                    "Primary download failed ({primary_err}); trying GitHub Releases..."
+                );
                 download_file(&fallback_url, &tmp_path, progress).await?;
             }
         }
@@ -159,7 +164,9 @@ async fn download_file(url: &str, dest: &Path, progress: Option<ProgressFn<'_>>)
     use futures::StreamExt;
 
     tracing::info!("Downloading from {url}");
-    let client = reqwest::Client::builder().connect_timeout(CONNECT_TIMEOUT).build()?;
+    let client = reqwest::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .build()?;
     let resp = client.get(url).send().await?.error_for_status()?;
 
     let total = resp.content_length().unwrap_or(0);
@@ -172,8 +179,8 @@ async fn download_file(url: &str, dest: &Path, progress: Option<ProgressFn<'_>>)
         let chunk = chunk?;
         file.write_all(&chunk)?;
         downloaded += chunk.len() as u64;
-        if total > 0 {
-            let pct = ((downloaded * 100) / total) as i32;
+        if let Some(pct) = (downloaded * 100).checked_div(total) {
+            let pct = pct as i32;
             if pct >= last_pct + 5 {
                 last_pct = pct;
                 emit(progress, "download", pct.clamp(0, 100) as u8);
@@ -195,7 +202,9 @@ async fn verify_download(
 ) -> Result<()> {
     emit(progress, "verify", 0);
     let tarball_name = config::get_archive_name()?;
-    let requested = version.map(str::to_string).unwrap_or_else(config::get_chromium_version);
+    let requested = version
+        .map(str::to_string)
+        .unwrap_or_else(config::get_chromium_version);
 
     // Mirror tự host (CLOAKBROWSER_DOWNLOAD_URL): pinned key không áp dụng → dùng
     // SHA256SUMS same-origin, có thể bỏ qua bằng CLOAKBROWSER_SKIP_CHECKSUM.
@@ -266,7 +275,10 @@ async fn fetch_signed_manifest(version: &str) -> Option<(Vec<u8>, Vec<u8>)> {
         format!("{}/chromium-v{version}", config::download_base_url()),
         format!("{}/chromium-v{version}", config::GITHUB_DOWNLOAD_BASE_URL),
     ];
-    let client = reqwest::Client::builder().timeout(MANIFEST_TIMEOUT).build().ok()?;
+    let client = reqwest::Client::builder()
+        .timeout(MANIFEST_TIMEOUT)
+        .build()
+        .ok()?;
     for base in bases {
         let manifest = client.get(format!("{base}/SHA256SUMS")).send().await;
         let sig = client.get(format!("{base}/SHA256SUMS.sig")).send().await;
@@ -283,8 +295,14 @@ async fn fetch_signed_manifest(version: &str) -> Option<(Vec<u8>, Vec<u8>)> {
 
 /// Fetch SHA256SUMS (không chữ ký) cho kênh custom mirror.
 async fn fetch_checksums(version: &str) -> Option<HashMap<String, String>> {
-    let url = format!("{}/chromium-v{version}/SHA256SUMS", config::download_base_url());
-    let client = reqwest::Client::builder().timeout(MANIFEST_TIMEOUT).build().ok()?;
+    let url = format!(
+        "{}/chromium-v{version}/SHA256SUMS",
+        config::download_base_url()
+    );
+    let client = reqwest::Client::builder()
+        .timeout(MANIFEST_TIMEOUT)
+        .build()
+        .ok()?;
     let resp = client.get(url).send().await.ok()?.error_for_status().ok()?;
     let text = resp.text().await.ok()?;
     Some(parse_checksums(&text))
@@ -297,7 +315,11 @@ fn verify_signature(manifest_bytes: &[u8], sig_b64: &[u8]) -> Result<()> {
 
 /// Verify chữ ký Ed25519 với danh sách pubkey base64 cho trước (tách để test).
 /// Thành công nếu BẤT KỲ key nào validate; lỗi nếu chữ ký hỏng hoặc không key nào khớp.
-fn verify_signature_with_keys(manifest_bytes: &[u8], sig_b64: &[u8], pubkeys: &[&str]) -> Result<()> {
+fn verify_signature_with_keys(
+    manifest_bytes: &[u8],
+    sig_b64: &[u8],
+    pubkeys: &[&str],
+) -> Result<()> {
     let sig_str = std::str::from_utf8(sig_b64)
         .map_err(|e| binary_err(format!("Malformed SHA256SUMS.sig (not UTF-8): {e}")))?
         .trim();
@@ -311,11 +333,15 @@ fn verify_signature_with_keys(manifest_bytes: &[u8], sig_b64: &[u8], pubkeys: &[
     let signature = Signature::from_bytes(&sig_arr);
 
     for pk_b64 in pubkeys {
-        let Ok(pk_raw) = B64.decode(pk_b64.trim()) else { continue };
+        let Ok(pk_raw) = B64.decode(pk_b64.trim()) else {
+            continue;
+        };
         let Ok(pk_arr): std::result::Result<[u8; 32], _> = pk_raw.as_slice().try_into() else {
             continue;
         };
-        let Ok(vk) = VerifyingKey::from_bytes(&pk_arr) else { continue };
+        let Ok(vk) = VerifyingKey::from_bytes(&pk_arr) else {
+            continue;
+        };
         if vk.verify(manifest_bytes, &signature).is_ok() {
             return Ok(());
         }
@@ -342,7 +368,9 @@ fn parse_checksums(text: &str) -> HashMap<String, String> {
     let mut out = HashMap::new();
     for line in text.lines() {
         let mut it = line.trim().splitn(2, char::is_whitespace);
-        let (Some(hash), Some(name)) = (it.next(), it.next()) else { continue };
+        let (Some(hash), Some(name)) = (it.next(), it.next()) else {
+            continue;
+        };
         let hash = hash.to_lowercase();
         let name = name.trim();
         if hash.len() != 64 || !hash.bytes().all(|c| c.is_ascii_hexdigit()) {
@@ -401,7 +429,12 @@ fn verify_checksum_file(path: &Path, expected: &str) -> Result<()> {
 // Extract (download.py#L726-L816)
 // ---------------------------------------------------------------------------
 
-fn extract_archive(archive_path: &Path, dest_dir: &Path, binary_path: &Path, os: &str) -> Result<()> {
+fn extract_archive(
+    archive_path: &Path,
+    dest_dir: &Path,
+    binary_path: &Path,
+    os: &str,
+) -> Result<()> {
     if dest_dir.exists() {
         std::fs::remove_dir_all(dest_dir)?;
     }
@@ -431,7 +464,9 @@ fn extract_tar(archive_path: &Path, dest_dir: &Path) -> Result<()> {
     let file = std::fs::File::open(archive_path)?;
     let decoder = flate2::read::GzDecoder::new(file);
     let mut archive = tar::Archive::new(decoder);
-    let dest_canon = dest_dir.canonicalize().unwrap_or_else(|_| dest_dir.to_path_buf());
+    let dest_canon = dest_dir
+        .canonicalize()
+        .unwrap_or_else(|_| dest_dir.to_path_buf());
 
     for entry in archive.entries()? {
         let mut entry = entry?;
@@ -443,7 +478,10 @@ fn extract_tar(archive_path: &Path, dest_dir: &Path) -> Result<()> {
                 continue;
             }
         } else if path.is_absolute() || path.components().any(|c| c.as_os_str() == "..") {
-            return Err(binary_err(format!("Archive contains path traversal: {}", path.display())));
+            return Err(binary_err(format!(
+                "Archive contains path traversal: {}",
+                path.display()
+            )));
         }
         entry.unpack_in(&dest_canon)?;
     }
@@ -456,9 +494,14 @@ fn extract_zip(archive_path: &Path, dest_dir: &Path) -> Result<()> {
     let file = std::fs::File::open(archive_path)?;
     let mut zip = zip::ZipArchive::new(file).map_err(|e| binary_err(format!("zip open: {e}")))?;
     for i in 0..zip.len() {
-        let mut entry = zip.by_index(i).map_err(|e| binary_err(format!("zip entry: {e}")))?;
+        let mut entry = zip
+            .by_index(i)
+            .map_err(|e| binary_err(format!("zip entry: {e}")))?;
         let Some(rel) = entry.enclosed_name() else {
-            return Err(binary_err(format!("Archive contains path traversal: {}", entry.name())));
+            return Err(binary_err(format!(
+                "Archive contains path traversal: {}",
+                entry.name()
+            )));
         };
         let out = dest_dir.join(rel);
         if entry.is_dir() {
@@ -484,7 +527,12 @@ fn flatten_single_subdir(dest_dir: &Path) -> Result<()> {
     if !sub.is_dir() {
         return Ok(());
     }
-    if sub.file_name().and_then(|n| n.to_str()).map(|n| n.ends_with(".app")).unwrap_or(false) {
+    if sub
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| n.ends_with(".app"))
+        .unwrap_or(false)
+    {
         return Ok(());
     }
     for item in std::fs::read_dir(&sub)? {
@@ -604,18 +652,25 @@ mod tests {
         );
         let map = parse_checksums(&text);
         assert_eq!(map.len(), 2);
-        assert_eq!(map.get("cloakbrowser-linux-x64.tar.gz").map(String::as_str), Some(h_a.as_str()));
+        assert_eq!(
+            map.get("cloakbrowser-linux-x64.tar.gz").map(String::as_str),
+            Some(h_a.as_str())
+        );
         // '*' prefix trên filename bị strip; hash lowercased.
         assert_eq!(
-            map.get("cloakbrowser-darwin-arm64.tar.gz").map(String::as_str),
+            map.get("cloakbrowser-darwin-arm64.tar.gz")
+                .map(String::as_str),
             Some("b".repeat(64).as_str())
         );
-        assert!(map.get("ignored.txt").is_none());
+        assert!(!map.contains_key("ignored.txt"));
     }
 
     #[test]
     fn parse_manifest_version_reads_line() {
-        assert_eq!(parse_manifest_version("version=1.2.3.4\nhash  f\n").as_deref(), Some("1.2.3.4"));
+        assert_eq!(
+            parse_manifest_version("version=1.2.3.4\nhash  f\n").as_deref(),
+            Some("1.2.3.4")
+        );
         assert_eq!(parse_manifest_version("hash  f\n"), None);
     }
 
@@ -634,7 +689,10 @@ mod tests {
             let f = std::fs::File::create(&archive).unwrap();
             let enc = flate2::write::GzEncoder::new(f, flate2::Compression::default());
             let mut builder = tar::Builder::new(enc);
-            for (name, body) in [("wrap/chrome", &b"#!/bin/sh\n"[..]), ("wrap/lib.so", &b"x"[..])] {
+            for (name, body) in [
+                ("wrap/chrome", &b"#!/bin/sh\n"[..]),
+                ("wrap/lib.so", &b"x"[..]),
+            ] {
                 let mut header = tar::Header::new_gnu();
                 header.set_size(body.len() as u64);
                 header.set_mode(0o644);
@@ -646,7 +704,10 @@ mod tests {
 
         let binary_path = dest.join("chrome");
         extract_archive(&archive, &dest, &binary_path, "linux").unwrap();
-        assert!(dest.join("chrome").exists(), "flatten should lift wrap/chrome to out/chrome");
+        assert!(
+            dest.join("chrome").exists(),
+            "flatten should lift wrap/chrome to out/chrome"
+        );
         assert!(dest.join("lib.so").exists());
         assert!(!dest.join("wrap").exists());
 

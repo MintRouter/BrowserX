@@ -89,7 +89,9 @@ pub fn get_chromium_version() -> String {
 pub fn cache_dir_from(custom: Option<&str>) -> PathBuf {
     match custom.map(str::trim).filter(|s| !s.is_empty()) {
         Some(p) => PathBuf::from(p),
-        None => dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".cloakbrowser"),
+        None => dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".cloakbrowser"),
     }
 }
 
@@ -100,14 +102,20 @@ pub fn get_cache_dir() -> PathBuf {
 
 /// Thư mục chứa binary của một version: `<cache>/chromium-<version>` (config.py#L162-L166).
 pub fn get_binary_dir(version: Option<&str>) -> PathBuf {
-    let v = version.map(str::to_string).unwrap_or_else(get_chromium_version);
+    let v = version
+        .map(str::to_string)
+        .unwrap_or_else(get_chromium_version);
     get_cache_dir().join(format!("chromium-{v}"))
 }
 
 /// Đường dẫn executable trong `dir` theo OS — pure, testable (config.py#L169-L181).
 pub fn binary_path_in(dir: &Path, os: &str) -> PathBuf {
     match os {
-        "macos" => dir.join("Chromium.app").join("Contents").join("MacOS").join("Chromium"),
+        "macos" => dir
+            .join("Chromium.app")
+            .join("Contents")
+            .join("MacOS")
+            .join("Chromium"),
         "windows" => dir.join("chrome.exe"),
         _ => dir.join("chrome"),
     }
@@ -188,19 +196,32 @@ pub fn has_custom_download_url() -> bool {
 
 /// URL tải primary cho version (mặc định version của platform) — config.py#L274-L277.
 pub fn get_download_url(version: Option<&str>) -> Result<String> {
-    let v = version.map(str::to_string).unwrap_or_else(get_chromium_version);
-    Ok(format!("{}/chromium-v{v}/{}", download_base_url(), get_archive_name()?))
+    let v = version
+        .map(str::to_string)
+        .unwrap_or_else(get_chromium_version);
+    Ok(format!(
+        "{}/chromium-v{v}/{}",
+        download_base_url(),
+        get_archive_name()?
+    ))
 }
 
 /// URL fallback GitHub Releases cho version — config.py#L280-L283.
 pub fn get_fallback_download_url(version: Option<&str>) -> Result<String> {
-    let v = version.map(str::to_string).unwrap_or_else(get_chromium_version);
-    Ok(format!("{GITHUB_DOWNLOAD_BASE_URL}/chromium-v{v}/{}", get_archive_name()?))
+    let v = version
+        .map(str::to_string)
+        .unwrap_or_else(get_chromium_version);
+    Ok(format!(
+        "{GITHUB_DOWNLOAD_BASE_URL}/chromium-v{v}/{}",
+        get_archive_name()?
+    ))
 }
 
 /// Override binary local qua env CLOAKBROWSER_BINARY_PATH (config.py#L289-L294).
 pub fn get_local_binary_override() -> Option<String> {
-    std::env::var("CLOAKBROWSER_BINARY_PATH").ok().filter(|s| !s.trim().is_empty())
+    std::env::var("CLOAKBROWSER_BINARY_PATH")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
 }
 
 #[cfg(test)]
@@ -226,7 +247,10 @@ mod tests {
                 "missing version for tag {tag}"
             );
         }
-        assert_eq!(chromium_version_for_tag("darwin-arm64"), Some("145.0.7632.109.2"));
+        assert_eq!(
+            chromium_version_for_tag("darwin-arm64"),
+            Some("145.0.7632.109.2")
+        );
         assert_eq!(chromium_version_for_tag("nope"), None);
     }
 
@@ -241,12 +265,18 @@ mod tests {
             binary_path_in(dir, "windows"),
             Path::new("/cache/chromium-1.2.3.4/chrome.exe")
         );
-        assert_eq!(binary_path_in(dir, "linux"), Path::new("/cache/chromium-1.2.3.4/chrome"));
+        assert_eq!(
+            binary_path_in(dir, "linux"),
+            Path::new("/cache/chromium-1.2.3.4/chrome")
+        );
     }
 
     #[test]
     fn cache_dir_override_and_default() {
-        assert_eq!(cache_dir_from(Some("/tmp/custom-cache")), PathBuf::from("/tmp/custom-cache"));
+        assert_eq!(
+            cache_dir_from(Some("/tmp/custom-cache")),
+            PathBuf::from("/tmp/custom-cache")
+        );
         assert!(cache_dir_from(None).ends_with(".cloakbrowser"));
         assert!(cache_dir_from(Some("  ")).ends_with(".cloakbrowser"));
     }
@@ -256,7 +286,10 @@ mod tests {
         assert_eq!(archive_ext_for("windows"), ".zip");
         assert_eq!(archive_ext_for("macos"), ".tar.gz");
         assert_eq!(archive_ext_for("linux"), ".tar.gz");
-        assert_eq!(archive_name_for("windows-x64", "windows"), "cloakbrowser-windows-x64.zip");
+        assert_eq!(
+            archive_name_for("windows-x64", "windows"),
+            "cloakbrowser-windows-x64.zip"
+        );
         assert_eq!(
             archive_name_for("darwin-arm64", "macos"),
             "cloakbrowser-darwin-arm64.tar.gz"

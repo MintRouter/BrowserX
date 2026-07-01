@@ -138,7 +138,6 @@ pub struct AuditEntry {
     pub meta: Option<serde_json::Value>,
 }
 
-
 // ---------------------------------------------------------------------------
 // Db: mở/khởi tạo + migration
 // ---------------------------------------------------------------------------
@@ -243,7 +242,10 @@ impl Db {
         let conn = Connection::open(dir.join("browserx.db"))?;
         Self::init_conn(&conn)?;
         migrate(&conn)?;
-        Ok(Self { conn: Mutex::new(conn), data_dir: dir })
+        Ok(Self {
+            conn: Mutex::new(conn),
+            data_dir: dir,
+        })
     }
 
     /// DB in-memory (test nhanh, không đụng đĩa).
@@ -251,7 +253,10 @@ impl Db {
         let conn = Connection::open_in_memory()?;
         Self::init_conn(&conn)?;
         migrate(&conn)?;
-        Ok(Self { conn: Mutex::new(conn), data_dir: std::env::temp_dir() })
+        Ok(Self {
+            conn: Mutex::new(conn),
+            data_dir: std::env::temp_dir(),
+        })
     }
 
     fn init_conn(conn: &Connection) -> Result<()> {
@@ -294,7 +299,9 @@ fn now() -> String {
 
 /// Escape `%`/`_`/`\` cho pattern LIKE (dùng với `ESCAPE '\'`).
 fn escape_like(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 fn sql_text(s: String) -> SqlValue {
@@ -312,8 +319,8 @@ fn sql_bool(b: bool) -> SqlValue {
 /// Map một row (SELECT p.*, pp.proxy_id) → `models::Profile` (tags rỗng, caller tự điền).
 fn row_to_profile(row: &Row) -> rusqlite::Result<Profile> {
     let launch_args_raw: String = row.get("launch_args")?;
-    let launch_args: serde_json::Value = serde_json::from_str(&launch_args_raw)
-        .unwrap_or_else(|_| serde_json::Value::Array(vec![]));
+    let launch_args: serde_json::Value =
+        serde_json::from_str(&launch_args_raw).unwrap_or_else(|_| serde_json::Value::Array(vec![]));
     Ok(Profile {
         id: row.get("id")?,
         name: row.get("name")?,
@@ -359,7 +366,10 @@ fn row_to_proxy(row: &Row) -> rusqlite::Result<ProxyRecord> {
 
 /// Thay toàn bộ tags của 1 profile (upsert vào bảng `tags` rồi ghi `profile_tags`).
 fn set_profile_tags_tx(conn: &Connection, profile_id: &str, tags: &[String]) -> Result<()> {
-    conn.execute("DELETE FROM profile_tags WHERE profile_id = ?1", params![profile_id])?;
+    conn.execute(
+        "DELETE FROM profile_tags WHERE profile_id = ?1",
+        params![profile_id],
+    )?;
     for tag in tags {
         let tag = tag.trim();
         if tag.is_empty() {
@@ -375,9 +385,7 @@ fn set_profile_tags_tx(conn: &Connection, profile_id: &str, tags: &[String]) -> 
 }
 
 /// Đọc map profile_id → tags cho một batch profile (tránh N+1 khi list/search).
-fn tags_for_profiles(
-    conn: &Connection,
-) -> Result<std::collections::HashMap<String, Vec<String>>> {
+fn tags_for_profiles(conn: &Connection) -> Result<std::collections::HashMap<String, Vec<String>>> {
     let mut map: std::collections::HashMap<String, Vec<String>> = Default::default();
     let mut stmt = conn.prepare("SELECT profile_id, tag FROM profile_tags ORDER BY tag")?;
     let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
@@ -401,16 +409,24 @@ impl Db {
     /// `<data_dir>/profiles/<id>`, gán tags + proxy trong cùng transaction.
     pub fn create_profile(&self, input: ProfileInput) -> Result<Profile> {
         if input.name.trim().is_empty() {
-            return Err(AppError::InvalidInput("profile name must not be empty".into()));
+            return Err(AppError::InvalidInput(
+                "profile name must not be empty".into(),
+            ));
         }
         let id = uuid::Uuid::new_v4().to_string();
         let seed = input
             .fingerprint_seed
             .unwrap_or_else(|| rand::rng().random_range(10000u32..=99999).to_string());
         let user_data_dir = input.user_data_dir.unwrap_or_else(|| {
-            self.data_dir.join("profiles").join(&id).to_string_lossy().into_owned()
+            self.data_dir
+                .join("profiles")
+                .join(&id)
+                .to_string_lossy()
+                .into_owned()
         });
-        let launch_args = input.launch_args.unwrap_or_else(|| serde_json::Value::Array(vec![]));
+        let launch_args = input
+            .launch_args
+            .unwrap_or_else(|| serde_json::Value::Array(vec![]));
         let ts = now();
 
         {
@@ -483,8 +499,9 @@ impl Db {
         let conn = self.lock();
         let sql = format!("{PROFILE_SELECT} ORDER BY p.updated_at DESC");
         let mut stmt = conn.prepare(&sql)?;
-        let mut profiles =
-            stmt.query_map([], row_to_profile)?.collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut profiles = stmt
+            .query_map([], row_to_profile)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
         let mut tag_map = tags_for_profiles(&conn)?;
         for p in &mut profiles {
             if let Some(tags) = tag_map.remove(&p.id) {
@@ -525,7 +542,9 @@ impl Db {
         let mut values: Vec<SqlValue> = Vec::new();
         if let Some(v) = input.name {
             if v.trim().is_empty() {
-                return Err(AppError::InvalidInput("profile name must not be empty".into()));
+                return Err(AppError::InvalidInput(
+                    "profile name must not be empty".into(),
+                ));
             }
             cols.push("name");
             values.push(sql_text(v));
@@ -602,7 +621,9 @@ impl Db {
         {
             let conn = self.lock();
             let exists: bool = conn
-                .query_row("SELECT 1 FROM profiles WHERE id = ?1", params![id], |_| Ok(()))
+                .query_row("SELECT 1 FROM profiles WHERE id = ?1", params![id], |_| {
+                    Ok(())
+                })
                 .optional()?
                 .is_some();
             if !exists {
@@ -648,7 +669,9 @@ impl Db {
     /// Tạo proxy mới. `username_enc`/`password_enc` là BLOB đã mã hoá bởi `crypto`.
     pub fn create_proxy(&self, input: ProxyInput) -> Result<ProxyRecord> {
         if input.host.trim().is_empty() {
-            return Err(AppError::InvalidInput("proxy host must not be empty".into()));
+            return Err(AppError::InvalidInput(
+                "proxy host must not be empty".into(),
+            ));
         }
         if !matches!(input.protocol.as_str(), "http" | "https" | "socks5") {
             return Err(AppError::InvalidInput(format!(
@@ -683,16 +706,22 @@ impl Db {
     /// Đọc 1 proxy. `NotFound` nếu không tồn tại.
     pub fn get_proxy(&self, id: &str) -> Result<ProxyRecord> {
         let conn = self.lock();
-        conn.query_row("SELECT * FROM proxies WHERE id = ?1", params![id], row_to_proxy)
-            .optional()?
-            .ok_or_else(|| AppError::NotFound(format!("proxy {id}")))
+        conn.query_row(
+            "SELECT * FROM proxies WHERE id = ?1",
+            params![id],
+            row_to_proxy,
+        )
+        .optional()?
+        .ok_or_else(|| AppError::NotFound(format!("proxy {id}")))
     }
 
     /// Danh sách toàn bộ proxy, mới cập nhật trước.
     pub fn list_proxies(&self) -> Result<Vec<ProxyRecord>> {
         let conn = self.lock();
         let mut stmt = conn.prepare("SELECT * FROM proxies ORDER BY updated_at DESC")?;
-        let rows = stmt.query_map([], row_to_proxy)?.collect::<rusqlite::Result<Vec<_>>>()?;
+        let rows = stmt
+            .query_map([], row_to_proxy)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
     }
 
@@ -706,7 +735,9 @@ impl Db {
         }
         if let Some(v) = input.protocol {
             if !matches!(v.as_str(), "http" | "https" | "socks5") {
-                return Err(AppError::InvalidInput(format!("unsupported proxy protocol: {v}")));
+                return Err(AppError::InvalidInput(format!(
+                    "unsupported proxy protocol: {v}"
+                )));
             }
             cols.push("protocol");
             values.push(sql_text(v));
@@ -738,7 +769,9 @@ impl Db {
         {
             let conn = self.lock();
             let exists = conn
-                .query_row("SELECT 1 FROM proxies WHERE id = ?1", params![id], |_| Ok(()))
+                .query_row("SELECT 1 FROM proxies WHERE id = ?1", params![id], |_| {
+                    Ok(())
+                })
                 .optional()?
                 .is_some();
             if !exists {
@@ -789,7 +822,11 @@ impl Db {
     pub fn assign_proxy(&self, profile_id: &str, proxy_id: Option<&str>) -> Result<()> {
         let conn = self.lock();
         let exists = conn
-            .query_row("SELECT 1 FROM profiles WHERE id = ?1", params![profile_id], |_| Ok(()))
+            .query_row(
+                "SELECT 1 FROM profiles WHERE id = ?1",
+                params![profile_id],
+                |_| Ok(()),
+            )
             .optional()?
             .is_some();
         if !exists {
@@ -798,7 +835,9 @@ impl Db {
         match proxy_id {
             Some(pid) => {
                 let proxy_exists = conn
-                    .query_row("SELECT 1 FROM proxies WHERE id = ?1", params![pid], |_| Ok(()))
+                    .query_row("SELECT 1 FROM proxies WHERE id = ?1", params![pid], |_| {
+                        Ok(())
+                    })
                     .optional()?
                     .is_some();
                 if !proxy_exists {
@@ -830,7 +869,12 @@ impl Db {
         let conn = self.lock();
         let mut stmt = conn.prepare("SELECT tag, color FROM tags ORDER BY tag")?;
         let rows = stmt
-            .query_map([], |r| Ok(TagInfo { tag: r.get(0)?, color: r.get(1)? }))?
+            .query_map([], |r| {
+                Ok(TagInfo {
+                    tag: r.get(0)?,
+                    color: r.get(1)?,
+                })
+            })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
     }
@@ -850,7 +894,11 @@ impl Db {
     pub fn set_profile_tags(&self, profile_id: &str, tags: &[String]) -> Result<()> {
         let conn = self.lock();
         let exists = conn
-            .query_row("SELECT 1 FROM profiles WHERE id = ?1", params![profile_id], |_| Ok(()))
+            .query_row(
+                "SELECT 1 FROM profiles WHERE id = ?1",
+                params![profile_id],
+                |_| Ok(()),
+            )
             .optional()?
             .is_some();
         if !exists {
@@ -863,7 +911,11 @@ impl Db {
     pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
         let conn = self.lock();
         let v = conn
-            .query_row("SELECT value FROM settings WHERE key = ?1", params![key], |r| r.get(0))
+            .query_row(
+                "SELECT value FROM settings WHERE key = ?1",
+                params![key],
+                |r| r.get(0),
+            )
             .optional()?;
         Ok(v)
     }
@@ -908,8 +960,9 @@ impl Db {
     /// Đọc audit log mới nhất trước, tối đa `limit` dòng.
     pub fn list_audit(&self, limit: u32) -> Result<Vec<AuditEntry>> {
         let conn = self.lock();
-        let mut stmt = conn
-            .prepare("SELECT id, ts, action, target_id, meta FROM audit ORDER BY id DESC LIMIT ?1")?;
+        let mut stmt = conn.prepare(
+            "SELECT id, ts, action, target_id, meta FROM audit ORDER BY id DESC LIMIT ?1",
+        )?;
         let rows = stmt
             .query_map(params![limit], |r| {
                 let meta_raw: Option<String> = r.get(4)?;
@@ -953,7 +1006,11 @@ mod tests {
         let _guard = TempDir(dir.clone());
         {
             let db = Db::open_at_dir(&dir).unwrap();
-            db.create_profile(ProfileInput { name: "p1".into(), ..Default::default() }).unwrap();
+            db.create_profile(ProfileInput {
+                name: "p1".into(),
+                ..Default::default()
+            })
+            .unwrap();
         }
         // Mở lại cùng file DB → migrate chạy lại, không lỗi, dữ liệu còn nguyên.
         let db = Db::open_at_dir(&dir).unwrap();
@@ -1010,7 +1067,10 @@ mod tests {
 
         assert!(db.delete_profile(&created.id).unwrap());
         assert!(!db.delete_profile(&created.id).unwrap());
-        assert!(matches!(db.get_profile(&created.id), Err(AppError::NotFound(_))));
+        assert!(matches!(
+            db.get_profile(&created.id),
+            Err(AppError::NotFound(_))
+        ));
     }
 
     #[test]
@@ -1045,7 +1105,10 @@ mod tests {
         let updated = db
             .update_proxy(
                 &proxy.id,
-                ProxyUpdate { port: Some(9050), ..Default::default() },
+                ProxyUpdate {
+                    port: Some(9050),
+                    ..Default::default()
+                },
             )
             .unwrap();
         assert_eq!(updated.port, 9050);
@@ -1057,9 +1120,17 @@ mod tests {
         assert!(checked.last_checked_at.is_some());
 
         // Gán proxy → get_profile trả proxy_id; bỏ gán → None.
-        let p = db.create_profile(ProfileInput { name: "p".into(), ..Default::default() }).unwrap();
+        let p = db
+            .create_profile(ProfileInput {
+                name: "p".into(),
+                ..Default::default()
+            })
+            .unwrap();
         db.assign_proxy(&p.id, Some(&proxy.id)).unwrap();
-        assert_eq!(db.get_profile(&p.id).unwrap().proxy_id.as_deref(), Some(proxy.id.as_str()));
+        assert_eq!(
+            db.get_profile(&p.id).unwrap().proxy_id.as_deref(),
+            Some(proxy.id.as_str())
+        );
         db.assign_proxy(&p.id, None).unwrap();
         assert!(db.get_profile(&p.id).unwrap().proxy_id.is_none());
 
@@ -1081,21 +1152,35 @@ mod tests {
                 ..Default::default()
             })
             .unwrap();
-        db.set_profile_tags(&p.id, &["b".into(), "c".into()]).unwrap();
-        assert_eq!(db.get_profile(&p.id).unwrap().tags, vec!["b".to_string(), "c".to_string()]);
+        db.set_profile_tags(&p.id, &["b".into(), "c".into()])
+            .unwrap();
+        assert_eq!(
+            db.get_profile(&p.id).unwrap().tags,
+            vec!["b".to_string(), "c".to_string()]
+        );
         db.set_tag_color("b", Some("#ff0000")).unwrap();
         let tags = db.list_tags().unwrap();
-        assert!(tags.iter().any(|t| t.tag == "b" && t.color.as_deref() == Some("#ff0000")));
+        assert!(tags
+            .iter()
+            .any(|t| t.tag == "b" && t.color.as_deref() == Some("#ff0000")));
 
         db.set_setting("theme", "dark").unwrap();
         db.set_setting("theme", "light").unwrap();
         assert_eq!(db.get_setting("theme").unwrap().as_deref(), Some("light"));
         assert!(db.get_setting("missing").unwrap().is_none());
-        assert_eq!(db.get_settings().unwrap(), vec![("theme".to_string(), "light".to_string())]);
+        assert_eq!(
+            db.get_settings().unwrap(),
+            vec![("theme".to_string(), "light".to_string())]
+        );
 
-        db.insert_audit("profile.create", Some(&p.id), Some(&serde_json::json!({"n": 1})))
+        db.insert_audit(
+            "profile.create",
+            Some(&p.id),
+            Some(&serde_json::json!({"n": 1})),
+        )
+        .unwrap();
+        db.insert_audit("profile.launch", Some(&p.id), None)
             .unwrap();
-        db.insert_audit("profile.launch", Some(&p.id), None).unwrap();
         let log = db.list_audit(10).unwrap();
         assert_eq!(log.len(), 2);
         assert_eq!(log[0].action, "profile.launch"); // mới nhất trước
@@ -1110,7 +1195,11 @@ mod tests {
         for i in 0..1000 {
             db.create_profile(ProfileInput {
                 name: format!("profile-{i:04}"),
-                tags: if i % 10 == 0 { Some(vec!["vip".into()]) } else { None },
+                tags: if i % 10 == 0 {
+                    Some(vec!["vip".into()])
+                } else {
+                    None
+                },
                 ..Default::default()
             })
             .unwrap();
@@ -1141,4 +1230,3 @@ mod tests {
         assert!(tag_ms < 1500, "tag search too slow: {tag_ms}ms");
     }
 }
-

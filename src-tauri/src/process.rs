@@ -95,9 +95,7 @@ impl ProcessManager {
         {
             let map = self.sessions.lock().await;
             if map.contains_key(profile_id) {
-                return Err(AppError::Launch(format!(
-                    "profile {profile_id} đang chạy"
-                )));
+                return Err(AppError::Launch(format!("profile {profile_id} đang chạy")));
             }
         }
 

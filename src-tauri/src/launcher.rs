@@ -20,17 +20,20 @@ struct OrderedArgs {
 
 impl OrderedArgs {
     fn new() -> Self {
-        Self { keys: Vec::new(), vals: Vec::new() }
+        Self {
+            keys: Vec::new(),
+            vals: Vec::new(),
+        }
     }
 
     /// Chèn/ghi đè theo key = phần trước dấu '=' đầu tiên của `flag`.
     fn set(&mut self, flag: impl Into<String>) {
         let flag = flag.into();
-        let key = flag.split('=').next().unwrap_or(&flag).to_string();
-        if let Some(i) = self.keys.iter().position(|k| *k == key) {
+        let key = &flag[..flag.find('=').unwrap_or(flag.len())];
+        if let Some(i) = self.keys.iter().position(|k| k == key) {
             self.vals[i] = flag;
         } else {
-            self.keys.push(key);
+            self.keys.push(key.to_string());
             self.vals.push(flag);
         }
     }
@@ -60,10 +63,10 @@ pub fn build_args(profile: &Profile, proxy_url: Option<&str>, cdp_port: u16) -> 
     // 1) Stealth defaults (ưu tiên thấp nhất).
     args.set("--no-sandbox");
     args.set(format!("--fingerprint={}", profile.fingerprint_seed));
-    let platform = if profile.platform.trim().is_empty() {
-        host_default_platform().to_string()
+    let platform: &str = if profile.platform.trim().is_empty() {
+        host_default_platform()
     } else {
-        profile.platform.clone()
+        &profile.platform
     };
     args.set(format!("--fingerprint-platform={}", platform));
 
@@ -105,10 +108,16 @@ pub fn build_args(profile: &Profile, proxy_url: Option<&str>, cdp_port: u16) -> 
     }
     // Screen fingerprint (KHÔNG phải viewport). Headful vẫn set fingerprint-screen an toàn.
     if profile.screen_width > 0 {
-        args.set(format!("--fingerprint-screen-width={}", profile.screen_width));
+        args.set(format!(
+            "--fingerprint-screen-width={}",
+            profile.screen_width
+        ));
     }
     if profile.screen_height > 0 {
-        args.set(format!("--fingerprint-screen-height={}", profile.screen_height));
+        args.set(format!(
+            "--fingerprint-screen-height={}",
+            profile.screen_height
+        ));
     }
 
     // Cờ vận hành bắt buộc — luôn từ tham số của ta.
@@ -167,11 +176,13 @@ mod tests {
     fn value_of<'a>(args: &'a [String], key: &str) -> Option<&'a str> {
         args.iter()
             .find(|a| a.split('=').next() == Some(key))
-            .map(|a| a.splitn(2, '=').nth(1).unwrap_or(""))
+            .map(|a| a.split_once('=').map_or("", |x| x.1))
     }
 
     fn count_key(args: &[String], key: &str) -> usize {
-        args.iter().filter(|a| a.split('=').next() == Some(key)).count()
+        args.iter()
+            .filter(|a| a.split('=').next() == Some(key))
+            .count()
     }
 
     #[test]
@@ -189,9 +200,15 @@ mod tests {
     fn headless_omits_gpu_blocklist_headful_includes() {
         let mut p = base_profile();
         p.headless = true;
-        assert_eq!(count_key(&build_args(&p, None, 1), "--ignore-gpu-blocklist"), 0);
+        assert_eq!(
+            count_key(&build_args(&p, None, 1), "--ignore-gpu-blocklist"),
+            0
+        );
         p.headless = false;
-        assert_eq!(count_key(&build_args(&p, None, 1), "--ignore-gpu-blocklist"), 1);
+        assert_eq!(
+            count_key(&build_args(&p, None, 1), "--ignore-gpu-blocklist"),
+            1
+        );
     }
 
     #[test]
@@ -205,12 +222,24 @@ mod tests {
         p.screen_width = 1920;
         p.screen_height = 1080;
         let args = build_args(&p, None, 1);
-        assert_eq!(value_of(&args, "--fingerprint-timezone"), Some("Asia/Ho_Chi_Minh"));
+        assert_eq!(
+            value_of(&args, "--fingerprint-timezone"),
+            Some("Asia/Ho_Chi_Minh")
+        );
         assert_eq!(value_of(&args, "--lang"), Some("vi-VN"));
         assert_eq!(value_of(&args, "--fingerprint-locale"), Some("vi-VN"));
-        assert_eq!(value_of(&args, "--fingerprint-gpu-vendor"), Some("Intel Inc."));
-        assert_eq!(value_of(&args, "--fingerprint-gpu-renderer"), Some("Intel Iris"));
-        assert_eq!(value_of(&args, "--fingerprint-hardware-concurrency"), Some("8"));
+        assert_eq!(
+            value_of(&args, "--fingerprint-gpu-vendor"),
+            Some("Intel Inc.")
+        );
+        assert_eq!(
+            value_of(&args, "--fingerprint-gpu-renderer"),
+            Some("Intel Iris")
+        );
+        assert_eq!(
+            value_of(&args, "--fingerprint-hardware-concurrency"),
+            Some("8")
+        );
         assert_eq!(value_of(&args, "--fingerprint-screen-width"), Some("1920"));
         assert_eq!(value_of(&args, "--fingerprint-screen-height"), Some("1080"));
     }

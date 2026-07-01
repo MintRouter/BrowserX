@@ -48,7 +48,13 @@ struct BinaryProgressEvent {
     pct: u8,
 }
 
-fn emit_status(app: &AppHandle, profile_id: &str, status: &str, pid: Option<u32>, cdp_url: Option<String>) {
+fn emit_status(
+    app: &AppHandle,
+    profile_id: &str,
+    status: &str,
+    pid: Option<u32>,
+    cdp_url: Option<String>,
+) {
     let _ = app.emit(
         "profile://status",
         ProfileStatusEvent {
@@ -72,8 +78,16 @@ fn proxy_to_model(rec: db::ProxyRecord) -> Result<Proxy> {
         protocol: rec.protocol,
         host: rec.host,
         port: rec.port,
-        username: rec.username_enc.as_deref().map(crypto::decrypt_secret).transpose()?,
-        password: rec.password_enc.as_deref().map(crypto::decrypt_secret).transpose()?,
+        username: rec
+            .username_enc
+            .as_deref()
+            .map(crypto::decrypt_secret)
+            .transpose()?,
+        password: rec
+            .password_enc
+            .as_deref()
+            .map(crypto::decrypt_secret)
+            .transpose()?,
         created_at: rec.created_at,
         updated_at: rec.updated_at,
     })
@@ -90,7 +104,10 @@ fn proxy_url_from(rec: &db::ProxyRecord) -> Result<String> {
         (Some(u), None) => format!("{}@", crypto::decrypt_secret(u)?),
         _ => String::new(),
     };
-    Ok(format!("{}://{}{}:{}", rec.protocol, auth, rec.host, rec.port))
+    Ok(format!(
+        "{}://{}{}:{}",
+        rec.protocol, auth, rec.host, rec.port
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -110,12 +127,18 @@ pub fn get_profile(state: State<'_, AppState>, id: String) -> Result<Profile> {
 #[tauri::command]
 pub fn create_profile(state: State<'_, AppState>, input: ProfileInput) -> Result<Profile> {
     let profile = state.db.create_profile(input)?;
-    state.db.insert_audit("profile.create", Some(&profile.id), None)?;
+    state
+        .db
+        .insert_audit("profile.create", Some(&profile.id), None)?;
     Ok(profile)
 }
 
 #[tauri::command]
-pub fn update_profile(state: State<'_, AppState>, id: String, input: ProfileUpdate) -> Result<Profile> {
+pub fn update_profile(
+    state: State<'_, AppState>,
+    id: String,
+    input: ProfileUpdate,
+) -> Result<Profile> {
     let profile = state.db.update_profile(&id, input)?;
     state.db.insert_audit("profile.update", Some(&id), None)?;
     Ok(profile)
@@ -131,7 +154,11 @@ pub fn delete_profile(state: State<'_, AppState>, id: String) -> Result<bool> {
 }
 
 #[tauri::command]
-pub fn search_profiles(state: State<'_, AppState>, query: String, tag: Option<String>) -> Result<Vec<Profile>> {
+pub fn search_profiles(
+    state: State<'_, AppState>,
+    query: String,
+    tag: Option<String>,
+) -> Result<Vec<Profile>> {
     state.db.search_profiles(&query, tag.as_deref())
 }
 
@@ -165,7 +192,12 @@ pub struct ProxyPatch {
 
 #[tauri::command]
 pub fn list_proxies(state: State<'_, AppState>) -> Result<Vec<Proxy>> {
-    state.db.list_proxies()?.into_iter().map(proxy_to_model).collect()
+    state
+        .db
+        .list_proxies()?
+        .into_iter()
+        .map(proxy_to_model)
+        .collect()
 }
 
 #[tauri::command]
@@ -175,8 +207,16 @@ pub fn create_proxy(state: State<'_, AppState>, input: ProxyCreate) -> Result<Pr
         protocol: input.protocol,
         host: input.host,
         port: input.port,
-        username_enc: input.username.as_deref().map(crypto::encrypt_secret).transpose()?,
-        password_enc: input.password.as_deref().map(crypto::encrypt_secret).transpose()?,
+        username_enc: input
+            .username
+            .as_deref()
+            .map(crypto::encrypt_secret)
+            .transpose()?,
+        password_enc: input
+            .password
+            .as_deref()
+            .map(crypto::encrypt_secret)
+            .transpose()?,
     })?;
     state.db.insert_audit("proxy.create", Some(&rec.id), None)?;
     proxy_to_model(rec)
@@ -191,8 +231,16 @@ pub fn update_proxy(state: State<'_, AppState>, id: String, input: ProxyPatch) -
             protocol: input.protocol,
             host: input.host,
             port: input.port,
-            username_enc: input.username.as_deref().map(crypto::encrypt_secret).transpose()?,
-            password_enc: input.password.as_deref().map(crypto::encrypt_secret).transpose()?,
+            username_enc: input
+                .username
+                .as_deref()
+                .map(crypto::encrypt_secret)
+                .transpose()?,
+            password_enc: input
+                .password
+                .as_deref()
+                .map(crypto::encrypt_secret)
+                .transpose()?,
             clear_credentials: input.clear_credentials,
         },
     )?;
@@ -210,7 +258,11 @@ pub fn delete_proxy(state: State<'_, AppState>, id: String) -> Result<bool> {
 }
 
 #[tauri::command]
-pub fn assign_proxy(state: State<'_, AppState>, profile_id: String, proxy_id: Option<String>) -> Result<()> {
+pub fn assign_proxy(
+    state: State<'_, AppState>,
+    profile_id: String,
+    proxy_id: Option<String>,
+) -> Result<()> {
     state.db.assign_proxy(&profile_id, proxy_id.as_deref())?;
     state.db.insert_audit(
         "profile.assign_proxy",
@@ -241,7 +293,10 @@ pub async fn launch_profile(
     let progress = move |phase: &str, pct: u8| {
         let _ = progress_app.emit(
             "binary://progress",
-            BinaryProgressEvent { phase: phase.to_string(), pct },
+            BinaryProgressEvent {
+                phase: phase.to_string(),
+                pct,
+            },
         );
     };
     let binary_path = binary::ensure_binary(None, Some(&progress)).await?;
@@ -250,7 +305,10 @@ pub async fn launch_profile(
     let args = launcher::build_args(&profile, proxy_url.as_deref(), cdp_port);
     let program = binary_path.to_string_lossy().into_owned();
 
-    let session = state.procs.spawn(&profile_id, &program, args, cdp_port).await?;
+    let session = state
+        .procs
+        .spawn(&profile_id, &program, args, cdp_port)
+        .await?;
 
     if let Err(e) = cdp::attach(cdp_port).await {
         let _ = state.procs.stop(&profile_id).await;
@@ -263,7 +321,13 @@ pub async fn launch_profile(
         Some(&profile_id),
         Some(&json!({ "pid": session.pid, "cdp_port": cdp_port })),
     )?;
-    emit_status(&app, &profile_id, "running", Some(session.pid), Some(session.cdp_url.clone()));
+    emit_status(
+        &app,
+        &profile_id,
+        "running",
+        Some(session.pid),
+        Some(session.cdp_url.clone()),
+    );
     Ok(session)
 }
 
@@ -274,7 +338,9 @@ pub async fn stop_profile(
     profile_id: String,
 ) -> Result<()> {
     state.procs.stop(&profile_id).await?;
-    state.db.insert_audit("profile.stop", Some(&profile_id), None)?;
+    state
+        .db
+        .insert_audit("profile.stop", Some(&profile_id), None)?;
     emit_status(&app, &profile_id, "stopped", None, None);
     Ok(())
 }
@@ -294,7 +360,10 @@ pub async fn ensure_binary(app: AppHandle, version: Option<String>) -> Result<St
     let progress = move |phase: &str, pct: u8| {
         let _ = progress_app.emit(
             "binary://progress",
-            BinaryProgressEvent { phase: phase.to_string(), pct },
+            BinaryProgressEvent {
+                phase: phase.to_string(),
+                pct,
+            },
         );
     };
     let path = binary::ensure_binary(version.as_deref(), Some(&progress)).await?;
@@ -321,6 +390,10 @@ pub fn list_tags(state: State<'_, AppState>) -> Result<Vec<TagInfo>> {
 }
 
 #[tauri::command]
-pub fn set_profile_tags(state: State<'_, AppState>, profile_id: String, tags: Vec<String>) -> Result<()> {
+pub fn set_profile_tags(
+    state: State<'_, AppState>,
+    profile_id: String,
+    tags: Vec<String>,
+) -> Result<()> {
     state.db.set_profile_tags(&profile_id, &tags)
 }

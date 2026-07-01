@@ -38,7 +38,8 @@ pub fn encrypt_secret(plaintext: &str) -> Result<Vec<u8>> {
 /// Giải mã blob từ [`encrypt_secret`] → chuỗi UTF-8 gốc.
 pub fn decrypt_secret(ciphertext: &[u8]) -> Result<String> {
     let plain = open(ciphertext)?;
-    String::from_utf8(plain).map_err(|_| AppError::Crypto("decrypted data is not valid UTF-8".into()))
+    String::from_utf8(plain)
+        .map_err(|_| AppError::Crypto("decrypted data is not valid UTF-8".into()))
 }
 
 /// Mã hoá bytes tuỳ ý bằng khoá gốc (dùng cho export/backup).
@@ -137,15 +138,18 @@ fn key_from_keychain() -> std::result::Result<[u8; KEY_LEN], KeychainFailure> {
 /// `<app-data>/browserx/master.key` (tự sinh nếu chưa có, chmod 600 trên unix).
 fn key_from_fallback() -> Result<[u8; KEY_LEN]> {
     if let Ok(b64) = std::env::var(MASTER_KEY_ENV) {
-        tracing::warn!("using master key from {MASTER_KEY_ENV} env var (less secure than keychain)");
+        tracing::warn!(
+            "using master key from {MASTER_KEY_ENV} env var (less secure than keychain)"
+        );
         return decode_key_b64(b64.trim())
             .map_err(|e| AppError::Keychain(format!("invalid {MASTER_KEY_ENV}: {e}")));
     }
     let path = fallback_key_path()?;
     if path.exists() {
         let b64 = std::fs::read_to_string(&path)?;
-        return decode_key_b64(b64.trim())
-            .map_err(|e| AppError::Keychain(format!("invalid master key file {}: {e}", path.display())));
+        return decode_key_b64(b64.trim()).map_err(|e| {
+            AppError::Keychain(format!("invalid master key file {}: {e}", path.display()))
+        });
     }
     let key = generate_key();
     write_key_file(&path, &B64.encode(key))?;
@@ -162,7 +166,9 @@ fn fallback_key_path() -> Result<PathBuf> {
     let base = dirs::data_dir()
         .map(|d| d.join("browserx"))
         .or_else(|| dirs::home_dir().map(|h| h.join(".browserx")))
-        .ok_or_else(|| AppError::Keychain("cannot determine app data directory for fallback key".into()))?;
+        .ok_or_else(|| {
+            AppError::Keychain("cannot determine app data directory for fallback key".into())
+        })?;
     Ok(base.join("master.key"))
 }
 
