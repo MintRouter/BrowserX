@@ -6,6 +6,18 @@ node_modules/
 dist/
 build/
 out/
+target/
+/src-tauri/target/
+/src-tauri/gen/schemas/
+
+# Reference repos (clone tham chiếu, không commit)
+refs/
+
+# App data / downloaded CloakBrowser binary (KHÔNG redistribute)
+.browserx/
+
+# TS build info
+*.tsbuildinfo
 
 # IDE
 .idea/
