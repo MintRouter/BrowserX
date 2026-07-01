@@ -26,6 +26,46 @@ pub mod process;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            use std::sync::Arc;
+            use tauri::Manager;
+
+            let db = Arc::new(db::Db::open_default()?);
+            let max_concurrent = db
+                .get_setting("max_concurrent")?
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(process::DEFAULT_MAX_CONCURRENT);
+            let procs = process::ProcessManager::new(max_concurrent);
+
+            let watchdog = procs.clone();
+            tauri::async_runtime::spawn(async move {
+                let _handle = watchdog.start_watchdog(2000);
+            });
+
+            app.manage(commands::AppState { db, procs });
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::list_profiles,
+            commands::get_profile,
+            commands::create_profile,
+            commands::update_profile,
+            commands::delete_profile,
+            commands::search_profiles,
+            commands::list_proxies,
+            commands::create_proxy,
+            commands::update_proxy,
+            commands::delete_proxy,
+            commands::assign_proxy,
+            commands::launch_profile,
+            commands::stop_profile,
+            commands::list_running,
+            commands::ensure_binary,
+            commands::get_settings,
+            commands::set_setting,
+            commands::list_tags,
+            commands::set_profile_tags,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

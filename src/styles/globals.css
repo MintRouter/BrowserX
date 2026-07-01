@@ -1,3 +1,81 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Semantic tokens — RGB triplets consumed by tailwind.config.ts (docs/08 §11.2) */
+:root {
+  --color-surface-0: 255 255 255; /* #ffffff */
+  --color-surface-1: 247 248 250; /* #f7f8fa */
+  --color-surface-2: 238 240 243; /* #eef0f3 */
+  --color-surface-3: 228 231 235; /* #e4e7eb */
+  --color-surface-4: 214 218 224; /* #d6dae0 */
+  --color-border: 214 218 224; /* #d6dae0 */
+  --color-border-hover: 178 185 196; /* #b2b9c4 */
+  --color-accent: 79 70 229; /* #4f46e5 */
+  --color-accent-hover: 67 56 202; /* #4338ca */
+  --color-text: 17 24 39; /* #111827 */
+  --color-text-muted: 75 85 99; /* #4b5563 */
+  --color-danger: 220 38 38; /* #dc2626 */
+  --color-success: 5 150 105; /* #059669 */
+  --color-warning: 180 83 9; /* #b45309 */
+}
+
+.dark {
+  --color-surface-0: 11 13 16; /* #0b0d10 */
+  --color-surface-1: 20 23 28; /* #14171c */
+  --color-surface-2: 27 31 38; /* #1b1f26 */
+  --color-surface-3: 35 40 48; /* #232830 */
+  --color-surface-4: 44 50 59; /* #2c323b */
+  --color-border: 44 50 59; /* #2c323b */
+  --color-border-hover: 58 65 76; /* #3a414c */
+  --color-accent: 99 102 241; /* #6366f1 */
+  --color-accent-hover: 129 140 248; /* #818cf8 */
+  --color-text: 229 231 235; /* #e5e7eb */
+  --color-text-muted: 156 163 175; /* #9ca3af */
+  --color-danger: 248 113 113; /* #f87171 */
+  --color-success: 52 211 153; /* #34d399 */
+  --color-warning: 251 191 36; /* #fbbf24 */
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-surface-0 text-fg antialiased text-sm;
+    transition: background-color 150ms, color 150ms;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    body {
+      transition: none;
+    }
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-60 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-white hover:bg-accent-hover;
+  }
+  .btn-secondary {
+    @apply btn bg-surface-2 text-fg border border-border hover:bg-surface-3 hover:border-border-hover;
+  }
+  .btn-danger {
+    @apply btn bg-danger/10 text-danger border border-danger/30 hover:bg-danger/20;
+  }
+  .input {
+    @apply w-full rounded-md bg-surface-1 border border-border px-2.5 py-1.5 text-sm text-fg placeholder:text-fg-muted/60 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent;
+  }
+  .label {
+    @apply block text-xs font-medium text-fg-muted mb-1;
+  }
+  .no-spin::-webkit-inner-spin-button,
+  .no-spin::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+}

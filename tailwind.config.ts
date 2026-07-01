@@ -5,22 +5,30 @@ export default {
   darkMode: "class",
   theme: {
     extend: {
+      // Semantic tokens driven by CSS variables (RGB triplets) — see src/styles/globals.css
       colors: {
         surface: {
-          0: "#0a0a0a",
-          1: "#111111",
-          2: "#1a1a1a",
-          3: "#222222",
-          4: "#2a2a2a",
+          0: "rgb(var(--color-surface-0) / <alpha-value>)",
+          1: "rgb(var(--color-surface-1) / <alpha-value>)",
+          2: "rgb(var(--color-surface-2) / <alpha-value>)",
+          3: "rgb(var(--color-surface-3) / <alpha-value>)",
+          4: "rgb(var(--color-surface-4) / <alpha-value>)",
         },
         border: {
-          DEFAULT: "#2a2a2a",
-          hover: "#3a3a3a",
+          DEFAULT: "rgb(var(--color-border) / <alpha-value>)",
+          hover: "rgb(var(--color-border-hover) / <alpha-value>)",
         },
         accent: {
-          DEFAULT: "#6366f1",
-          hover: "#818cf8",
+          DEFAULT: "rgb(var(--color-accent) / <alpha-value>)",
+          hover: "rgb(var(--color-accent-hover) / <alpha-value>)",
         },
+        fg: {
+          DEFAULT: "rgb(var(--color-text) / <alpha-value>)",
+          muted: "rgb(var(--color-text-muted) / <alpha-value>)",
+        },
+        danger: "rgb(var(--color-danger) / <alpha-value>)",
+        success: "rgb(var(--color-success) / <alpha-value>)",
+        warning: "rgb(var(--color-warning) / <alpha-value>)",
       },
     },
   },
