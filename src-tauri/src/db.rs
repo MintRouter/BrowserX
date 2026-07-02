@@ -401,6 +401,14 @@ impl Db {
         &self.data_dir
     }
 
+    /// (W23a) Checkpoint WAL về file DB chính rồi cắt file `-wal` về 0
+    /// (`PRAGMA wal_checkpoint(TRUNCATE)`) — gọi trước khi thoát app sạch.
+    pub fn wal_checkpoint_truncate(&self) -> Result<()> {
+        let conn = self.lock();
+        conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
+        Ok(())
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Connection> {
         self.conn.lock().expect("db mutex poisoned")
     }
@@ -1713,6 +1721,26 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("browserx-db-test-{}", uuid::Uuid::new_v4()));
         let db = Db::open_at_dir(&dir).expect("open temp db");
         (db, TempDir(dir))
+    }
+
+    /// (W23a) Checkpoint TRUNCATE phải đưa dữ liệu về file chính và cắt -wal về 0 byte.
+    #[test]
+    fn wal_checkpoint_truncate_empties_wal_file() {
+        let dir = std::env::temp_dir().join(format!("browserx-db-test-{}", uuid::Uuid::new_v4()));
+        let _guard = TempDir(dir.clone());
+        let db = Db::open_at_dir(&dir).unwrap();
+        db.create_profile(ProfileInput {
+            name: "p1".into(),
+            ..Default::default()
+        })
+        .unwrap();
+
+        let wal = dir.join("browserx.db-wal");
+        assert!(wal.metadata().unwrap().len() > 0, "WAL phải có dữ liệu trước checkpoint");
+        db.wal_checkpoint_truncate().unwrap();
+        assert_eq!(wal.metadata().unwrap().len(), 0, "WAL phải rỗng sau TRUNCATE");
+        // Dữ liệu vẫn đọc được sau checkpoint.
+        assert_eq!(db.list_profiles().unwrap().len(), 1);
     }
 
     #[test]

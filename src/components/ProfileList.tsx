@@ -16,6 +16,8 @@ interface ProfileListProps {
   profiles: Profile[];
   folders: Folder[];
   runningIds: Set<string>;
+  /** (W23a) Profiles whose last session crashed (badge on the row). */
+  crashedIds: Set<string>;
   search: string;
   onSearchChange: (value: string) => void;
   selected: Set<string>;
@@ -329,6 +331,7 @@ export function ProfileList(props: ProfileListProps) {
               rows={paged}
               folders={folders}
               runningIds={runningIds}
+              crashedIds={props.crashedIds}
               selected={selected}
               sizes={sizes}
               onToggleRow={toggleRow}

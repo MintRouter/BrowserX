@@ -88,6 +88,7 @@
     "edit": "Edit",
     "running": "Running",
     "stopped": "Stopped",
+    "crashed": "Crashed",
     "profileName": "Profile name",
     "storage": "Storage",
     "local": "Local",
@@ -327,7 +328,10 @@
     "save": "Save proxy",
     "delete": "Delete",
     "empty": "No proxies yet",
-    "confirmDelete": "Delete this proxy?"
+    "confirmDelete": "Delete this proxy?",
+    "credentialsBanner": "Some proxy credentials could not be decrypted (the encryption key has changed). Re-enter their passwords below.",
+    "credentialsInvalid": "Re-enter password",
+    "reenterSave": "Save"
   },
   "running": {
     "title": "Running sessions",
@@ -353,6 +357,17 @@
     "saveAsRegular": "Save as regular",
     "closeDelete": "Close & delete",
     "cancel": "Cancel"
+  },
+  "quit": {
+    "title": "Quit BrowserX",
+    "message_one": "{{count}} profile is still running. Stop it and quit? Cache and storage cleanup will run before the app closes.",
+    "message_other": "{{count}} profiles are still running. Stop them all and quit? Cache and storage cleanup will run before the app closes.",
+    "stopAllQuit": "Stop all & quit",
+    "cancel": "Cancel"
+  },
+  "crash": {
+    "banner": "Crashed unexpectedly: {{names}}",
+    "dismiss": "Dismiss"
   },
   "settings": {
     "title": "Settings",

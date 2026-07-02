@@ -9,6 +9,7 @@ import { ProfileForm } from "./components/ProfileForm";
 import { ProfileList } from "./components/ProfileList";
 import { ProxyForm } from "./components/ProxyForm";
 import { QuickStopDialog } from "./components/QuickStopDialog";
+import { QuitDialog } from "./components/QuitDialog";
 import { RunningDashboard } from "./components/RunningDashboard";
 import { SettingsView } from "./components/SettingsView";
 import { Sidebar, type MainView } from "./components/Sidebar";
@@ -18,6 +19,7 @@ import {
   api,
   isTauri,
   onBinaryProgress,
+  onExitRequested,
   onProfileStatus,
   type Folder,
   type Profile,
@@ -48,6 +50,12 @@ export default function App() {
   /** Quick profiles awaiting the stop confirmation dialog (null = closed). */
   const [quickStop, setQuickStop] = useState<string[] | null>(null);
   const [quickStopBusy, setQuickStopBusy] = useState(false);
+  /** (W23a) Running-session count when quit was requested (null = no dialog). */
+  const [quitCount, setQuitCount] = useState<number | null>(null);
+  const [quitBusy, setQuitBusy] = useState(false);
+  /** (W23a) Profiles whose session died unexpectedly (cleared on relaunch). */
+  const [crashedIds, setCrashedIds] = useState<Set<string>>(new Set());
+  const [crashBannerDismissed, setCrashBannerDismissed] = useState(false);
   /** First-run browser-engine download state (see EngineSetup). */
   const [engine, setEngine] = useState<EngineState>(() =>
     initialEngineState(!isTauri()),
@@ -116,11 +124,50 @@ export default function App() {
     void loadAll();
   }, [loadAll]);
 
+  // (W23b) Once per app open: backend checks the master-key-check blob and
+  // logs a warning when the key has changed (stale proxy credentials).
+  useEffect(() => {
+    if (!isTauri()) return;
+    api.masterKeyStatus().catch(() => {});
+  }, []);
+
   useEffect(() => {
     if (!isTauri()) return;
     let unlisten: (() => void) | undefined;
-    onProfileStatus(() => {
+    onProfileStatus((e) => {
+      // (W23a) Track crashes: flag on "crashed", clear when the profile
+      // launches again. A normal user-initiated stop never sets the flag.
+      if (e.status === "crashed") {
+        setCrashedIds((prev) => {
+          if (prev.has(e.profile_id)) return prev;
+          const next = new Set(prev);
+          next.add(e.profile_id);
+          return next;
+        });
+        setCrashBannerDismissed(false);
+      } else if (e.status === "starting" || e.status === "running") {
+        setCrashedIds((prev) => {
+          if (!prev.has(e.profile_id)) return prev;
+          const next = new Set(prev);
+          next.delete(e.profile_id);
+          return next;
+        });
+      }
       api.listRunning().then(setRunning).catch(() => {});
+    })
+      .then((fn) => {
+        unlisten = fn;
+      })
+      .catch(() => {});
+    return () => unlisten?.();
+  }, []);
+
+  // (W23a) Backend blocked a quit because sessions are running — confirm first.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    onExitRequested((e) => {
+      setQuitCount(e.count);
     })
       .then((fn) => {
         unlisten = fn;
@@ -230,6 +277,19 @@ export default function App() {
 
   const profileName = (id: string) =>
     profiles.find((p) => p.id === id)?.name ?? id;
+
+  // (W23a) Confirm quit: stop every session (full cleanup) then exit the app.
+  const handleStopAllQuit = async () => {
+    setQuitBusy(true);
+    try {
+      await api.stopAllAndQuit();
+    } catch {
+      // The app exits during the invoke — a rejected promise here is expected.
+    } finally {
+      setQuitBusy(false);
+      setQuitCount(null);
+    }
+  };
 
   const handleLaunchSelected = async () => {
     if (engineBusy) {
@@ -437,6 +497,18 @@ export default function App() {
     setProxies(await api.listProxies());
   };
 
+  // (W23b) Re-encrypt proxy credentials with the current master key. A blank
+  // username first clears both stale blobs so the invalid flag can't linger.
+  const handleReenterProxyCredentials = async (
+    id: string,
+    username: string | null,
+    password: string,
+  ) => {
+    if (!username) await api.updateProxy(id, { clear_credentials: true });
+    await api.updateProxy(id, { username, password });
+    setProxies(await api.listProxies());
+  };
+
   return (
     <div className="flex flex-col h-full">
       <TopBar
@@ -468,6 +540,25 @@ export default function App() {
               {actionError}
             </p>
           )}
+          {crashedIds.size > 0 && !crashBannerDismissed && (
+            <div
+              className="flex items-center justify-between gap-2 px-4 py-2 bg-danger/10 border-b border-danger/30"
+              role="alert"
+            >
+              <p className="text-danger text-xs">
+                {t("crash.banner", {
+                  names: [...crashedIds].map(profileName).join(", "),
+                })}
+              </p>
+              <button
+                type="button"
+                className="text-xs font-medium text-danger underline shrink-0"
+                onClick={() => setCrashBannerDismissed(true)}
+              >
+                {t("crash.dismiss")}
+              </button>
+            </div>
+          )}
           {editing !== null ? (
             <ProfileForm
               profile={editing === "new" ? null : editing}
@@ -482,6 +573,7 @@ export default function App() {
               profiles={visibleProfiles}
               folders={folders}
               runningIds={runningIds}
+              crashedIds={crashedIds}
               search={search}
               onSearchChange={setSearch}
               selected={selected}
@@ -512,6 +604,7 @@ export default function App() {
               proxies={proxies}
               onCreate={handleCreateProxy}
               onDelete={handleDeleteProxy}
+              onReenterCredentials={handleReenterProxyCredentials}
             />
           ) : view === "settings" ? (
             <SettingsView />
@@ -531,6 +624,14 @@ export default function App() {
           onSaveAsRegular={() => void resolveQuickStop("save")}
           onCloseDelete={() => void resolveQuickStop("delete")}
           onCancel={() => setQuickStop(null)}
+        />
+      )}
+      {quitCount !== null && (
+        <QuitDialog
+          count={quitCount}
+          busy={quitBusy}
+          onStopAllQuit={() => void handleStopAllQuit()}
+          onCancel={() => setQuitCount(null)}
         />
       )}
     </div>

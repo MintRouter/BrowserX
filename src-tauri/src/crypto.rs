@@ -55,6 +55,22 @@ pub fn open(ciphertext: &[u8]) -> Result<Vec<u8>> {
     open_with_key(&master_key()?, ciphertext)
 }
 
+/// Hằng số key-check: seal lần đầu rồi lưu vào settings; các lần mở app sau
+/// decrypt so khớp để phát hiện master key đã đổi (keychain mất/reset) —
+/// xem `commands::master_key_status`.
+const KEY_CHECK_VALUE: &[u8] = b"browserx-key-check-v1";
+
+/// Tạo key-check blob mới bằng khoá gốc hiện tại (caller lưu vào settings).
+pub fn new_key_check_blob() -> Result<Vec<u8>> {
+    seal(KEY_CHECK_VALUE)
+}
+
+/// Blob key-check có giải mã đúng bằng khoá gốc hiện tại không.
+/// `false` = master key đã đổi (hoặc blob hỏng) — credential cũ cần nhập lại.
+pub fn key_check_matches(blob: &[u8]) -> bool {
+    matches!(open(blob), Ok(v) if v == KEY_CHECK_VALUE)
+}
+
 /// Seal với khoá tường minh (tách riêng để unit-test không đụng keychain).
 fn seal_with_key(key: &[u8; KEY_LEN], plaintext: &[u8]) -> Result<Vec<u8>> {
     let cipher = XChaCha20Poly1305::new_from_slice(key)
@@ -314,5 +330,22 @@ mod tests {
         let blob = seal(&[0xff, 0xfe, 0x00, 0x80]).unwrap();
         let err = decrypt_secret(&blob).unwrap_err();
         assert!(matches!(err, AppError::Crypto(_)));
+    }
+
+    #[test]
+    fn key_check_blob_roundtrip_matches() {
+        install_env_master_key();
+        let blob = new_key_check_blob().unwrap();
+        assert!(key_check_matches(&blob));
+    }
+
+    #[test]
+    fn key_check_detects_key_change() {
+        install_env_master_key();
+        // Blob seal bằng khoá KHÁC (master key "cũ" trước khi keychain đổi)
+        // → mismatch, không panic; blob rác cũng chỉ trả false.
+        let old = seal_with_key(&test_key(9), KEY_CHECK_VALUE).unwrap();
+        assert!(!key_check_matches(&old));
+        assert!(!key_check_matches(b"garbage"));
     }
 }

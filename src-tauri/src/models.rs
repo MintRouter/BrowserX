@@ -117,6 +117,10 @@ pub struct Proxy {
     /// Bản mã hoá at-rest (XChaCha20-Poly1305, khoá trong OS keychain) chỉ được
     /// giải mã trong backend lúc launch — xem `crypto`.
     pub has_password: bool,
+    /// (W23b) Credential không giải mã được bằng master key hiện tại (key đã
+    /// đổi/keychain reset) — FE hiện cảnh báo yêu cầu nhập lại password.
+    #[serde(default)]
+    pub credentials_invalid: bool,
     pub created_at: String,
     pub updated_at: String,
 }

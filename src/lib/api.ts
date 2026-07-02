@@ -149,6 +149,8 @@ export interface Proxy {
   username: string | null;
   /** Password never crosses IPC in plaintext — backend only reports presence. */
   has_password: boolean;
+  /** (W23b) Credentials can't be decrypted (master key changed) — re-enter password. */
+  credentials_invalid: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -197,9 +199,14 @@ export interface LaunchResult {
 
 export interface ProfileStatusEvent {
   profile_id: string;
-  status: "starting" | "running" | "stopped" | "error";
+  status: "starting" | "running" | "stopped" | "crashed" | "error";
   pid?: number;
   cdp_url?: string;
+}
+
+/** (W23a) Payload of `app://exit-requested` — quit attempted with sessions running. */
+export interface ExitRequestedEvent {
+  count: number;
 }
 
 export interface BinaryProgressEvent {
@@ -243,8 +250,10 @@ export const api = {
   // Proxies
   listProxies: () => invoke<Proxy[]>("list_proxies"),
   createProxy: (input: ProxyInput) => invoke<Proxy>("create_proxy", { input }),
-  updateProxy: (id: string, input: ProxyInput) =>
+  updateProxy: (id: string, input: Partial<ProxyInput> & { clear_credentials?: boolean }) =>
     invoke<Proxy>("update_proxy", { id, input }),
+  /** (W23b) Call once per app open — backend detects a changed master key and logs it. */
+  masterKeyStatus: () => invoke<{ changed: boolean }>("master_key_status"),
   deleteProxy: (id: string) => invoke<void>("delete_proxy", { id }),
   assignProxy: (profileId: string, proxyId?: string | null) =>
     invoke<void>("assign_proxy", { profileId, proxyId: proxyId ?? null }),
@@ -255,6 +264,8 @@ export const api = {
   launchProfile: (id: string) => invoke<LaunchResult>("launch_profile", { id }),
   stopProfile: (id: string) => invoke<void>("stop_profile", { id }),
   listRunning: () => invoke<RunningSession[]>("list_running"),
+  // (W23a) Stop every running session (full cleanup) then exit the app.
+  stopAllAndQuit: () => invoke<void>("stop_all_and_quit"),
 
   // Binary
   ensureBinary: () => invoke<string>("ensure_binary"),
@@ -335,6 +346,15 @@ export function onBinaryProgress(
   cb: (e: BinaryProgressEvent) => void,
 ): Promise<UnlistenFn> {
   return listen<BinaryProgressEvent>("binary://progress", (ev) =>
+    cb(ev.payload),
+  );
+}
+
+/** (W23a) Backend requests confirmation before quitting with running sessions. */
+export function onExitRequested(
+  cb: (e: ExitRequestedEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<ExitRequestedEvent>("app://exit-requested", (ev) =>
     cb(ev.payload),
   );
 }

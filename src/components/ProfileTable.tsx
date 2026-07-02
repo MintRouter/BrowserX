@@ -93,6 +93,8 @@ interface ProfileTableProps {
   rows: Profile[];
   folders: Folder[];
   runningIds: Set<string>;
+  /** (W23a) Profiles whose last session crashed (badge on the row). */
+  crashedIds: Set<string>;
   selected: Set<string>;
   /** Lazy-loaded user_data_dir sizes by profile id (missing = still loading). */
   sizes: Record<string, number>;
@@ -440,6 +442,7 @@ export function ProfileTable({
   rows,
   folders,
   runningIds,
+  crashedIds,
   selected,
   sizes,
   onToggleRow,
@@ -647,6 +650,11 @@ export function ProfileTable({
                         />
                         <span className="sr-only">{t("table.running")}</span>
                       </>
+                    )}
+                    {!running && crashedIds.has(p.id) && (
+                      <span className="shrink-0 rounded bg-danger/10 px-1.5 py-0.5 text-[10px] font-semibold text-danger">
+                        {t("table.crashed")}
+                      </span>
                     )}
                   </span>
                 )}

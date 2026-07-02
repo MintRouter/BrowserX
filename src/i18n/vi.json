@@ -87,6 +87,7 @@
     "edit": "Sửa",
     "running": "Đang chạy",
     "stopped": "Đã dừng",
+    "crashed": "Crash",
     "profileName": "Tên profile",
     "storage": "Lưu trữ",
     "local": "Cục bộ",
@@ -326,7 +327,10 @@
     "save": "Lưu proxy",
     "delete": "Xoá",
     "empty": "Chưa có proxy nào",
-    "confirmDelete": "Xoá proxy này?"
+    "confirmDelete": "Xoá proxy này?",
+    "credentialsBanner": "Không giải mã được thông tin đăng nhập của một số proxy (khoá mã hoá đã thay đổi). Vui lòng nhập lại mật khẩu bên dưới.",
+    "credentialsInvalid": "Cần nhập lại mật khẩu",
+    "reenterSave": "Lưu"
   },
   "running": {
     "title": "Phiên đang chạy",
@@ -352,6 +356,16 @@
     "saveAsRegular": "Lưu thành profile thường",
     "closeDelete": "Đóng & xoá",
     "cancel": "Huỷ"
+  },
+  "quit": {
+    "title": "Thoát BrowserX",
+    "message_other": "{{count}} profile đang chạy. Dừng tất cả và thoát? Việc dọn cache/lưu trữ sẽ chạy trước khi app đóng.",
+    "stopAllQuit": "Dừng tất cả & thoát",
+    "cancel": "Huỷ"
+  },
+  "crash": {
+    "banner": "Dừng đột ngột (crash): {{names}}",
+    "dismiss": "Bỏ qua"
   },
   "settings": {
     "title": "Cài đặt",

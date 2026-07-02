@@ -18,6 +18,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -35,6 +36,9 @@ use crate::{binary, cdp, crypto, launcher, storage};
 pub struct AppState {
     pub db: Arc<Db>,
     pub procs: ProcessManager,
+    /// (W23a) true khi `stop_all_and_quit` đang thoát app — để ExitRequested
+    /// trong lib.rs không chặn lần thoát này nữa.
+    pub quitting: AtomicBool,
 }
 
 // ---------------------------------------------------------------------------
@@ -79,40 +83,76 @@ pub(crate) fn emit_status(
     );
 }
 
+/// Payload event `app://exit-requested` (W23a) — FE mở dialog "Stop all & quit".
+#[derive(Debug, Clone, Serialize)]
+struct ExitRequestedEvent {
+    count: usize,
+}
+
+/// (W23a) Báo FE có yêu cầu thoát app trong khi còn `count` phiên đang chạy.
+pub(crate) fn emit_exit_requested(app: &AppHandle, count: usize) {
+    let _ = app.emit("app://exit-requested", ExitRequestedEvent { count });
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /// ProxyRecord (credential mã hoá) → models::Proxy trả về FE.
 /// Password KHÔNG giải mã — chỉ trả `has_password`; giải mã duy nhất lúc launch
-/// (`proxy_url_from`).
-fn proxy_to_model(rec: db::ProxyRecord) -> Result<Proxy> {
-    Ok(Proxy {
+/// (`proxy_url_from`). Decrypt fail (master key đổi) KHÔNG trả Err — degrade:
+/// `credentials_invalid = true`, username rỗng, để `list_proxies` không bao giờ
+/// sập vì 1 credential hỏng; FE hiện banner yêu cầu nhập lại password.
+fn proxy_to_model(rec: db::ProxyRecord) -> Proxy {
+    let mut credentials_invalid = false;
+    let username = match rec.username_enc.as_deref().map(crypto::decrypt_secret) {
+        Some(Ok(u)) => Some(u),
+        Some(Err(_)) => {
+            credentials_invalid = true;
+            None
+        }
+        None => None,
+    };
+    if let Some(p) = rec.password_enc.as_deref() {
+        if crypto::open(p).is_err() {
+            credentials_invalid = true;
+        }
+    }
+    if credentials_invalid {
+        tracing::warn!(
+            "proxy {} credentials cannot be decrypted (master key changed?); password must be re-entered",
+            rec.id
+        );
+    }
+    Proxy {
         id: rec.id,
         name: rec.name,
         protocol: rec.protocol,
         host: rec.host,
         port: rec.port,
-        username: rec
-            .username_enc
-            .as_deref()
-            .map(crypto::decrypt_secret)
-            .transpose()?,
+        username,
         has_password: rec.password_enc.is_some(),
+        credentials_invalid,
         created_at: rec.created_at,
         updated_at: rec.updated_at,
-    })
+    }
 }
 
 /// Dựng proxy URL đã giải mã credential: `protocol://[user[:pass]@]host:port`.
+/// Decrypt fail (master key đổi) → lỗi rõ ràng yêu cầu nhập lại credential,
+/// không phải lỗi giải mã khó hiểu.
 fn proxy_url_from(rec: &db::ProxyRecord) -> Result<String> {
+    let dec = |blob: &[u8]| {
+        crypto::decrypt_secret(blob).map_err(|_| {
+            AppError::Crypto(format!(
+                "proxy '{}' credentials cannot be decrypted (master key changed) — re-enter its password in the Proxies tab",
+                rec.name
+            ))
+        })
+    };
     let auth = match (&rec.username_enc, &rec.password_enc) {
-        (Some(u), Some(p)) => format!(
-            "{}:{}@",
-            crypto::decrypt_secret(u)?,
-            crypto::decrypt_secret(p)?
-        ),
-        (Some(u), None) => format!("{}@", crypto::decrypt_secret(u)?),
+        (Some(u), Some(p)) => format!("{}:{}@", dec(u)?, dec(p)?),
+        (Some(u), None) => format!("{}@", dec(u)?),
         _ => String::new(),
     };
     Ok(format!(
@@ -203,12 +243,12 @@ pub struct ProxyPatch {
 
 #[tauri::command]
 pub fn list_proxies(state: State<'_, AppState>) -> Result<Vec<Proxy>> {
-    state
+    Ok(state
         .db
         .list_proxies()?
         .into_iter()
         .map(proxy_to_model)
-        .collect()
+        .collect())
 }
 
 #[tauri::command]
@@ -230,7 +270,7 @@ pub fn create_proxy(state: State<'_, AppState>, input: ProxyCreate) -> Result<Pr
             .transpose()?,
     })?;
     state.db.insert_audit("proxy.create", Some(&rec.id), None)?;
-    proxy_to_model(rec)
+    Ok(proxy_to_model(rec))
 }
 
 #[tauri::command]
@@ -256,7 +296,56 @@ pub fn update_proxy(state: State<'_, AppState>, id: String, input: ProxyPatch) -
         },
     )?;
     state.db.insert_audit("proxy.update", Some(&id), None)?;
-    proxy_to_model(rec)
+    Ok(proxy_to_model(rec))
+}
+
+/// Trạng thái master key trả về FE (`master_key_status`).
+#[derive(Debug, Clone, Serialize)]
+pub struct MasterKeyStatus {
+    /// `true` = key-check blob không giải mã được → master key đã đổi
+    /// (keychain mất/reset); credential đã lưu (proxy password…) cần nhập lại.
+    pub changed: bool,
+}
+
+/// Key trong bảng `settings` chứa key-check blob (base64).
+const MASTER_KEY_CHECK_SETTING: &str = "master_key_check";
+
+/// Key-check blob: lần đầu → seal hằng số và lưu vào settings; các lần sau
+/// decrypt so khớp. Mismatch → warn + re-seal bằng khoá hiện tại (cảnh báo một
+/// lần cho mỗi lần đổi key) và trả `true`. Tách khỏi command để unit-test.
+fn master_key_check(db: &Db) -> Result<bool> {
+    use base64::engine::general_purpose::STANDARD as B64;
+    use base64::Engine;
+    let store = |db: &Db| -> Result<()> {
+        let blob = crypto::new_key_check_blob()?;
+        db.set_setting(MASTER_KEY_CHECK_SETTING, &B64.encode(blob))
+    };
+    match db.get_setting(MASTER_KEY_CHECK_SETTING)? {
+        None => {
+            store(db)?;
+            Ok(false)
+        }
+        Some(b64) => {
+            let matches = B64
+                .decode(b64.as_bytes())
+                .is_ok_and(|blob| crypto::key_check_matches(&blob));
+            if !matches {
+                tracing::warn!(
+                    "master key check failed — key has changed; stored credentials must be re-entered"
+                );
+                store(db)?;
+            }
+            Ok(!matches)
+        }
+    }
+}
+
+/// FE gọi mỗi lần mở app: phát hiện master key đã đổi để hiện cảnh báo.
+#[tauri::command]
+pub fn master_key_status(state: State<'_, AppState>) -> Result<MasterKeyStatus> {
+    Ok(MasterKeyStatus {
+        changed: master_key_check(&state.db)?,
+    })
 }
 
 #[tauri::command]
@@ -439,8 +528,37 @@ pub async fn stop_profile(
         .db
         .insert_audit("profile.stop", Some(&profile_id), None)?;
     emit_status(&app, &profile_id, "stopped", None, None);
-    auto_clear_cache_if_enabled(&state.db, &profile_id);
-    apply_storage_options_on_stop(&state.db, &profile_id);
+    let _ = auto_clear_cache_if_enabled(&state.db, &profile_id);
+    let _ = apply_storage_options_on_stop(&state.db, &profile_id);
+    Ok(())
+}
+
+/// (W23a) "Stop all & quit": dừng TẤT CẢ phiên đang chạy với cleanup đầy đủ
+/// như `stop_profile` (audit + auto clear cache + storage options cho TỪNG
+/// phiên), chờ cleanup xong, checkpoint WAL rồi `app.exit(0)`. Cờ `quitting`
+/// để `RunEvent::ExitRequested` (lib.rs) cho lần thoát này đi qua.
+#[tauri::command]
+pub async fn stop_all_and_quit(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
+    state.quitting.store(true, Ordering::SeqCst);
+    let mut cleanups = Vec::new();
+    for session in state.procs.list_running().await {
+        let profile_id = session.profile_id;
+        if let Err(e) = state.procs.stop(&profile_id).await {
+            tracing::warn!("stop_all_and_quit: stop {profile_id} thất bại: {e}");
+            continue;
+        }
+        let _ = state.db.insert_audit("profile.stop", Some(&profile_id), None);
+        emit_status(&app, &profile_id, "stopped", None, None);
+        cleanups.extend(auto_clear_cache_if_enabled(&state.db, &profile_id));
+        cleanups.extend(apply_storage_options_on_stop(&state.db, &profile_id));
+    }
+    for handle in cleanups {
+        let _ = handle.await;
+    }
+    if let Err(e) = state.db.wal_checkpoint_truncate() {
+        tracing::warn!("stop_all_and_quit: WAL checkpoint thất bại: {e}");
+    }
+    app.exit(0);
     Ok(())
 }
 
@@ -761,23 +879,27 @@ pub async fn clear_profile_cache(
 }
 
 /// Tự dọn cache khi phiên dừng nếu setting `auto_clear_cache_on_stop` = "true"
-/// (default tắt). Best-effort, fire-and-forget — gọi từ `stop_profile` và
-/// watchdog callback (lib.rs); lúc này phiên đã ra khỏi registry nên không cần
-/// check is_running.
-pub(crate) fn auto_clear_cache_if_enabled(db: &Arc<Db>, profile_id: &str) {
+/// (default tắt). Best-effort — gọi từ `stop_profile` và watchdog callback
+/// (lib.rs) kiểu fire-and-forget; `stop_all_and_quit` (W23a) await JoinHandle
+/// trả về để cleanup chạy xong trước khi thoát app. Lúc này phiên đã ra khỏi
+/// registry nên không cần check is_running.
+pub(crate) fn auto_clear_cache_if_enabled(
+    db: &Arc<Db>,
+    profile_id: &str,
+) -> Option<tauri::async_runtime::JoinHandle<()>> {
     let enabled = matches!(
         db.get_setting(storage::AUTO_CLEAR_SETTING),
         Ok(Some(v)) if v == "true"
     );
     if !enabled {
-        return;
+        return None;
     }
     let Ok(profile) = db.get_profile(profile_id) else {
-        return;
+        return None;
     };
     let db = Arc::clone(db);
     let profile_id = profile_id.to_string();
-    tauri::async_runtime::spawn_blocking(move || {
+    Some(tauri::async_runtime::spawn_blocking(move || {
         if let Ok(freed) = storage::clear_cache(Path::new(&profile.user_data_dir)) {
             let _ = db.insert_audit(
                 "profile.clear_cache",
@@ -785,24 +907,28 @@ pub(crate) fn auto_clear_cache_if_enabled(db: &Arc<Db>, profile_id: &str) {
                 Some(&json!({ "freed_bytes": freed, "auto": true })),
             );
         }
-    });
+    }))
 }
 
 /// (W20b) Áp storage options SAU khi phiên dừng: xoá history / passwords /
 /// service-worker cache nếu profile tắt lưu loại đó. Cơ chế là CLEANUP —
 /// binary không có flag disable (xem `storage::clear_storage_options`).
-/// Best-effort, fire-and-forget như `auto_clear_cache_if_enabled`; gọi từ
-/// `stop_profile` và watchdog callback (lib.rs).
-pub(crate) fn apply_storage_options_on_stop(db: &Arc<Db>, profile_id: &str) {
+/// Best-effort như `auto_clear_cache_if_enabled`: fire-and-forget từ
+/// `stop_profile`/watchdog (lib.rs); `stop_all_and_quit` (W23a) await
+/// JoinHandle trả về trước khi thoát app.
+pub(crate) fn apply_storage_options_on_stop(
+    db: &Arc<Db>,
+    profile_id: &str,
+) -> Option<tauri::async_runtime::JoinHandle<()>> {
     let Ok(profile) = db.get_profile(profile_id) else {
-        return;
+        return None;
     };
     if profile.store_history && profile.store_passwords && profile.store_sw_cache {
-        return;
+        return None;
     }
     let db = Arc::clone(db);
     let profile_id = profile_id.to_string();
-    tauri::async_runtime::spawn_blocking(move || {
+    Some(tauri::async_runtime::spawn_blocking(move || {
         if let Ok(freed) = storage::clear_storage_options(
             Path::new(&profile.user_data_dir),
             profile.store_history,
@@ -820,7 +946,7 @@ pub(crate) fn apply_storage_options_on_stop(db: &Arc<Db>, profile_id: &str) {
                 })),
             );
         }
-    });
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -942,5 +1068,96 @@ mod tests {
         assert!(script.contains("unix id is 4242"));
         assert!(script.starts_with("tell application \"System Events\""));
         assert!(script.ends_with("frontmost of (first process whose unix id is 4242) to true"));
+    }
+
+    /// ProxyRecord test với credential blob tuỳ ý.
+    fn proxy_record(
+        username_enc: Option<Vec<u8>>,
+        password_enc: Option<Vec<u8>>,
+    ) -> db::ProxyRecord {
+        db::ProxyRecord {
+            id: "px-test".into(),
+            name: "test proxy".into(),
+            protocol: "http".into(),
+            host: "127.0.0.1".into(),
+            port: 8080,
+            username_enc,
+            password_enc,
+            health_status: None,
+            last_checked_at: None,
+            created_at: "2026-01-01T00:00:00Z".into(),
+            updated_at: "2026-01-01T00:00:00Z".into(),
+        }
+    }
+
+    /// Blob không giải mã được bằng master key hiện tại (mô phỏng seal bằng
+    /// key cũ trước khi keychain đổi): flip byte cuối → auth tag fail.
+    fn undecryptable_blob(plaintext: &str) -> Vec<u8> {
+        let mut blob = crypto::encrypt_secret(plaintext).unwrap();
+        *blob.last_mut().unwrap() ^= 0xff;
+        blob
+    }
+
+    /// (W23b) Decrypt fail KHÔNG Err — degrade credentials_invalid=true,
+    /// username rỗng, has_password giữ nguyên → list_proxies không sập.
+    #[test]
+    fn proxy_to_model_degrades_on_decrypt_failure() {
+        crypto::install_test_master_key();
+        let p = proxy_to_model(proxy_record(
+            Some(undecryptable_blob("user")),
+            Some(undecryptable_blob("pass")),
+        ));
+        assert!(p.credentials_invalid);
+        assert_eq!(p.username, None);
+        assert!(p.has_password);
+    }
+
+    #[test]
+    fn proxy_to_model_flags_password_only_failure() {
+        crypto::install_test_master_key();
+        let p = proxy_to_model(proxy_record(
+            Some(crypto::encrypt_secret("user").unwrap()),
+            Some(undecryptable_blob("pass")),
+        ));
+        assert!(p.credentials_invalid);
+        assert_eq!(p.username.as_deref(), Some("user"));
+    }
+
+    #[test]
+    fn proxy_to_model_valid_credentials_not_flagged() {
+        crypto::install_test_master_key();
+        let p = proxy_to_model(proxy_record(
+            Some(crypto::encrypt_secret("user").unwrap()),
+            Some(crypto::encrypt_secret("pass").unwrap()),
+        ));
+        assert!(!p.credentials_invalid);
+        assert_eq!(p.username.as_deref(), Some("user"));
+        assert!(p.has_password);
+    }
+
+    /// (W23b) launch với proxy hỏng → lỗi rõ ràng yêu cầu nhập lại password.
+    #[test]
+    fn proxy_url_from_reports_clear_error_on_decrypt_failure() {
+        crypto::install_test_master_key();
+        let rec = proxy_record(
+            Some(crypto::encrypt_secret("user").unwrap()),
+            Some(undecryptable_blob("pass")),
+        );
+        let err = proxy_url_from(&rec).unwrap_err().to_string();
+        assert!(err.contains("re-enter"));
+        assert!(err.contains("test proxy"));
+    }
+
+    /// (W23b) Key-check blob: tạo lần đầu, khớp các lần sau; blob hỏng
+    /// (key đổi) → true một lần rồi re-seal bằng key hiện tại.
+    #[test]
+    fn master_key_check_creates_then_detects_mismatch() {
+        crypto::install_test_master_key();
+        let db = Db::open_in_memory().unwrap();
+        assert!(!master_key_check(&db).unwrap());
+        assert!(!master_key_check(&db).unwrap());
+        db.set_setting(MASTER_KEY_CHECK_SETTING, "AAAA").unwrap();
+        assert!(master_key_check(&db).unwrap());
+        assert!(!master_key_check(&db).unwrap());
     }
 }

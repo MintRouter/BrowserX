@@ -50,13 +50,33 @@ pub fn run() {
                 let _handle = watchdog.start_watchdog(2000, move |profile_id, clean| {
                     let status = if clean { "stopped" } else { "crashed" };
                     commands::emit_status(&status_app, profile_id, status, None, None);
-                    commands::auto_clear_cache_if_enabled(&watchdog_db, profile_id);
-                    commands::apply_storage_options_on_stop(&watchdog_db, profile_id);
+                    let _ = commands::auto_clear_cache_if_enabled(&watchdog_db, profile_id);
+                    let _ = commands::apply_storage_options_on_stop(&watchdog_db, profile_id);
                 });
             });
 
-            app.manage(commands::AppState { db, procs });
+            app.manage(commands::AppState {
+                db,
+                procs,
+                quitting: std::sync::atomic::AtomicBool::new(false),
+            });
             Ok(())
+        })
+        // (W23a) Đóng cửa sổ khi còn phiên chạy → giữ cửa sổ lại (để hiện modal)
+        // + báo FE mở dialog "Stop all & quit".
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                use tauri::Manager;
+                let state = window.state::<commands::AppState>();
+                if state.quitting.load(std::sync::atomic::Ordering::SeqCst) {
+                    return;
+                }
+                let count = tauri::async_runtime::block_on(state.procs.list_running()).len();
+                if count > 0 {
+                    api.prevent_close();
+                    commands::emit_exit_requested(window.app_handle(), count);
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_profiles,
@@ -71,6 +91,7 @@ pub fn run() {
             commands::delete_proxy,
             commands::assign_proxy,
             commands::check_proxy,
+            commands::master_key_status,
             commands::launch_profile,
             commands::stop_profile,
             commands::list_running,
@@ -101,7 +122,28 @@ pub fn run() {
             commands::export_profile,
             commands::import_profile,
             commands::open_logs_folder,
+            commands::stop_all_and_quit,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        // (W23a) Quit khi còn phiên chạy (vd Cmd+Q): chặn thoát + báo FE mở
+        // dialog; thoát sạch (không phiên, hoặc sau stop_all_and_quit) thì
+        // checkpoint WAL trước khi app tắt.
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+                use tauri::Manager;
+                let state = app.state::<commands::AppState>();
+                if state.quitting.load(std::sync::atomic::Ordering::SeqCst) {
+                    let _ = state.db.wal_checkpoint_truncate();
+                    return;
+                }
+                let count = tauri::async_runtime::block_on(state.procs.list_running()).len();
+                if count > 0 {
+                    api.prevent_exit();
+                    commands::emit_exit_requested(app, count);
+                } else {
+                    let _ = state.db.wal_checkpoint_truncate();
+                }
+            }
+        });
 }
