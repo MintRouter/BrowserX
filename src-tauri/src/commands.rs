@@ -48,7 +48,7 @@ struct BinaryProgressEvent {
     pct: u8,
 }
 
-fn emit_status(
+pub(crate) fn emit_status(
     app: &AppHandle,
     profile_id: &str,
     status: &str,

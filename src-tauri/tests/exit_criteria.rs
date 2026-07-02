@@ -112,6 +112,9 @@ fn a_crud_1000_profiles_list_search_p95_under_200ms() {
 
 #[test]
 fn b_proxy_credentials_encrypted_at_rest() {
+    // Khoá gốc qua env để crypto không đụng OS keychain (hết popup macOS, CI-safe).
+    use base64::{engine::general_purpose::STANDARD as B64, Engine};
+    std::env::set_var("BROWSERX_MASTER_KEY", B64.encode([7u8; 32]));
     let dir = temp_dir("proxy");
     // Chuỗi unique để chắc chắn không trùng ngẫu nhiên với bytes khác.
     let user = "exitcrit-user-b1946ac9";
@@ -307,6 +310,7 @@ fn pid_alive(pid: u32) -> bool {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+#[ignore = "spawns real browser; run with --ignored"]
 async fn smoke_ensure_binary_spawn_headful_attach_cdp_best_effort() {
     // 1) Tải/định vị binary (timeout 60s — mạng/license có thể chặn).
     let bin = match tokio::time::timeout(Duration::from_secs(60), binary::ensure_binary(None, None))

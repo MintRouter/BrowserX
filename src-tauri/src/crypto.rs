@@ -2,9 +2,10 @@
 //! at-rest; khoá gốc sinh ngẫu nhiên, lưu trong OS keychain (keyring).
 //!
 //! Layout ciphertext: `[nonce 24 byte][ciphertext + tag 16 byte]`.
-//! Khoá gốc 32 byte: keychain (service "browserx", user "master-key", base64) →
-//! fallback env `BROWSERX_MASTER_KEY` (base64) → fallback file `master.key` trong
-//! app-data (cảnh báo, không panic).
+//! Khoá gốc 32 byte: env `BROWSERX_MASTER_KEY` (base64, ưu tiên tuyệt đối —
+//! CI/test/headless không đụng keychain) → keychain (service "browserx",
+//! user "master-key", base64) → fallback file `master.key` trong app-data
+//! (cảnh báo, không panic). `BROWSERX_KEYSTORE=file` ép bỏ qua keychain.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -20,8 +21,10 @@ use crate::error::{AppError, Result};
 const KEYCHAIN_SERVICE: &str = "browserx";
 /// Tên user (account) của entry khoá gốc.
 const KEYCHAIN_USER: &str = "master-key";
-/// Biến môi trường fallback chứa khoá gốc base64 (CI/headless).
+/// Biến môi trường chứa khoá gốc base64 (ưu tiên trước keychain; CI/headless).
 const MASTER_KEY_ENV: &str = "BROWSERX_MASTER_KEY";
+/// Biến môi trường chọn keystore: `file` = bỏ qua keychain, dùng file fallback.
+const KEYSTORE_ENV: &str = "BROWSERX_KEYSTORE";
 /// Độ dài khoá gốc (XChaCha20-Poly1305 = 256-bit).
 const KEY_LEN: usize = 32;
 /// Độ dài nonce XChaCha20 (192-bit) prepend vào ciphertext.
@@ -82,7 +85,7 @@ fn open_with_key(key: &[u8; KEY_LEN], ciphertext: &[u8]) -> Result<Vec<u8>> {
         .map_err(|_| AppError::Crypto("decryption failed (wrong key or corrupted data)".into()))
 }
 
-/// Lấy khoá gốc (cache trong process). Keychain → env → file, không panic.
+/// Lấy khoá gốc (cache trong process). Env → keychain → file, không panic.
 fn master_key() -> Result<[u8; KEY_LEN]> {
     let mut guard = MASTER_KEY
         .lock()
@@ -95,9 +98,19 @@ fn master_key() -> Result<[u8; KEY_LEN]> {
     Ok(k)
 }
 
-/// Nạp/sinh khoá gốc: keychain trước, hỏng cấu trúc → lỗi rõ; keychain không
-/// khả dụng → fallback env/file kèm cảnh báo.
+/// Nạp/sinh khoá gốc: env `BROWSERX_MASTER_KEY` ưu tiên tuyệt đối (bỏ qua
+/// keychain; sai định dạng → lỗi rõ, KHÔNG im lặng nhảy sang keychain);
+/// `BROWSERX_KEYSTORE=file` ép dùng file fallback; còn lại keychain trước,
+/// hỏng cấu trúc → lỗi rõ, không khả dụng → fallback file kèm cảnh báo.
 fn load_master_key() -> Result<[u8; KEY_LEN]> {
+    if let Ok(b64) = std::env::var(MASTER_KEY_ENV) {
+        return decode_key_b64(b64.trim())
+            .map_err(|e| AppError::Keychain(format!("invalid {MASTER_KEY_ENV}: {e}")));
+    }
+    if std::env::var(KEYSTORE_ENV).as_deref() == Ok("file") {
+        tracing::warn!("{KEYSTORE_ENV}=file set; skipping OS keychain for master key");
+        return key_from_fallback();
+    }
     match key_from_keychain() {
         Ok(k) => Ok(k),
         Err(KeychainFailure::Corrupted(msg)) => Err(AppError::Keychain(msg)),
@@ -134,16 +147,9 @@ fn key_from_keychain() -> std::result::Result<[u8; KEY_LEN], KeychainFailure> {
     }
 }
 
-/// Fallback khi không có keychain: env `BROWSERX_MASTER_KEY`, rồi file
-/// `<app-data>/browserx/master.key` (tự sinh nếu chưa có, chmod 600 trên unix).
+/// Fallback khi không có keychain (env đã được xử lý ở [`load_master_key`]):
+/// file `<app-data>/browserx/master.key` (tự sinh nếu chưa có, chmod 600 trên unix).
 fn key_from_fallback() -> Result<[u8; KEY_LEN]> {
-    if let Ok(b64) = std::env::var(MASTER_KEY_ENV) {
-        tracing::warn!(
-            "using master key from {MASTER_KEY_ENV} env var (less secure than keychain)"
-        );
-        return decode_key_b64(b64.trim())
-            .map_err(|e| AppError::Keychain(format!("invalid {MASTER_KEY_ENV}: {e}")));
-    }
     let path = fallback_key_path()?;
     if path.exists() {
         let b64 = std::fs::read_to_string(&path)?;
@@ -208,6 +214,20 @@ mod tests {
         [b; KEY_LEN]
     }
 
+    /// Cài khoá test qua env `BROWSERX_MASTER_KEY` đúng MỘT lần (env là
+    /// process-global, test chạy song song) và nạp sẵn cache `MASTER_KEY` —
+    /// bảo đảm không test nào rơi vào nhánh keychain thật, kể cả khi cache
+    /// đã/chưa được nạp bởi test khác.
+    fn install_env_master_key() -> [u8; KEY_LEN] {
+        static KEY: std::sync::OnceLock<[u8; KEY_LEN]> = std::sync::OnceLock::new();
+        *KEY.get_or_init(|| {
+            let key = test_key(42);
+            std::env::set_var(MASTER_KEY_ENV, B64.encode(key));
+            *MASTER_KEY.lock().unwrap() = Some(key);
+            key
+        })
+    }
+
     #[test]
     fn seal_open_roundtrip() {
         let key = test_key(1);
@@ -266,25 +286,21 @@ mod tests {
     }
 
     #[test]
+    fn load_master_key_prefers_env_over_keychain() {
+        let key = install_env_master_key();
+        assert_eq!(load_master_key().unwrap(), key);
+    }
+
+    #[test]
     fn encrypt_decrypt_secret_roundtrip_via_master_key() {
-        {
-            let mut guard = MASTER_KEY.lock().unwrap();
-            if guard.is_none() {
-                *guard = Some(test_key(42));
-            }
-        }
+        install_env_master_key();
         let blob = encrypt_secret("user:pass@proxy").unwrap();
         assert_eq!(decrypt_secret(&blob).unwrap(), "user:pass@proxy");
     }
 
     #[test]
     fn decrypt_secret_rejects_non_utf8_plaintext() {
-        {
-            let mut guard = MASTER_KEY.lock().unwrap();
-            if guard.is_none() {
-                *guard = Some(test_key(42));
-            }
-        }
+        install_env_master_key();
         let blob = seal(&[0xff, 0xfe, 0x00, 0x80]).unwrap();
         let err = decrypt_secret(&blob).unwrap_err();
         assert!(matches!(err, AppError::Crypto(_)));

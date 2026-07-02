@@ -34,12 +34,16 @@ pub fn run() {
             let max_concurrent = db
                 .get_setting("max_concurrent")?
                 .and_then(|v| v.parse::<usize>().ok())
-                .unwrap_or(process::DEFAULT_MAX_CONCURRENT);
+                .unwrap_or_else(process::recommended_max_concurrent);
             let procs = process::ProcessManager::new(max_concurrent);
 
             let watchdog = procs.clone();
+            let status_app = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                let _handle = watchdog.start_watchdog(2000);
+                let _handle = watchdog.start_watchdog(2000, move |profile_id, clean| {
+                    let status = if clean { "stopped" } else { "crashed" };
+                    commands::emit_status(&status_app, profile_id, status, None, None);
+                });
             });
 
             app.manage(commands::AppState { db, procs });

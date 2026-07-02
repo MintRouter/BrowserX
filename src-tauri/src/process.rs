@@ -3,13 +3,16 @@
 //! theo dõi child chết (watchdog) và cleanup khi stop/crash.
 //!
 //! Nguyên tắc port (docs/03 + refs Manager): stop = kill(pid) TRỰC TIẾP (không pkill),
-//! headful spawn qua `tokio::process::Command`. Emit event `profile://status` là việc
-//! của W3a (cần AppHandle của Tauri) — module này giữ trạng thái nội bộ, decoupled & test được.
+//! headful spawn qua `tokio::process::Command`. Liveness dựa trên `Child::try_wait()`
+//! (KHÔNG kill(pid,0)/ps — cả hai coi zombie là "sống"); mọi đường đọc trạng thái
+//! (`spawn`/`is_running`/`list_running`) đều reap child đã thoát để không còn zombie
+//! và trả slot semaphore ngay. `start_watchdog` nhận callback `(profile_id, clean)`
+//! để W3a emit `profile://status` (stopped/crashed).
 //!
-//! Public cho W3a: `ProcessManager::new`, `allocate_cdp_port`, `spawn`, `stop`,
-//! `list_running`, `is_running`, `start_watchdog`.
+//! Public cho W3a: `ProcessManager::new`, `recommended_max_concurrent`,
+//! `allocate_cdp_port`, `spawn`, `stop`, `list_running`, `is_running`, `start_watchdog`.
 //!
-//! Wave 2c.
+//! Wave 2c; W6 fix zombie reaping + cap theo RAM.
 
 use std::collections::HashMap;
 use std::net::TcpListener;
@@ -22,9 +25,52 @@ use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 use crate::error::{AppError, Result};
 use crate::models::RunningSession;
 
-/// Default max concurrent khi settings chưa cung cấp. W3a sẽ override theo RAM.
-/// (Không có API đọc RAM trong std; để hằng số bảo thủ + ghi chú cho W3a.)
+/// Default max concurrent khi settings chưa cung cấp và không đọc được RAM host.
+/// Đây cũng là TRẦN tuyệt đối cho `recommended_max_concurrent`.
 pub const DEFAULT_MAX_CONCURRENT: usize = 8;
+
+/// RAM vật lý của host (bytes), best-effort. macOS: `sysctl -n hw.memsize`;
+/// Linux: `/proc/meminfo`. None nếu không đọc được.
+fn host_ram_bytes() -> Option<u64> {
+    #[cfg(target_os = "macos")]
+    {
+        let out = std::process::Command::new("sysctl")
+            .args(["-n", "hw.memsize"])
+            .output()
+            .ok()?;
+        String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let s = std::fs::read_to_string("/proc/meminfo").ok()?;
+        let kb: u64 = s
+            .lines()
+            .find(|l| l.starts_with("MemTotal:"))?
+            .split_whitespace()
+            .nth(1)?
+            .parse()
+            .ok()?;
+        Some(kb * 1024)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        None
+    }
+}
+
+/// Cap concurrency an toàn theo RAM host: chừa 4 GiB cho OS/app, ngân sách
+/// ~1.5 GiB mỗi phiên Chromium headful, kẹp trong [1, DEFAULT_MAX_CONCURRENT].
+/// Ví dụ: 8 GiB → 2 phiên; 16 GiB → 8; 24 GiB → 8 (chạm trần).
+pub fn recommended_max_concurrent() -> usize {
+    match host_ram_bytes() {
+        Some(bytes) => {
+            let gib = bytes >> 30;
+            let budget_gib = gib.saturating_sub(4);
+            ((budget_gib * 2 / 3) as usize).clamp(1, DEFAULT_MAX_CONCURRENT)
+        }
+        None => DEFAULT_MAX_CONCURRENT,
+    }
+}
 
 /// Một phiên đang chạy + tài nguyên gắn kèm (child process, permit semaphore).
 struct Session {
@@ -93,7 +139,10 @@ impl ProcessManager {
         cdp_port: u16,
     ) -> Result<RunningSession> {
         {
-            let map = self.sessions.lock().await;
+            // Reap trước khi kiểm tra: phiên đã chết không được chặn relaunch
+            // hay giữ slot semaphore.
+            let mut map = self.sessions.lock().await;
+            Self::reap_locked(&mut map);
             if map.contains_key(profile_id) {
                 return Err(AppError::Launch(format!("profile {profile_id} đang chạy")));
             }
@@ -150,44 +199,71 @@ impl ProcessManager {
         Ok(())
     }
 
-    /// Danh sách phiên đang chạy.
+    /// Danh sách phiên đang chạy — reap child đã thoát trước để KHÔNG trả về zombie.
     pub async fn list_running(&self) -> Vec<RunningSession> {
-        let map = self.sessions.lock().await;
+        let mut map = self.sessions.lock().await;
+        Self::reap_locked(&mut map);
         map.iter().map(|(id, s)| s.to_running(id)).collect()
     }
 
+    /// Phiên có ĐANG SỐNG THẬT không: `try_wait()` trên child handle — zombie
+    /// (đã thoát nhưng chưa reap) bị reap tại chỗ và trả `false`.
+    /// KHÔNG dùng kill(pid,0)/ps: cả hai coi zombie là "còn sống".
     pub async fn is_running(&self, profile_id: &str) -> bool {
-        self.sessions.lock().await.contains_key(profile_id)
+        let mut map = self.sessions.lock().await;
+        match map.get_mut(profile_id) {
+            Some(s) => {
+                if matches!(s.child.try_wait(), Ok(Some(_)) | Err(_)) {
+                    map.remove(profile_id);
+                    false
+                } else {
+                    true
+                }
+            }
+            None => false,
+        }
     }
 
-    /// Quét định kỳ, phát hiện child đã chết (crash/đóng thủ công) và xoá khỏi registry
-    /// (giải phóng permit). Trả về danh sách profile_id vừa bị dọn để W3a emit sự kiện.
-    pub async fn reap_dead(&self) -> Vec<String> {
-        let mut dead = Vec::new();
-        let mut map = self.sessions.lock().await;
-        let ids: Vec<String> = map.keys().cloned().collect();
-        for id in ids {
-            let exited = match map.get_mut(&id) {
-                Some(s) => matches!(s.child.try_wait(), Ok(Some(_)) | Err(_)),
-                None => false,
-            };
-            if exited {
-                map.remove(&id);
-                dead.push(id);
-            }
+    /// Reap mọi child đã thoát trong `map` (khi ĐANG GIỮ lock): `try_wait()` thu hồi
+    /// zombie, remove khỏi registry → drop `_permit` trả slot semaphore.
+    /// Trả `(profile_id, clean)` — `clean=true` nếu exit code 0.
+    fn reap_locked(map: &mut HashMap<String, Session>) -> Vec<(String, bool)> {
+        let dead: Vec<(String, bool)> = map
+            .iter_mut()
+            .filter_map(|(id, s)| match s.child.try_wait() {
+                Ok(Some(status)) => Some((id.clone(), status.success())),
+                Err(_) => Some((id.clone(), false)),
+                Ok(None) => None,
+            })
+            .collect();
+        for (id, _) in &dead {
+            map.remove(id);
         }
         dead
     }
 
-    /// Watchdog nền: mỗi `interval_ms` gọi `reap_dead`. Trả về handle để W3a có thể abort.
-    pub fn start_watchdog(&self, interval_ms: u64) -> tokio::task::JoinHandle<()> {
+    /// Quét một lượt, reap child đã chết (crash/đóng thủ công) và xoá khỏi registry
+    /// (giải phóng permit). Trả `(profile_id, clean)` để caller emit sự kiện.
+    pub async fn reap_dead(&self) -> Vec<(String, bool)> {
+        let mut map = self.sessions.lock().await;
+        Self::reap_locked(&mut map)
+    }
+
+    /// Watchdog nền: mỗi `interval_ms` gọi `reap_dead`, gọi `on_dead(profile_id, clean)`
+    /// cho từng phiên vừa bị dọn (để emit `profile://status`). Trả handle để abort.
+    pub fn start_watchdog<F>(&self, interval_ms: u64, on_dead: F) -> tokio::task::JoinHandle<()>
+    where
+        F: Fn(&str, bool) + Send + 'static,
+    {
         let this = self.clone();
         tokio::spawn(async move {
             let mut ticker =
                 tokio::time::interval(std::time::Duration::from_millis(interval_ms.max(50)));
             loop {
                 ticker.tick().await;
-                let _ = this.reap_dead().await;
+                for (id, clean) in this.reap_dead().await {
+                    on_dead(&id, clean);
+                }
             }
         })
     }
@@ -252,11 +328,58 @@ mod tests {
         // Chờ process thoát.
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         let dead = pm.reap_dead().await;
-        assert_eq!(dead, vec!["quick".to_string()]);
+        assert_eq!(dead, vec![("quick".to_string(), true)]);
         assert!(!pm.is_running("quick").await);
         // Slot đã được giải phóng → spawn mới thành công dù max_concurrent=1.
         let (prog, args) = long_running();
         assert!(pm.spawn("next", prog, args, 21).await.is_ok());
         let _ = pm.stop("next").await;
+    }
+
+    /// Zombie (child thoát nhưng chưa wait) KHÔNG được coi là "đang chạy":
+    /// is_running/list_running phải reap tại chỗ và phản ánh sống thật.
+    #[tokio::test]
+    async fn zombie_not_reported_as_running() {
+        let pm = ProcessManager::new(2);
+        pm.spawn("z", "true", vec![], 30).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        // Child là zombie tại đây (chưa ai gọi wait). kill(pid,0)/ps vẫn "thấy" nó,
+        // nhưng is_running phải trả false nhờ try_wait.
+        assert!(!pm.is_running("z").await);
+        assert!(pm.list_running().await.is_empty());
+        // Spawn lại cùng profile_id phải được (không bị "đang chạy" chặn).
+        let (prog, args) = long_running();
+        assert!(pm.spawn("z", prog, args, 31).await.is_ok());
+        let _ = pm.stop("z").await;
+    }
+
+    /// Watchdog reap child thoát trong ≤ vài giây, báo callback + trả slot.
+    #[tokio::test]
+    async fn watchdog_reaps_and_reports() {
+        let pm = ProcessManager::new(1);
+        let reaped = Arc::new(std::sync::Mutex::new(Vec::<(String, bool)>::new()));
+        let sink = Arc::clone(&reaped);
+        let handle = pm.start_watchdog(50, move |id, clean| {
+            sink.lock().unwrap().push((id.to_string(), clean));
+        });
+
+        pm.spawn("w", "true", vec![], 40).await.unwrap();
+        // Chờ child thoát + watchdog tick.
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        assert_eq!(*reaped.lock().unwrap(), vec![("w".to_string(), true)]);
+        assert!(!pm.is_running("w").await);
+        // Permit đã trả → spawn mới OK dù max=1.
+        let (prog, args) = long_running();
+        assert!(pm.spawn("next", prog, args, 41).await.is_ok());
+        let _ = pm.stop("next").await;
+        handle.abort();
+    }
+
+    /// Cap theo RAM luôn nằm trong [1, DEFAULT_MAX_CONCURRENT].
+    #[test]
+    fn recommended_cap_in_bounds() {
+        let cap = recommended_max_concurrent();
+        assert!((1..=DEFAULT_MAX_CONCURRENT).contains(&cap));
     }
 }
