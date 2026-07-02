@@ -24,13 +24,21 @@
     }
   },
   "bundle": {
-    "active": false,
+    "active": true,
+    "targets": ["app", "dmg", "msi", "nsis", "appimage", "deb"],
+    "category": "Productivity",
+    "copyright": "Copyright © 2026 MintRouter. All rights reserved.",
+    "shortDescription": "Local antidetect browser profile manager",
+    "longDescription": "BrowserX is a local, open-source desktop app for managing antidetect browser profiles: per-profile fingerprints, proxies, timezone/locale settings, and CDP-based automation.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    }
   }
 }

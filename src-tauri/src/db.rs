@@ -356,11 +356,20 @@ impl Db {
     }
 
     /// Mở DB tại `<dir>/browserx.db` — dùng cho test hoặc data-dir tuỳ biến.
+    /// Nếu DB cũ hơn [`SCHEMA_VERSION`] → backup file trước khi migrate
+    /// (browserx.db.bak-v{N}, N = version cũ) để user còn đường lùi nếu hỏng.
     pub fn open_at_dir(dir: impl AsRef<Path>) -> Result<Self> {
         let dir = dir.as_ref().to_path_buf();
         std::fs::create_dir_all(&dir)?;
-        let conn = Connection::open(dir.join("browserx.db"))?;
+        let db_path = dir.join("browserx.db");
+        let conn = Connection::open(&db_path)?;
         Self::init_conn(&conn)?;
+        let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+        if version > 0 && version < SCHEMA_VERSION {
+            // Checkpoint WAL về file chính để bản copy là snapshot đầy đủ.
+            conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
+            backup_db_file(&db_path, version)?;
+        }
         migrate(&conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
@@ -397,43 +406,107 @@ impl Db {
     }
 }
 
+/// Số bản backup `browserx.db.bak-v{N}` giữ lại tối đa (bản version cũ nhất bị xoá trước).
+const MAX_DB_BACKUPS: usize = 3;
+
+/// Copy file DB → `<file>.bak-v{N}` (N = user_version cũ) trước khi migrate;
+/// ghi đè bản backup cùng version nếu đã có, rồi tỉa bớt chỉ giữ
+/// [`MAX_DB_BACKUPS`] bản mới nhất.
+fn backup_db_file(db_path: &Path, version: i64) -> Result<()> {
+    let dir = db_path.parent().unwrap_or(Path::new("."));
+    let file_name = db_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("browserx.db");
+    std::fs::copy(db_path, dir.join(format!("{file_name}.bak-v{version}")))?;
+    // Tỉa backup cũ theo suffix ".bak-vN" — giữ các N lớn nhất.
+    let prefix = format!("{file_name}.bak-v");
+    let mut versions: Vec<i64> = Vec::new();
+    for entry in std::fs::read_dir(dir)? {
+        if let Some(v) = entry?
+            .file_name()
+            .to_str()
+            .and_then(|n| n.strip_prefix(&prefix))
+            .and_then(|rest| rest.parse::<i64>().ok())
+        {
+            versions.push(v);
+        }
+    }
+    versions.sort_unstable();
+    while versions.len() > MAX_DB_BACKUPS {
+        let v = versions.remove(0);
+        let _ = std::fs::remove_file(dir.join(format!("{prefix}{v}")));
+    }
+    Ok(())
+}
+
 /// Migration idempotent theo `PRAGMA user_version`; chạy lại không lỗi
 /// (mọi CREATE đều `IF NOT EXISTS`). Migration tương lai: thêm nhánh `< 2`, `< 3`…
 fn migrate(conn: &Connection) -> Result<()> {
+    migrate_inner(conn, |_| Ok(()))
+}
+
+/// Toàn bộ chuỗi migration chạy trong MỘT transaction (BEGIN IMMEDIATE … COMMIT):
+/// `PRAGMA user_version` có transactional trong SQLite nên được set bên trong —
+/// kill/fail giữa chừng → rollback nguyên vẹn về version cũ, không nửa vời.
+/// `checkpoint(v)` được gọi sau khi áp xong bậc schema v — production là no-op,
+/// test dùng để inject lỗi mô phỏng crash giữa migration.
+fn migrate_inner(conn: &Connection, checkpoint: impl Fn(i64) -> Result<()>) -> Result<()> {
     let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
-    if version < 1 {
-        conn.execute_batch(SCHEMA_V1)?;
+    if version >= SCHEMA_VERSION {
+        return Ok(());
     }
-    if version < 2 {
-        conn.execute_batch(SCHEMA_V2)?;
-        // Seed 1 folder mặc định nếu bảng rỗng (UI Multilogin luôn có "Default folder").
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM folders", [], |r| r.get(0))?;
-        if count == 0 {
-            conn.execute(
-                "INSERT INTO folders (id, name, created_at) VALUES (?1, ?2, ?3)",
-                params![uuid::Uuid::new_v4().to_string(), "Default folder", now()],
-            )?;
+    conn.execute_batch("BEGIN IMMEDIATE")?;
+    let result = (|| -> Result<()> {
+        if version < 1 {
+            conn.execute_batch(SCHEMA_V1)?;
+            checkpoint(1)?;
+        }
+        if version < 2 {
+            conn.execute_batch(SCHEMA_V2)?;
+            // Seed 1 folder mặc định nếu bảng rỗng (UI Multilogin luôn có "Default folder").
+            let count: i64 = conn.query_row("SELECT COUNT(*) FROM folders", [], |r| r.get(0))?;
+            if count == 0 {
+                conn.execute(
+                    "INSERT INTO folders (id, name, created_at) VALUES (?1, ?2, ?3)",
+                    params![uuid::Uuid::new_v4().to_string(), "Default folder", now()],
+                )?;
+            }
+            checkpoint(2)?;
+        }
+        if version < 3 {
+            conn.execute_batch(SCHEMA_V3)?;
+            checkpoint(3)?;
+        }
+        if version < 4 {
+            conn.execute_batch(SCHEMA_V4)?;
+            checkpoint(4)?;
+        }
+        if version < 5 {
+            conn.execute_batch(SCHEMA_V5)?;
+            checkpoint(5)?;
+        }
+        if version < 6 {
+            conn.execute_batch(SCHEMA_V6)?;
+            checkpoint(6)?;
+        }
+        if version < 7 {
+            conn.execute_batch(SCHEMA_V7)?;
+            checkpoint(7)?;
+        }
+        conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+        Ok(())
+    })();
+    match result {
+        Ok(()) => {
+            conn.execute_batch("COMMIT")?;
+            Ok(())
+        }
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(e)
         }
     }
-    if version < 3 {
-        conn.execute_batch(SCHEMA_V3)?;
-    }
-    if version < 4 {
-        conn.execute_batch(SCHEMA_V4)?;
-    }
-    if version < 5 {
-        conn.execute_batch(SCHEMA_V5)?;
-    }
-    if version < 6 {
-        conn.execute_batch(SCHEMA_V6)?;
-    }
-    if version < 7 {
-        conn.execute_batch(SCHEMA_V7)?;
-    }
-    if version < SCHEMA_VERSION {
-        conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
-    }
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -1703,10 +1776,94 @@ mod tests {
         assert_eq!(folders.len(), 1);
         assert_eq!(folders[0].name, "Default folder");
         assert_eq!(folders[0].profile_count, 0);
+        // Backup được tạo trước khi migrate từ version cũ.
+        assert!(dir.join("browserx.db.bak-v1").exists());
         // Mở lại lần nữa → không lỗi, không seed trùng.
         drop(db);
         let db = Db::open_at_dir(&dir).unwrap();
         assert_eq!(db.list_folders().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn migration_failure_rolls_back_and_backup_exists() {
+        let dir = std::env::temp_dir().join(format!("browserx-db-test-{}", uuid::Uuid::new_v4()));
+        let _guard = TempDir(dir.clone());
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("browserx.db");
+        {
+            // DB "cũ" schema v1 + 1 profile, user_version = 1.
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute_batch(SCHEMA_V1).unwrap();
+            conn.pragma_update(None, "user_version", 1).unwrap();
+            conn.execute(
+                "INSERT INTO profiles (id, name, fingerprint_seed, user_data_dir, created_at, updated_at)
+                 VALUES ('old-1', 'old profile', '42', '/tmp/x', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+        }
+        {
+            // Mô phỏng crash giữa migration: inject lỗi sau khi áp xong bậc v5
+            // (v2..v5 đã ALTER TABLE) → toàn bộ phải rollback về v1.
+            let conn = Connection::open(&db_path).unwrap();
+            Db::init_conn(&conn).unwrap();
+            conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+                .unwrap();
+            backup_db_file(&db_path, 1).unwrap();
+            let err = migrate_inner(&conn, |v| {
+                if v == 5 {
+                    Err(AppError::InvalidInput("injected migration failure".into()))
+                } else {
+                    Ok(())
+                }
+            });
+            assert!(err.is_err());
+            let version: i64 = conn
+                .pragma_query_value(None, "user_version", |r| r.get(0))
+                .unwrap();
+            assert_eq!(version, 1, "rollback phải giữ nguyên version cũ");
+            // Cột thêm bởi v2 (favorite) phải bị rollback — không tồn tại nửa vời.
+            assert!(conn
+                .query_row("SELECT favorite FROM profiles LIMIT 1", [], |_| Ok(()))
+                .is_err());
+        }
+        // Backup tồn tại sau khi migration fail.
+        assert!(db_path.with_file_name("browserx.db.bak-v1").exists());
+        // Mở lại → migrate chạy trọn vẹn, KHÔNG lỗi "duplicate column", data còn.
+        let db = Db::open_at_dir(&dir).unwrap();
+        let version: i64 = db
+            .lock()
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        let p = db.get_profile("old-1").unwrap();
+        assert_eq!(p.name, "old profile");
+    }
+
+    #[test]
+    fn db_backup_overwrites_same_version_and_prunes_old() {
+        let dir = std::env::temp_dir().join(format!("browserx-db-test-{}", uuid::Uuid::new_v4()));
+        let _guard = TempDir(dir.clone());
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("browserx.db");
+        std::fs::write(&db_path, b"v-a").unwrap();
+        backup_db_file(&db_path, 1).unwrap();
+        // Ghi đè bản backup cùng version.
+        std::fs::write(&db_path, b"v-b").unwrap();
+        backup_db_file(&db_path, 1).unwrap();
+        assert_eq!(
+            std::fs::read(dir.join("browserx.db.bak-v1")).unwrap(),
+            b"v-b"
+        );
+        // Nhiều version → chỉ giữ MAX_DB_BACKUPS bản mới nhất.
+        for v in 2..=5 {
+            backup_db_file(&db_path, v).unwrap();
+        }
+        assert!(!dir.join("browserx.db.bak-v1").exists());
+        assert!(!dir.join("browserx.db.bak-v2").exists());
+        assert!(dir.join("browserx.db.bak-v3").exists());
+        assert!(dir.join("browserx.db.bak-v4").exists());
+        assert!(dir.join("browserx.db.bak-v5").exists());
     }
 
     #[test]

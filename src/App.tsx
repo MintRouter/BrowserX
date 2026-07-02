@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import {
+  EngineSetup,
+  initialEngineState,
+  type EngineState,
+} from "./components/EngineSetup";
 import { ProfileForm } from "./components/ProfileForm";
 import { ProfileList } from "./components/ProfileList";
 import { ProxyForm } from "./components/ProxyForm";
@@ -12,6 +17,7 @@ import { TrashView } from "./components/TrashView";
 import {
   api,
   isTauri,
+  onBinaryProgress,
   onProfileStatus,
   type Folder,
   type Profile,
@@ -42,6 +48,50 @@ export default function App() {
   /** Quick profiles awaiting the stop confirmation dialog (null = closed). */
   const [quickStop, setQuickStop] = useState<string[] | null>(null);
   const [quickStopBusy, setQuickStopBusy] = useState(false);
+  /** First-run browser-engine download state (see EngineSetup). */
+  const [engine, setEngine] = useState<EngineState>(() =>
+    initialEngineState(!isTauri()),
+  );
+
+  /** Engine cache probe/download in flight — hold off launches to avoid concurrent downloads. */
+  const engineBusy = engine.status === "checking" || engine.status === "downloading";
+
+  /** Pre-warm the Chromium engine (download on first run) instead of waiting for Launch. */
+  const ensureEngine = useCallback(async () => {
+    if (!isTauri()) return;
+    setEngine((e) => ({ ...e, status: "checking", error: null }));
+    try {
+      await api.ensureBinary();
+      setEngine((e) => ({ ...e, status: "ready", error: null }));
+    } catch (err) {
+      setEngine((e) => ({ ...e, status: "error", error: errMsg(err) }));
+    }
+  }, []);
+
+  useEffect(() => {
+    void ensureEngine();
+  }, [ensureEngine]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    onBinaryProgress((e) => {
+      setEngine((prev) => ({
+        ...prev,
+        status: e.phase === "done" ? "ready" : "downloading",
+        phase: e.phase,
+        pct: e.pct,
+        downloadedBytes: e.downloadedBytes ?? 0,
+        totalBytes: e.totalBytes ?? 0,
+        error: null,
+      }));
+    })
+      .then((fn) => {
+        unlisten = fn;
+      })
+      .catch(() => {});
+    return () => unlisten?.();
+  }, []);
 
   const loadAll = useCallback(async () => {
     if (!isTauri()) return;
@@ -161,6 +211,10 @@ export default function App() {
   };
 
   const handleLaunch = async (id: string) => {
+    if (engineBusy) {
+      setActionError(t("engine.notReadyLaunch"));
+      return;
+    }
     await api.launchProfile(id);
     setRunning(await api.listRunning());
   };
@@ -178,6 +232,10 @@ export default function App() {
     profiles.find((p) => p.id === id)?.name ?? id;
 
   const handleLaunchSelected = async () => {
+    if (engineBusy) {
+      setActionError(t("engine.notReadyLaunch"));
+      return;
+    }
     const errors: string[] = [];
     for (const id of selected) {
       if (runningIds.has(id)) continue;
@@ -252,6 +310,10 @@ export default function App() {
   };
 
   const handleQuickProfile = async () => {
+    if (engineBusy) {
+      setActionError(t("engine.notReadyLaunch"));
+      return;
+    }
     setActionError(null);
     try {
       const created = await api.createProfile({
@@ -395,6 +457,7 @@ export default function App() {
           onCreateFolder={(name) => void handleCreateFolder(name)}
         />
         <main className="flex-1 min-w-0 overflow-auto bg-surface-0">
+          <EngineSetup engine={engine} onRetry={() => void ensureEngine()} />
           {loadError && (
             <p className="text-warning text-xs px-4 py-2 bg-warning/10 border-b border-warning/30" role="alert">
               {t("errors.loadFailed")}

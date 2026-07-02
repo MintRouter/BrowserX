@@ -51,11 +51,14 @@ struct ProfileStatusEvent {
     cdp_url: Option<String>,
 }
 
-/// Payload event `binary://progress`.
+/// Payload event `binary://progress` (camelCase cho FE).
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct BinaryProgressEvent {
     phase: String,
     pct: u8,
+    downloaded_bytes: u64,
+    total_bytes: u64,
 }
 
 pub(crate) fn emit_status(
@@ -380,12 +383,14 @@ pub async fn launch_profile(
     };
 
     let progress_app = app.clone();
-    let progress = move |phase: &str, pct: u8| {
+    let progress = move |phase: &str, pct: u8, downloaded_bytes: u64, total_bytes: u64| {
         let _ = progress_app.emit(
             "binary://progress",
             BinaryProgressEvent {
                 phase: phase.to_string(),
                 pct,
+                downloaded_bytes,
+                total_bytes,
             },
         );
     };
@@ -401,6 +406,7 @@ pub async fn launch_profile(
         .await?;
 
     if let Err(e) = cdp::attach(cdp_port).await {
+        tracing::error!("launch_profile {profile_id}: CDP attach failed: {e}");
         let _ = state.procs.stop(&profile_id).await;
         emit_status(&app, &profile_id, "error", None, None);
         return Err(e);
@@ -502,12 +508,14 @@ fn activate_window_by_pid(_pid: u32) -> bool {
 #[tauri::command]
 pub async fn ensure_binary(app: AppHandle, version: Option<String>) -> Result<String> {
     let progress_app = app.clone();
-    let progress = move |phase: &str, pct: u8| {
+    let progress = move |phase: &str, pct: u8, downloaded_bytes: u64, total_bytes: u64| {
         let _ = progress_app.emit(
             "binary://progress",
             BinaryProgressEvent {
                 phase: phase.to_string(),
                 pct,
+                downloaded_bytes,
+                total_bytes,
             },
         );
     };
@@ -893,6 +901,34 @@ pub fn import_profile(state: State<'_, AppState>, json: String) -> Result<Profil
         .db
         .insert_audit("profile.import", Some(&profile.id), None)?;
     Ok(profile)
+}
+
+// ---------------------------------------------------------------------------
+// Logs (W21b)
+// ---------------------------------------------------------------------------
+
+/// Lệnh mở thư mục theo OS (macOS Finder / Windows Explorer / Linux xdg-open).
+#[cfg(target_os = "macos")]
+const OPEN_FOLDER_CMD: &str = "open";
+#[cfg(target_os = "windows")]
+const OPEN_FOLDER_CMD: &str = "explorer";
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+const OPEN_FOLDER_CMD: &str = "xdg-open";
+
+/// Mở thư mục log `~/.browserx/logs` trong file manager của OS (Settings →
+/// "Open logs folder"). Tạo thư mục nếu chưa có.
+#[tauri::command]
+pub fn open_logs_folder() -> Result<()> {
+    let dir = crate::logging::logs_dir();
+    std::fs::create_dir_all(&dir)?;
+    std::process::Command::new(OPEN_FOLDER_CMD)
+        .arg(&dir)
+        .spawn()
+        .map_err(|e| {
+            tracing::error!("open_logs_folder: {OPEN_FOLDER_CMD} failed: {e}");
+            AppError::Io(e)
+        })?;
+    Ok(())
 }
 
 #[cfg(test)]

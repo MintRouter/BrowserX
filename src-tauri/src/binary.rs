@@ -26,8 +26,10 @@ use sha2::{Digest, Sha256};
 use crate::config;
 use crate::error::{AppError, Result};
 
-/// Callback tiến độ: (phase, pct 0–100). Phases: "download" | "verify" | "extract" | "done".
-pub type ProgressFn<'a> = &'a (dyn Fn(&str, u8) + Send + Sync);
+/// Callback tiến độ: (phase, pct 0–100, downloaded_bytes, total_bytes).
+/// Phases: "download" | "verify" | "extract" | "done". Bytes = 0 khi không áp
+/// dụng (verify/extract) hoặc server không trả Content-Length.
+pub type ProgressFn<'a> = &'a (dyn Fn(&str, u8, u64, u64) + Send + Sync);
 
 /// Timeout kết nối (download.py#L63 connect=10s).
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -39,8 +41,12 @@ fn binary_err(msg: impl Into<String>) -> AppError {
 }
 
 fn emit(progress: Option<ProgressFn<'_>>, phase: &str, pct: u8) {
+    emit_bytes(progress, phase, pct, 0, 0);
+}
+
+fn emit_bytes(progress: Option<ProgressFn<'_>>, phase: &str, pct: u8, downloaded: u64, total: u64) {
     if let Some(cb) = progress {
-        cb(phase, pct);
+        cb(phase, pct, downloaded, total);
     }
 }
 
@@ -186,6 +192,8 @@ async fn download_file(url: &str, dest: &Path, progress: Option<ProgressFn<'_>>)
     let total = resp.content_length().unwrap_or(0);
     let mut downloaded: u64 = 0;
     let mut last_pct: i32 = -1;
+    let mut last_emit_bytes: u64 = 0;
+    emit_bytes(progress, "download", 0, 0, total);
 
     let mut file = std::fs::File::create(dest)?;
     let mut stream = resp.bytes_stream();
@@ -195,10 +203,20 @@ async fn download_file(url: &str, dest: &Path, progress: Option<ProgressFn<'_>>)
         downloaded += chunk.len() as u64;
         if let Some(pct) = (downloaded * 100).checked_div(total) {
             let pct = pct as i32;
-            if pct >= last_pct + 5 {
+            if pct > last_pct {
                 last_pct = pct;
-                emit(progress, "download", pct.clamp(0, 100) as u8);
+                emit_bytes(
+                    progress,
+                    "download",
+                    pct.clamp(0, 100) as u8,
+                    downloaded,
+                    total,
+                );
             }
+        } else if downloaded - last_emit_bytes >= 10 * 1024 * 1024 {
+            // Content-Length không có: báo số byte mỗi 10 MiB (pct giữ 0).
+            last_emit_bytes = downloaded;
+            emit_bytes(progress, "download", 0, downloaded, 0);
         }
     }
     file.flush()?;

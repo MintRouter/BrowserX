@@ -1,0 +1,93 @@
+name: Release
+
+# Build installer UNSIGNED cho 3 OS bằng tauri-action, đính vào GitHub Release
+# draft. Chưa ký code (chưa có cert) và chưa sinh updater latest.json — cần
+# TAURI_SIGNING_PRIVATE_KEY, để W23c xử lý.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest # dmg arm64
+            args: --target aarch64-apple-darwin
+          - platform: macos-latest # dmg x64
+            args: --target x86_64-apple-darwin
+          - platform: ubuntu-latest # AppImage + deb
+            args: ""
+          - platform: windows-latest # msi + nsis
+            args: ""
+    runs-on: ${{ matrix.platform }}
+    # Bash trên mọi OS (Windows dùng Git Bash) để env var + $(...) đồng nhất.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tauri v2 Linux system dependencies
+      # https://v2.tauri.app/start/prerequisites/#linux
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust (stable)
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          fi
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      # tauri-action tự chạy beforeBuildCommand (pnpm build) rồi cargo build
+      # --release, upload bundle vào GitHub Release draft cùng tag.
+      - name: Build and upload to draft release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__
+          releaseName: BrowserX v__VERSION__
+          releaseBody: See the assets to download this version and install.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}

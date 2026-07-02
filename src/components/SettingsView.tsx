@@ -143,6 +143,21 @@ export function SettingsView() {
         </SettingRow>
       </SectionCard>
 
+      <SectionCard title={t("settings.support")}>
+        <SettingRow label={t("settings.logs")} hint={t("settings.logsHint")}>
+          <button
+            type="button"
+            disabled={!isTauri()}
+            onClick={() => {
+              api.openLogsFolder().catch(() => {});
+            }}
+            className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {t("settings.openLogsFolder")}
+          </button>
+        </SettingRow>
+      </SectionCard>
+
       {saveError && (
         <p className="text-xs text-danger" role="alert">
           {t("settings.saveFailed")}

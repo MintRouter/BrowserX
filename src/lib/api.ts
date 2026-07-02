@@ -205,6 +205,10 @@ export interface ProfileStatusEvent {
 export interface BinaryProgressEvent {
   phase: string;
   pct: number;
+  /** Bytes downloaded so far (0 outside the "download" phase). */
+  downloadedBytes: number;
+  /** Total bytes to download (0 when the server sends no Content-Length). */
+  totalBytes: number;
 }
 
 export interface ProfileStorageSize {
@@ -314,6 +318,9 @@ export const api = {
       templateId,
       name: name ?? null,
     }),
+
+  // Logs (W21b) — open ~/.browserx/logs in the OS file manager
+  openLogsFolder: () => invoke<void>("open_logs_folder"),
 };
 
 // --- Events ---

@@ -22,6 +22,7 @@ pub mod db;
 pub mod error;
 pub mod export;
 pub mod launcher;
+pub mod logging;
 pub mod models;
 pub mod process;
 pub mod proxy_check;
@@ -29,6 +30,7 @@ pub mod storage;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    logging::init();
     tauri::Builder::default()
         .setup(|app| {
             use std::sync::Arc;
@@ -98,6 +100,7 @@ pub fn run() {
             commands::create_profile_from_template,
             commands::export_profile,
             commands::import_profile,
+            commands::open_logs_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

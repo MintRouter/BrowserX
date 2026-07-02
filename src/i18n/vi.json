@@ -368,7 +368,24 @@
     "profiles": "Profile",
     "autoClearCache": "Tự động dọn cache khi dừng profile",
     "autoClearCacheHint": "Tự động dọn cache trình duyệt của profile khi phiên dừng. Cookies và đăng nhập được giữ nguyên.",
-    "saveFailed": "Lưu cài đặt thất bại"
+    "saveFailed": "Lưu cài đặt thất bại",
+    "support": "Hỗ trợ",
+    "logs": "Log ứng dụng",
+    "logsHint": "File log lưu cục bộ tại ~/.browserx/logs và không bao giờ rời khỏi máy của bạn.",
+    "openLogsFolder": "Mở thư mục log"
+  },
+  "engine": {
+    "downloading": "Đang chuẩn bị engine trình duyệt",
+    "phase": {
+      "download": "Đang tải",
+      "verify": "Đang kiểm tra",
+      "extract": "Đang giải nén",
+      "done": "Hoàn tất"
+    },
+    "bytes": "{{done}} / {{total}} MB",
+    "errorTitle": "Tải engine trình duyệt thất bại",
+    "retry": "Thử lại",
+    "notReadyLaunch": "Engine trình duyệt đang được tải — có thể mở profile sau khi tải xong."
   },
   "errors": {
     "loadFailed": "Không tải được dữ liệu — backend Tauri chưa sẵn sàng?"

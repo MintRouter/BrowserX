@@ -278,9 +278,26 @@ impl ProcessManager {
 mod tests {
     use super::*;
 
-    /// Lệnh dài để làm phiên "giả" (không cần browser thật) — dùng `sleep` trên unix.
+    /// Lệnh dài để làm phiên "giả" (không cần browser thật): `sleep` trên unix,
+    /// `ping -n` trên Windows (runner không chắc có `sleep.exe` trong PATH).
+    #[cfg(unix)]
     fn long_running() -> (&'static str, Vec<String>) {
         ("sleep", vec!["30".to_string()])
+    }
+    #[cfg(windows)]
+    fn long_running() -> (&'static str, Vec<String>) {
+        ("ping", vec!["-n".into(), "31".into(), "127.0.0.1".into()])
+    }
+
+    /// Lệnh thoát ngay để mô phỏng child chết: `true` trên unix, `cmd /C exit 0`
+    /// trên Windows.
+    #[cfg(unix)]
+    fn quick_exit() -> (&'static str, Vec<String>) {
+        ("true", vec![])
+    }
+    #[cfg(windows)]
+    fn quick_exit() -> (&'static str, Vec<String>) {
+        ("cmd", vec!["/C".into(), "exit 0".into()])
     }
 
     #[test]
@@ -329,7 +346,8 @@ mod tests {
     async fn reap_dead_removes_exited_and_frees_slot() {
         let pm = ProcessManager::new(1);
         // Lệnh kết thúc ngay để mô phỏng child chết.
-        pm.spawn("quick", "true", vec![], 20).await.unwrap();
+        let (qprog, qargs) = quick_exit();
+        pm.spawn("quick", qprog, qargs, 20).await.unwrap();
         // Chờ process thoát.
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         let dead = pm.reap_dead().await;
@@ -346,7 +364,8 @@ mod tests {
     #[tokio::test]
     async fn zombie_not_reported_as_running() {
         let pm = ProcessManager::new(2);
-        pm.spawn("z", "true", vec![], 30).await.unwrap();
+        let (qprog, qargs) = quick_exit();
+        pm.spawn("z", qprog, qargs, 30).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         // Child là zombie tại đây (chưa ai gọi wait). kill(pid,0)/ps vẫn "thấy" nó,
         // nhưng is_running phải trả false nhờ try_wait.
@@ -368,7 +387,8 @@ mod tests {
             sink.lock().unwrap().push((id.to_string(), clean));
         });
 
-        pm.spawn("w", "true", vec![], 40).await.unwrap();
+        let (qprog, qargs) = quick_exit();
+        pm.spawn("w", qprog, qargs, 40).await.unwrap();
         // Chờ child thoát + watchdog tick.
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
