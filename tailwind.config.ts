@@ -5,6 +5,9 @@ export default {
   darkMode: "class",
   theme: {
     extend: {
+      fontFamily: {
+        sans: ["InterVariable", "Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+      },
       // Semantic tokens driven by CSS variables (RGB triplets) — see src/styles/globals.css
       colors: {
         surface: {

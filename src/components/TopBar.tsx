@@ -1,76 +1,168 @@
-import { Globe, Moon, Plus, Search, Sun } from "lucide-react";
+import {
+  Bot,
+  ChevronDown,
+  HelpCircle,
+  LayoutGrid,
+  Network,
+  Puzzle,
+  Send,
+  Settings,
+  Users,
+} from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { SUPPORTED_LOCALES, setLocale } from "../i18n";
-import { useTheme } from "../lib/theme";
+import { LanguageSwitcher } from "./LanguageSwitcher";
+import { MenuItem, Popover } from "./Popover";
+import type { MainView } from "./Sidebar";
 
 interface TopBarProps {
+  /** Kept for App.tsx compatibility — the search box moves to the table toolbar (W13). */
   search: string;
   onSearchChange: (value: string) => void;
   onNewProfile: () => void;
+  view?: MainView;
+  onNavigate?: (view: MainView) => void;
 }
 
-export function TopBar({ search, onSearchChange, onNewProfile }: TopBarProps) {
-  const { t, i18n } = useTranslation();
-  const { theme, setTheme } = useTheme();
+const iconBtn =
+  "inline-flex h-9 w-9 items-center justify-center rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60";
+const iconIdle = "text-fg/80 hover:bg-surface-3 hover:text-fg";
+const iconActive = "bg-accent/10 text-accent";
 
-  const nextLocale = () => {
-    const idx = SUPPORTED_LOCALES.findIndex((l) => l.code === i18n.language);
-    const next = SUPPORTED_LOCALES[(idx + 1) % SUPPORTED_LOCALES.length];
-    if (next) setLocale(next.code);
-  };
+export function TopBar(props: TopBarProps) {
+  const { view, onNavigate } = props;
+  const { t } = useTranslation();
+  const [accountOpen, setAccountOpen] = useState(false);
+  const initial = t("app.name").charAt(0).toUpperCase();
+  const profilesActive = view !== "proxies" && view !== "settings";
 
-  const currentLocale =
-    SUPPORTED_LOCALES.find((l) => l.code === i18n.language) ?? SUPPORTED_LOCALES[0];
+  const navItems: {
+    key: string;
+    label: string;
+    icon: React.ReactNode;
+    active?: boolean;
+    onClick?: () => void;
+  }[] = [
+    {
+      key: "profiles",
+      label: t("topbar.profiles"),
+      icon: <LayoutGrid className="h-5 w-5" strokeWidth={2} aria-hidden="true" />,
+      active: profilesActive,
+      onClick: () => onNavigate?.("profiles"),
+    },
+    {
+      key: "proxies",
+      label: t("topbar.proxies"),
+      icon: <Network className="h-5 w-5" strokeWidth={2} aria-hidden="true" />,
+      active: view === "proxies",
+      onClick: () => onNavigate?.("proxies"),
+    },
+    {
+      key: "automation",
+      label: t("topbar.automation"),
+      icon: <Bot className="h-5 w-5" strokeWidth={2} aria-hidden="true" />,
+    },
+    {
+      key: "extensions",
+      label: t("topbar.extensions"),
+      icon: <Puzzle className="h-5 w-5" strokeWidth={2} aria-hidden="true" />,
+    },
+    {
+      key: "team",
+      label: t("topbar.team"),
+      icon: <Users className="h-5 w-5" strokeWidth={2} aria-hidden="true" />,
+    },
+    {
+      key: "help",
+      label: t("topbar.help"),
+      icon: <HelpCircle className="h-5 w-5" strokeWidth={2} aria-hidden="true" />,
+    },
+    {
+      key: "more",
+      label: t("topbar.more"),
+      icon: <ChevronDown className="h-4 w-4" aria-hidden="true" />,
+    },
+  ];
 
   return (
-    <header className="flex items-center gap-3 h-12 px-3 border-b border-border bg-surface-1 shrink-0">
-      <div className="flex items-center gap-2">
-        <img src="/brand-icon-180.png" alt="" className="h-6 w-6 rounded" />
-        <span className="text-sm font-semibold tracking-tight">{t("app.name")}</span>
+    <header className="flex h-14 shrink-0 items-center gap-2 bg-surface-0 px-2">
+      <div className="flex h-10 items-center gap-4 rounded-lg bg-surface-1 px-2.5">
+        <div className="flex items-center gap-2.5 pl-0.5">
+          <span
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-accent text-xs font-bold text-white"
+            aria-hidden="true"
+          >
+            {initial}
+          </span>
+          <span className="text-sm font-bold uppercase tracking-wider text-fg">
+            {t("app.name")}
+          </span>
+        </div>
+
+        <nav className="flex items-center gap-1" aria-label={t("topbar.mainNav")}>
+          {navItems.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              onClick={item.onClick}
+              aria-label={item.label}
+              title={item.label}
+              aria-current={item.active ? "page" : undefined}
+              className={`${iconBtn} ${item.active ? iconActive : iconIdle}`}
+            >
+              {item.icon}
+            </button>
+          ))}
+        </nav>
       </div>
 
-      <div className="relative flex-1 max-w-xl mx-auto">
-        <Search
-          className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-fg-muted"
-          aria-hidden="true"
-        />
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-          placeholder={t("topbar.search")}
-          aria-label={t("topbar.search")}
-          className="input pl-8 py-1.5 text-xs"
-        />
-      </div>
-
-      <div className="flex items-center gap-1.5">
-        <button onClick={onNewProfile} className="btn-primary text-xs">
-          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-          <span>{t("topbar.newProfile")}</span>
-        </button>
+      <div className="ml-auto flex h-11 items-center gap-2 rounded-lg bg-surface-1 px-2">
+        <LanguageSwitcher />
         <button
-          onClick={nextLocale}
-          className="btn-secondary px-2 text-xs"
-          aria-label={t("topbar.changeLanguage")}
-          title={t("topbar.changeLanguage")}
+          type="button"
+          aria-label={t("topbar.share")}
+          title={t("topbar.share")}
+          className={`${iconBtn} ${iconIdle}`}
         >
-          <Globe className="h-3.5 w-3.5" aria-hidden="true" />
-          <span className="uppercase">{currentLocale.code}</span>
+          <Send className="h-[18px] w-[18px]" aria-hidden="true" />
         </button>
-        <button
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-          className="btn-secondary px-2"
-          aria-label={t("topbar.toggleTheme")}
-          title={t("topbar.toggleTheme")}
-          aria-pressed={theme === "dark"}
+        <Popover
+          open={accountOpen}
+          onClose={() => setAccountOpen(false)}
+          align="end"
+          label={t("topbar.accountMenu")}
+          trigger={
+            <button
+              type="button"
+              aria-label={t("topbar.account")}
+              title={t("topbar.account")}
+              aria-haspopup="menu"
+              aria-expanded={accountOpen}
+              onClick={() => setAccountOpen((v) => !v)}
+              className="flex items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-surface-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+            >
+              <span
+                className="grid h-8 w-8 place-items-center rounded-full bg-accent text-xs font-semibold text-white"
+                aria-hidden="true"
+              >
+                {initial}
+              </span>
+              <ChevronDown className="h-4 w-4 text-fg/80" aria-hidden="true" />
+            </button>
+          }
         >
-          {theme === "dark" ? (
-            <Sun className="h-3.5 w-3.5" aria-hidden="true" />
-          ) : (
-            <Moon className="h-3.5 w-3.5" aria-hidden="true" />
-          )}
-        </button>
+          <div role="menu" className="w-44">
+            <MenuItem
+              icon={<Settings className="h-4 w-4 shrink-0 text-fg-muted" aria-hidden="true" />}
+              onClick={() => {
+                setAccountOpen(false);
+                onNavigate?.("settings");
+              }}
+            >
+              {t("topbar.settings")}
+            </MenuItem>
+          </div>
+        </Popover>
       </div>
     </header>
   );

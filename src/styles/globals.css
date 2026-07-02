@@ -4,18 +4,18 @@
 
 /* Semantic tokens — RGB triplets consumed by tailwind.config.ts (docs/08 §11.2) */
 :root {
-  --color-surface-0: 255 255 255; /* #ffffff */
-  --color-surface-1: 247 248 250; /* #f7f8fa */
-  --color-surface-2: 238 240 243; /* #eef0f3 */
-  --color-surface-3: 228 231 235; /* #e4e7eb */
-  --color-surface-4: 214 218 224; /* #d6dae0 */
-  --color-border: 214 218 224; /* #d6dae0 */
-  --color-border-hover: 178 185 196; /* #b2b9c4 */
-  --color-accent: 79 70 229; /* #4f46e5 */
-  --color-accent-hover: 67 56 202; /* #4338ca */
-  --color-text: 17 24 39; /* #111827 */
-  --color-text-muted: 75 85 99; /* #4b5563 */
-  --color-danger: 220 38 38; /* #dc2626 */
+  --color-surface-0: 234 237 243; /* #eaedf3 — app background */
+  --color-surface-1: 255 255 255; /* #ffffff — cards, top bar */
+  --color-surface-2: 251 247 247; /* #fbf7f7 — table header, search bg */
+  --color-surface-3: 241 237 237; /* #f1eded — hover, quick buttons */
+  --color-surface-4: 229 225 225; /* #e5e1e1 */
+  --color-border: 241 237 237; /* #f1eded */
+  --color-border-hover: 224 220 220; /* #e0dcdc */
+  --color-accent: 5 95 240; /* #055ff0 */
+  --color-accent-hover: 4 76 192; /* #044cc0 */
+  --color-text: 28 26 26; /* #1c1a1a */
+  --color-text-muted: 147 144 144; /* #939090 */
+  --color-danger: 179 35 24; /* #b32318 */
   --color-success: 5 150 105; /* #059669 */
   --color-warning: 180 83 9; /* #b45309 */
 }
@@ -28,8 +28,8 @@
   --color-surface-4: 44 50 59; /* #2c323b */
   --color-border: 44 50 59; /* #2c323b */
   --color-border-hover: 58 65 76; /* #3a414c */
-  --color-accent: 99 102 241; /* #6366f1 */
-  --color-accent-hover: 129 140 248; /* #818cf8 */
+  --color-accent: 96 141 255; /* #608dff */
+  --color-accent-hover: 130 163 255; /* #82a3ff */
   --color-text: 229 231 235; /* #e5e7eb */
   --color-text-muted: 156 163 175; /* #9ca3af */
   --color-danger: 248 113 113; /* #f87171 */
@@ -45,6 +45,7 @@
   }
   body {
     @apply bg-surface-0 text-fg antialiased text-sm;
+    font-family: "InterVariable", Inter, ui-sans-serif, system-ui, sans-serif;
     transition: background-color 150ms, color 150ms;
   }
   @media (prefers-reduced-motion: reduce) {
@@ -68,10 +69,13 @@
     @apply btn bg-danger/10 text-danger border border-danger/30 hover:bg-danger/20;
   }
   .input {
-    @apply w-full rounded-md bg-surface-1 border border-border px-2.5 py-1.5 text-sm text-fg placeholder:text-fg-muted/60 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent;
+    @apply w-full rounded-md bg-[#FDFBFB] dark:bg-surface-2 border border-transparent px-3 py-[11px] text-sm text-fg placeholder:text-fg-muted/60 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent;
   }
   .label {
-    @apply block text-xs font-medium text-fg-muted mb-1;
+    @apply block text-xs font-medium text-[#1D192B] dark:text-fg mb-1;
+  }
+  .card {
+    @apply bg-surface-1 rounded-lg border border-border;
   }
   .no-spin::-webkit-inner-spin-button,
   .no-spin::-webkit-outer-spin-button {

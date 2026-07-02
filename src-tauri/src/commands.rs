@@ -1,14 +1,23 @@
 //! Tauri commands (invoke handlers) — theo Hợp đồng command trong spec:
 //! - Profiles: list_profiles, get_profile, create_profile, update_profile, delete_profile, search_profiles
-//! - Proxies: list_proxies, create_proxy, update_proxy, delete_proxy, assign_proxy
-//! - Session: launch_profile, stop_profile, list_running
+//! - Proxies: list_proxies, create_proxy, update_proxy, delete_proxy, assign_proxy, check_proxy
+//! - Session: launch_profile, stop_profile, list_running, bring_to_front (W20a)
 //! - Binary: ensure_binary (emit `binary://progress`)
 //! - Settings/tags: get_settings, set_setting, list_tags, set_profile_tags
+//! - Folders/favorites: list_folders, create_folder, rename_folder, delete_folder,
+//!   set_favorite, move_profiles_to_folder
+//! - Trash: trash_profiles, restore_profiles, purge_profiles, list_trash
+//! - Quick profile: convert_quick_profile, delete_quick_profile
+//! - Storage: profile_storage_sizes, clear_profile_cache
+//! - Templates (W20b): list_templates, save_as_template, delete_template,
+//!   create_profile_from_template
+//! - Export/Import (W19a): export_profile, import_profile
 //!
 //! Đăng ký vào `tauri::Builder` trong lib.rs. Tham số Rust snake_case
 //! (Tauri v2 tự map camelCase JS → snake_case).
 
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -16,10 +25,11 @@ use serde_json::json;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::db::{self, Db, ProfileInput, ProfileUpdate, TagInfo};
-use crate::error::Result;
-use crate::models::{Profile, Proxy, RunningSession};
+use crate::error::{AppError, Result};
+use crate::models::{Folder, Profile, ProfileTemplate, Proxy, RunningSession};
 use crate::process::ProcessManager;
-use crate::{binary, cdp, crypto, launcher};
+use crate::proxy_check::{self, ProxyCheckResult};
+use crate::{binary, cdp, crypto, launcher, storage};
 
 /// State toàn app — khởi tạo trong `tauri::Builder::setup` (lib.rs) rồi `.manage()`.
 pub struct AppState {
@@ -271,6 +281,88 @@ pub fn assign_proxy(
 }
 
 // ---------------------------------------------------------------------------
+// Proxy check (W19b) — kết nối QUA proxy tới IP-echo, trả IP/country/latency
+// ---------------------------------------------------------------------------
+
+/// Input check proxy: hoặc `proxy_id` (đọc DB + giải mã credential trong
+/// backend), hoặc tham số inline từ form (credential plaintext, không lưu).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ProxyCheckInput {
+    pub proxy_id: Option<String>,
+    pub protocol: Option<String>,
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    pub username: Option<String>,
+    pub password: Option<String>,
+}
+
+/// Check proxy on-demand. Lỗi kết nối trả trong `ProxyCheckResult.error`
+/// (command chỉ Err khi input không hợp lệ / DB lỗi). Nếu check theo
+/// `proxy_id` thì cập nhật `health_status` ("ok"/"fail") + audit.
+#[tauri::command]
+pub async fn check_proxy(
+    state: State<'_, AppState>,
+    input: ProxyCheckInput,
+) -> Result<ProxyCheckResult> {
+    let proxy_id = input.proxy_id.clone();
+    let url = match &proxy_id {
+        Some(pid) => {
+            let rec = state.db.get_proxy(pid)?;
+            let username = rec
+                .username_enc
+                .as_deref()
+                .map(crypto::decrypt_secret)
+                .transpose()?;
+            let password = rec
+                .password_enc
+                .as_deref()
+                .map(crypto::decrypt_secret)
+                .transpose()?;
+            proxy_check::build_proxy_url(
+                &rec.protocol,
+                &rec.host,
+                rec.port,
+                username.as_deref(),
+                password.as_deref(),
+            )?
+        }
+        None => {
+            let protocol = input
+                .protocol
+                .as_deref()
+                .ok_or_else(|| AppError::InvalidInput("missing proxy protocol".into()))?;
+            let host = input
+                .host
+                .as_deref()
+                .ok_or_else(|| AppError::InvalidInput("missing proxy host".into()))?;
+            let port = input
+                .port
+                .ok_or_else(|| AppError::InvalidInput("missing proxy port".into()))?;
+            proxy_check::build_proxy_url(
+                protocol,
+                host,
+                port,
+                input.username.as_deref(),
+                input.password.as_deref(),
+            )?
+        }
+    };
+
+    let result = proxy_check::check_proxy_url(&url).await;
+
+    if let Some(pid) = &proxy_id {
+        let status = if result.ok { "ok" } else { "fail" };
+        state.db.set_proxy_health(pid, status)?;
+        state.db.insert_audit(
+            "proxy.check",
+            Some(pid),
+            Some(&json!({ "ok": result.ok, "latency_ms": result.latency_ms })),
+        )?;
+    }
+    Ok(result)
+}
+
+// ---------------------------------------------------------------------------
 // Session (launch/stop/list_running)
 // ---------------------------------------------------------------------------
 
@@ -314,6 +406,7 @@ pub async fn launch_profile(
         return Err(e);
     }
 
+    state.db.touch_last_start(&profile_id)?;
     state.db.insert_audit(
         "profile.launch",
         Some(&profile_id),
@@ -340,12 +433,66 @@ pub async fn stop_profile(
         .db
         .insert_audit("profile.stop", Some(&profile_id), None)?;
     emit_status(&app, &profile_id, "stopped", None, None);
+    auto_clear_cache_if_enabled(&state.db, &profile_id);
+    apply_storage_options_on_stop(&state.db, &profile_id);
     Ok(())
 }
 
 #[tauri::command]
 pub async fn list_running(state: State<'_, AppState>) -> Result<Vec<RunningSession>> {
     Ok(state.procs.list_running().await)
+}
+
+/// (W20a) Đưa cửa sổ phiên ĐANG chạy lên trước: ưu tiên CDP `Page.bringToFront`;
+/// nếu CDP lỗi thì fallback kích hoạt cửa sổ theo PID ở mức OS (macOS: AppleScript
+/// qua System Events). Trả `NotFound` nếu profile không chạy.
+#[tauri::command]
+pub async fn bring_to_front(state: State<'_, AppState>, profile_id: String) -> Result<()> {
+    let session = state
+        .procs
+        .list_running()
+        .await
+        .into_iter()
+        .find(|s| s.profile_id == profile_id)
+        .ok_or_else(|| AppError::NotFound(format!("profile {profile_id} không chạy")))?;
+
+    match cdp::bring_to_front(session.cdp_port).await {
+        Ok(()) => Ok(()),
+        Err(cdp_err) => {
+            if activate_window_by_pid(session.pid) {
+                Ok(())
+            } else {
+                Err(cdp_err)
+            }
+        }
+    }
+}
+
+/// AppleScript kích hoạt cửa sổ theo PID (tách riêng để unit-test không cần
+/// gọi osascript — tránh popup xin quyền Automation lúc chạy test).
+#[cfg(any(target_os = "macos", test))]
+fn frontmost_script(pid: u32) -> String {
+    format!(
+        "tell application \"System Events\" to set frontmost of (first process whose unix id is {pid}) to true"
+    )
+}
+
+/// Fallback OS-level cho `bring_to_front`: kích hoạt cửa sổ theo PID bằng
+/// AppleScript (`System Events … frontmost = true`). Trả `false` nếu thất bại
+/// để caller giữ nguyên lỗi CDP gốc.
+#[cfg(target_os = "macos")]
+fn activate_window_by_pid(pid: u32) -> bool {
+    std::process::Command::new("osascript")
+        .args(["-e", &frontmost_script(pid)])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Fallback OS-level chưa hỗ trợ ngoài macOS — luôn `false` (giữ lỗi CDP gốc).
+#[cfg(not(target_os = "macos"))]
+fn activate_window_by_pid(_pid: u32) -> bool {
+    false
 }
 
 // ---------------------------------------------------------------------------
@@ -394,4 +541,370 @@ pub fn set_profile_tags(
     tags: Vec<String>,
 ) -> Result<()> {
     state.db.set_profile_tags(&profile_id, &tags)
+}
+
+// ---------------------------------------------------------------------------
+// Folders + favorites
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn list_folders(state: State<'_, AppState>) -> Result<Vec<Folder>> {
+    state.db.list_folders()
+}
+
+#[tauri::command]
+pub fn create_folder(state: State<'_, AppState>, name: String) -> Result<Folder> {
+    let folder = state.db.create_folder(&name)?;
+    state
+        .db
+        .insert_audit("folder.create", Some(&folder.id), None)?;
+    Ok(folder)
+}
+
+#[tauri::command]
+pub fn rename_folder(state: State<'_, AppState>, id: String, name: String) -> Result<Folder> {
+    let folder = state.db.rename_folder(&id, &name)?;
+    state.db.insert_audit("folder.rename", Some(&id), None)?;
+    Ok(folder)
+}
+
+#[tauri::command]
+pub fn delete_folder(state: State<'_, AppState>, id: String) -> Result<bool> {
+    let deleted = state.db.delete_folder(&id)?;
+    if deleted {
+        state.db.insert_audit("folder.delete", Some(&id), None)?;
+    }
+    Ok(deleted)
+}
+
+#[tauri::command]
+pub fn set_favorite(state: State<'_, AppState>, id: String, favorite: bool) -> Result<()> {
+    state.db.set_favorite(&id, favorite)?;
+    state.db.insert_audit(
+        "profile.favorite",
+        Some(&id),
+        Some(&json!({ "favorite": favorite })),
+    )?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn move_profiles_to_folder(
+    state: State<'_, AppState>,
+    profile_ids: Vec<String>,
+    folder_id: Option<String>,
+) -> Result<()> {
+    let n = state
+        .db
+        .move_profiles_to_folder(&profile_ids, folder_id.as_deref())?;
+    state.db.insert_audit(
+        "profile.move_folder",
+        None,
+        Some(&json!({ "profile_ids": profile_ids, "folder_id": folder_id, "moved": n })),
+    )?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Trash (soft-delete)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn trash_profiles(state: State<'_, AppState>, profile_ids: Vec<String>) -> Result<()> {
+    let n = state.db.trash_profiles(&profile_ids)?;
+    state.db.insert_audit(
+        "profile.trash",
+        None,
+        Some(&json!({ "profile_ids": profile_ids, "trashed": n })),
+    )?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn restore_profiles(state: State<'_, AppState>, profile_ids: Vec<String>) -> Result<()> {
+    let n = state.db.restore_profiles(&profile_ids)?;
+    state.db.insert_audit(
+        "profile.restore",
+        None,
+        Some(&json!({ "profile_ids": profile_ids, "restored": n })),
+    )?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn purge_profiles(state: State<'_, AppState>, profile_ids: Vec<String>) -> Result<()> {
+    let n = state.db.purge_profiles(&profile_ids)?;
+    state.db.insert_audit(
+        "profile.purge",
+        None,
+        Some(&json!({ "profile_ids": profile_ids, "purged": n })),
+    )?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn list_trash(state: State<'_, AppState>) -> Result<Vec<Profile>> {
+    state.db.list_trash()
+}
+
+// ---------------------------------------------------------------------------
+// Quick profile (W18b): khi Stop, UI hỏi Save as regular / Close & delete
+// ---------------------------------------------------------------------------
+
+/// "Save as regular": bỏ cờ quick, giữ nguyên user_data_dir + mọi dữ liệu —
+/// profile xuất hiện trong danh sách thường.
+#[tauri::command]
+pub fn convert_quick_profile(state: State<'_, AppState>, profile_id: String) -> Result<Profile> {
+    state.db.set_quick(&profile_id, false)?;
+    state
+        .db
+        .insert_audit("profile.quick_to_regular", Some(&profile_id), None)?;
+    state.db.get_profile(&profile_id)
+}
+
+/// "Close & delete": dừng phiên nếu còn chạy, xoá user_data_dir trên đĩa rồi
+/// xoá hàng DB. REFUSE nếu profile không phải quick (tránh purge nhầm profile thường).
+#[tauri::command]
+pub async fn delete_quick_profile(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<()> {
+    let profile = state.db.get_profile(&profile_id)?;
+    if !profile.is_quick {
+        return Err(AppError::InvalidInput(format!(
+            "profile {profile_id} is not a quick profile"
+        )));
+    }
+    if state.procs.is_running(&profile_id).await {
+        state.procs.stop(&profile_id).await?;
+        emit_status(&app, &profile_id, "stopped", None, None);
+    }
+    let dir = PathBuf::from(profile.user_data_dir);
+    tokio::task::spawn_blocking(move || -> Result<()> {
+        if dir.is_dir() {
+            std::fs::remove_dir_all(&dir)?;
+        }
+        Ok(())
+    })
+    .await
+    .unwrap_or_else(|e| {
+        Err(AppError::Other(anyhow::anyhow!(
+            "xoá user_data_dir panic: {e}"
+        )))
+    })?;
+    state.db.delete_profile(&profile_id)?;
+    state
+        .db
+        .insert_audit("profile.quick_delete", Some(&profile_id), None)?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Storage (W16): đo dung lượng + dọn cache profile
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn profile_storage_sizes(
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+) -> Result<Vec<storage::ProfileStorageSize>> {
+    let mut targets = Vec::with_capacity(ids.len());
+    for id in &ids {
+        let profile = state.db.get_profile(id)?;
+        targets.push((id.clone(), PathBuf::from(profile.user_data_dir)));
+    }
+    // Walk đĩa có thể chậm với profile lớn → chạy trên blocking pool.
+    let sizes = tokio::task::spawn_blocking(move || {
+        targets
+            .into_iter()
+            .map(|(profile_id, dir)| storage::ProfileStorageSize {
+                profile_id,
+                bytes: storage::dir_size(&dir),
+            })
+            .collect()
+    })
+    .await
+    .map_err(|e| crate::error::AppError::Other(anyhow::anyhow!("đo dung lượng panic: {e}")))?;
+    Ok(sizes)
+}
+
+#[tauri::command]
+pub async fn clear_profile_cache(
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+) -> Result<Vec<storage::ClearCacheResult>> {
+    let mut targets = Vec::with_capacity(ids.len());
+    for id in &ids {
+        let profile = state.db.get_profile(id)?;
+        targets.push((id.clone(), PathBuf::from(profile.user_data_dir)));
+    }
+    let results = storage::clear_profiles_cache(&state.procs, targets).await;
+    for r in &results {
+        if r.error.is_none() {
+            state.db.insert_audit(
+                "profile.clear_cache",
+                Some(&r.profile_id),
+                Some(&json!({ "freed_bytes": r.freed_bytes })),
+            )?;
+        }
+    }
+    Ok(results)
+}
+
+/// Tự dọn cache khi phiên dừng nếu setting `auto_clear_cache_on_stop` = "true"
+/// (default tắt). Best-effort, fire-and-forget — gọi từ `stop_profile` và
+/// watchdog callback (lib.rs); lúc này phiên đã ra khỏi registry nên không cần
+/// check is_running.
+pub(crate) fn auto_clear_cache_if_enabled(db: &Arc<Db>, profile_id: &str) {
+    let enabled = matches!(
+        db.get_setting(storage::AUTO_CLEAR_SETTING),
+        Ok(Some(v)) if v == "true"
+    );
+    if !enabled {
+        return;
+    }
+    let Ok(profile) = db.get_profile(profile_id) else {
+        return;
+    };
+    let db = Arc::clone(db);
+    let profile_id = profile_id.to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Ok(freed) = storage::clear_cache(Path::new(&profile.user_data_dir)) {
+            let _ = db.insert_audit(
+                "profile.clear_cache",
+                Some(&profile_id),
+                Some(&json!({ "freed_bytes": freed, "auto": true })),
+            );
+        }
+    });
+}
+
+/// (W20b) Áp storage options SAU khi phiên dừng: xoá history / passwords /
+/// service-worker cache nếu profile tắt lưu loại đó. Cơ chế là CLEANUP —
+/// binary không có flag disable (xem `storage::clear_storage_options`).
+/// Best-effort, fire-and-forget như `auto_clear_cache_if_enabled`; gọi từ
+/// `stop_profile` và watchdog callback (lib.rs).
+pub(crate) fn apply_storage_options_on_stop(db: &Arc<Db>, profile_id: &str) {
+    let Ok(profile) = db.get_profile(profile_id) else {
+        return;
+    };
+    if profile.store_history && profile.store_passwords && profile.store_sw_cache {
+        return;
+    }
+    let db = Arc::clone(db);
+    let profile_id = profile_id.to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Ok(freed) = storage::clear_storage_options(
+            Path::new(&profile.user_data_dir),
+            profile.store_history,
+            profile.store_passwords,
+            profile.store_sw_cache,
+        ) {
+            let _ = db.insert_audit(
+                "profile.storage_cleanup",
+                Some(&profile_id),
+                Some(&json!({
+                    "freed_bytes": freed,
+                    "history": !profile.store_history,
+                    "passwords": !profile.store_passwords,
+                    "sw_cache": !profile.store_sw_cache,
+                })),
+            );
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Profile templates (W20b): lưu form config làm mẫu, tạo profile điền sẵn
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn list_templates(state: State<'_, AppState>) -> Result<Vec<ProfileTemplate>> {
+    state.db.list_templates()
+}
+
+/// Lưu config (JSON shape `ProfileInput` — payload form hiện tại) thành template.
+#[tauri::command]
+pub fn save_as_template(
+    state: State<'_, AppState>,
+    name: String,
+    config: serde_json::Value,
+) -> Result<ProfileTemplate> {
+    let tpl = state.db.create_template(&name, &config)?;
+    state
+        .db
+        .insert_audit("template.create", Some(&tpl.id), None)?;
+    Ok(tpl)
+}
+
+#[tauri::command]
+pub fn delete_template(state: State<'_, AppState>, id: String) -> Result<bool> {
+    let deleted = state.db.delete_template(&id)?;
+    if deleted {
+        state.db.insert_audit("template.delete", Some(&id), None)?;
+    }
+    Ok(deleted)
+}
+
+/// Tạo profile mới điền sẵn field từ template (seed + user_data_dir cấp mới).
+#[tauri::command]
+pub fn create_profile_from_template(
+    state: State<'_, AppState>,
+    template_id: String,
+    name: Option<String>,
+) -> Result<Profile> {
+    let profile = state
+        .db
+        .create_profile_from_template(&template_id, name.as_deref())?;
+    state.db.insert_audit(
+        "profile.create_from_template",
+        Some(&profile.id),
+        Some(&json!({ "template_id": template_id })),
+    )?;
+    Ok(profile)
+}
+
+// ---------------------------------------------------------------------------
+// Export / Import profile (W19a): file .bxprofile JSON — xem module `export`.
+// Proxy password KHÔNG BAO GIỜ nằm trong file export.
+// ---------------------------------------------------------------------------
+
+/// Xuất profile → chuỗi JSON `.bxprofile`. REFUSE khi profile đang chạy
+/// (tránh export cấu hình đang bị phiên live thay đổi).
+#[tauri::command]
+pub async fn export_profile(state: State<'_, AppState>, id: String) -> Result<String> {
+    if state.procs.is_running(&id).await {
+        return Err(AppError::InvalidInput(format!(
+            "profile {id} is running; stop it before exporting"
+        )));
+    }
+    let json = crate::export::export_profile_json(&state.db, &id)?;
+    state.db.insert_audit("profile.export", Some(&id), None)?;
+    Ok(json)
+}
+
+/// Nhập chuỗi JSON `.bxprofile` → tạo profile MỚI (id mới, tên
+/// "Imported — {name}"). JSON rác/version lạ → InvalidInput rõ ràng.
+#[tauri::command]
+pub fn import_profile(state: State<'_, AppState>, json: String) -> Result<Profile> {
+    let profile = crate::export::import_profile_json(&state.db, &json)?;
+    state
+        .db
+        .insert_audit("profile.import", Some(&profile.id), None)?;
+    Ok(profile)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Script AppleScript fallback phải nhúng đúng PID và target System Events.
+    #[test]
+    fn frontmost_script_embeds_pid() {
+        let script = frontmost_script(4242);
+        assert!(script.contains("unix id is 4242"));
+        assert!(script.starts_with("tell application \"System Events\""));
+        assert!(script.ends_with("frontmost of (first process whose unix id is 4242) to true"));
+    }
 }

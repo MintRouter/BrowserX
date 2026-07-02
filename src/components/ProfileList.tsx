@@ -1,166 +1,381 @@
-import { Pencil } from "lucide-react";
-import { useMemo, useState } from "react";
+import { LayoutGrid, Plus, SearchX } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { Profile, Proxy } from "../lib/api";
-import { LaunchButton } from "./LaunchButton";
-import { StatusIndicator } from "./StatusIndicator";
-
-type SortKey = "name" | "updated";
+import { api, type Folder, type Profile } from "../lib/api";
+import { ProfilesToolbar } from "./ProfilesToolbar";
+import {
+  DEFAULT_COLUMNS,
+  formatBytes,
+  ProfileTable,
+  type ColumnVisibility,
+  type ProfilesSort,
+} from "./ProfileTable";
+import { TableFooter } from "./TableFooter";
 
 interface ProfileListProps {
   profiles: Profile[];
-  proxies: Proxy[];
+  folders: Folder[];
   runningIds: Set<string>;
   search: string;
+  onSearchChange: (value: string) => void;
+  selected: Set<string>;
+  onSelectedChange: (selected: Set<string>) => void;
+  settings: Record<string, string> | null;
+  onNewProfile: () => void;
+  onQuickProfile: () => Promise<void>;
   onEdit: (profile: Profile) => void;
   onLaunch: (id: string) => Promise<void>;
   onStop: (id: string) => Promise<void>;
+  onLaunchSelected: () => Promise<void>;
+  onStopSelected: () => Promise<void>;
+  onRefresh: () => Promise<void>;
+  onClone: (profile: Profile) => Promise<void>;
+  onTrash: (ids: string[]) => Promise<void>;
+  onMove: (ids: string[], folderId: string | null) => Promise<void>;
+  onAddTags: (ids: string[], tags: string[]) => Promise<void>;
+  onToggleFavorite: (profile: Profile) => Promise<void>;
 }
 
-export function ProfileList({
-  profiles,
-  proxies,
-  runningIds,
-  search,
-  onEdit,
-  onLaunch,
-  onStop,
-}: ProfileListProps) {
-  const { t, i18n } = useTranslation();
-  const [tagFilter, setTagFilter] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("updated");
+export function ProfileList(props: ProfileListProps) {
+  const {
+    profiles,
+    folders,
+    runningIds,
+    search,
+    selected,
+    onSelectedChange,
+  } = props;
+  const { t } = useTranslation();
+  const [sort, setSort] = useState<ProfilesSort>({ key: "updated", dir: "desc" });
+  const [columns, setColumns] = useState<ColumnVisibility>(DEFAULT_COLUMNS);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(100);
+  const [sizes, setSizes] = useState<Record<string, number>>({});
+  const [toast, setToast] = useState<string | null>(null);
+  // (W20a) Inline rename target + signal that opens the toolbar move popover.
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [moveSignal, setMoveSignal] = useState(0);
 
-  const allTags = useMemo(
-    () => [...new Set(profiles.flatMap((p) => p.tags))].sort(),
-    [profiles],
-  );
-
-  const proxyName = (id: string | null) =>
-    id ? (proxies.find((p) => p.id === id)?.name ?? "—") : "—";
+  const folderName = (id: string | null) =>
+    id ? (folders.find((f) => f.id === id)?.name ?? "") : "";
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    let list = profiles.filter((p) => {
-      if (tagFilter && !p.tags.includes(tagFilter)) return false;
-      if (!q) return true;
-      return (
-        p.name.toLowerCase().includes(q) ||
-        p.platform.toLowerCase().includes(q) ||
-        (p.notes ?? "").toLowerCase().includes(q) ||
-        p.tags.some((tag) => tag.toLowerCase().includes(q)) ||
-        proxyName(p.proxy_id).toLowerCase().includes(q)
-      );
+    const list = q
+      ? profiles.filter(
+          (p) =>
+            p.name.toLowerCase().includes(q) ||
+            p.platform.toLowerCase().includes(q) ||
+            (p.notes ?? "").toLowerCase().includes(q) ||
+            p.tags.some((tag) => tag.toLowerCase().includes(q)) ||
+            folderName(p.folder_id).toLowerCase().includes(q),
+        )
+      : [...profiles];
+    list.sort((a, b) => {
+      const cmp =
+        sort.key === "name"
+          ? a.name.localeCompare(b.name)
+          : a.updated_at.localeCompare(b.updated_at);
+      return sort.dir === "asc" ? cmp : -cmp;
     });
-    list = [...list].sort((a, b) =>
-      sortKey === "name"
-        ? a.name.localeCompare(b.name)
-        : b.updated_at.localeCompare(a.updated_at),
-    );
     return list;
-  }, [profiles, search, tagFilter, sortKey, proxies]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profiles, search, sort, folders]);
 
-  const fmtDate = (iso: string) => {
-    const d = new Date(iso);
-    return isNaN(d.getTime())
-      ? iso
-      : new Intl.DateTimeFormat(i18n.language, {
-          dateStyle: "short",
-          timeStyle: "short",
-        }).format(d);
+  useEffect(() => {
+    setPage(0);
+  }, [search, rowsPerPage, profiles.length]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / rowsPerPage));
+  const safePage = Math.min(page, totalPages - 1);
+  const paged = filtered.slice(safePage * rowsPerPage, (safePage + 1) * rowsPerPage);
+
+  const singleSelected =
+    selected.size === 1 ? (profiles.find((p) => selected.has(p.id)) ?? null) : null;
+  const hasRunningSelected = [...selected].some((id) => runningIds.has(id));
+
+  // Lazy-load storage sizes for the visible page only (never blocks render).
+  const pagedKey = paged.map((p) => p.id).join(",");
+  useEffect(() => {
+    const missing = pagedKey.split(",").filter((id) => id && !(id in sizes));
+    if (missing.length === 0) return;
+    let cancelled = false;
+    api
+      .profileStorageSizes(missing)
+      .then((res) => {
+        if (cancelled) return;
+        setSizes((prev) => {
+          const next = { ...prev };
+          for (const s of res) next[s.profile_id] = s.bytes;
+          return next;
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [pagedKey, sizes]);
+
+  // Auto-hide the toast after a few seconds.
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  const handleClearCache = async (ids: string[]) => {
+    const targets = ids.filter((id) => !runningIds.has(id));
+    if (targets.length === 0) return;
+    try {
+      const results = await api.clearProfileCache(targets);
+      const freed = results
+        .filter((r) => !r.error)
+        .reduce((sum, r) => sum + r.freed_bytes, 0);
+      const failed = results.filter((r) => r.error).length;
+      setToast(
+        failed > 0
+          ? t("table.clearCachePartial", { freed: formatBytes(freed), failed })
+          : t("table.cacheCleared", { freed: formatBytes(freed) }),
+      );
+      const refreshed = await api.profileStorageSizes(targets);
+      setSizes((prev) => {
+        const next = { ...prev };
+        for (const s of refreshed) next[s.profile_id] = s.bytes;
+        return next;
+      });
+    } catch {
+      setToast(t("table.clearCacheFailed"));
+    }
   };
 
-  return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 p-3 border-b border-border">
-        <select
-          className="input w-auto text-xs"
-          value={tagFilter}
-          onChange={(e) => setTagFilter(e.target.value)}
-          aria-label={t("table.allTags")}
-        >
-          <option value="">{t("table.allTags")}</option>
-          {allTags.map((tag) => (
-            <option key={tag} value={tag}>{tag}</option>
-          ))}
-        </select>
-        <select
-          className="input w-auto text-xs"
-          value={sortKey}
-          onChange={(e) => setSortKey(e.target.value as SortKey)}
-          aria-label={t("table.sortUpdated")}
-        >
-          <option value="updated">{t("table.sortUpdated")}</option>
-          <option value="name">{t("table.sortName")}</option>
-        </select>
-      </div>
+  // Export/import .bxprofile (W19a). Proxy password is never in the file.
+  const handleExport = async (p: Profile) => {
+    try {
+      const json = await api.exportProfile(p.id);
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${p.name.replace(/[\\/:*?"<>|]+/g, "_")}.bxprofile`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setToast(t("exchange.exportSuccess", { name: p.name }));
+    } catch (err) {
+      setToast(t("exchange.exportFailed", { error: String(err) }));
+    }
+  };
 
-      <div className="flex-1 overflow-auto">
-        {filtered.length === 0 ? (
-          <div className="text-center text-fg-muted text-xs py-12">
-            {profiles.length === 0 ? t("table.empty") : t("table.noMatches")}
+  const handleImport = async (file: File) => {
+    try {
+      const json = await file.text();
+      const profile = await api.importProfile(json);
+      await props.onRefresh();
+      setToast(t("exchange.importSuccess", { name: profile.name }));
+    } catch (err) {
+      setToast(t("exchange.importFailed", { error: String(err) }));
+    }
+  };
+
+  // (W20a) Inline rename — empty/unchanged names are a silent cancel.
+  const handleRenameSubmit = async (id: string, name: string) => {
+    setRenamingId(null);
+    const trimmed = name.trim();
+    const current = profiles.find((p) => p.id === id);
+    if (!trimmed || !current || trimmed === current.name) return;
+    try {
+      await api.updateProfile(id, { name: trimmed });
+      await props.onRefresh();
+    } catch (err) {
+      setToast(t("listUtils.renameFailed", { error: String(err) }));
+    }
+  };
+
+  const handleCopyId = async (id: string) => {
+    try {
+      await navigator.clipboard.writeText(id);
+      setToast(t("listUtils.idCopied"));
+    } catch {
+      setToast(t("listUtils.copyFailed"));
+    }
+  };
+
+  const handleBringToFront = async (id: string) => {
+    try {
+      await api.bringToFront(id);
+    } catch (err) {
+      setToast(t("listUtils.bringToFrontFailed", { error: String(err) }));
+    }
+  };
+
+  // (W20a) Global shortcuts (skipped while typing in a field):
+  // F2 rename · ⌘/Ctrl+Enter launch · ⌘/Ctrl+Shift+S stop · ⌘/Ctrl+Shift+C clone
+  // · ⌘/Ctrl+Shift+M move · ⌘/Ctrl+Backspace trash.
+  useEffect(() => {
+    const isEditable = (el: EventTarget | null) =>
+      el instanceof HTMLElement &&
+      (el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement ||
+        el instanceof HTMLSelectElement ||
+        el.isContentEditable);
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isEditable(e.target)) return;
+      if (e.key === "F2") {
+        if (singleSelected) {
+          e.preventDefault();
+          setRenamingId(singleSelected.id);
+        }
+        return;
+      }
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key === "Enter" && !e.shiftKey) {
+        if (selected.size > 0) {
+          e.preventDefault();
+          void props.onLaunchSelected();
+        }
+      } else if (e.shiftKey && e.key.toLowerCase() === "s") {
+        if (hasRunningSelected) {
+          e.preventDefault();
+          void props.onStopSelected();
+        }
+      } else if (e.shiftKey && e.key.toLowerCase() === "c") {
+        if (singleSelected) {
+          e.preventDefault();
+          void props.onClone(singleSelected);
+        }
+      } else if (e.shiftKey && e.key.toLowerCase() === "m") {
+        if (selected.size > 0) {
+          e.preventDefault();
+          setMoveSignal((v) => v + 1);
+        }
+      } else if (e.key === "Backspace" && !e.shiftKey) {
+        if (selected.size > 0) {
+          e.preventDefault();
+          void props.onTrash([...selected]);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selected, singleSelected, hasRunningSelected, props]);
+
+  const toggleRow = (id: string) => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    onSelectedChange(next);
+  };
+
+  const togglePage = (ids: string[], select: boolean) => {
+    const next = new Set(selected);
+    for (const id of ids) {
+      if (select) next.add(id);
+      else next.delete(id);
+    }
+    onSelectedChange(next);
+  };
+
+  const selectedIds = [...selected];
+
+  return (
+    <div className="flex h-full flex-col gap-3 p-3">
+      <ProfilesToolbar
+        search={search}
+        onSearchChange={props.onSearchChange}
+        selectedCount={selected.size}
+        hasRunningSelected={hasRunningSelected}
+        folders={folders}
+        sort={sort}
+        onSortChange={setSort}
+        onNewProfile={props.onNewProfile}
+        onQuickProfile={() => void props.onQuickProfile()}
+        onImport={(file) => void handleImport(file)}
+        onLaunchSelected={() => void props.onLaunchSelected()}
+        onStopSelected={() => void props.onStopSelected()}
+        onRefresh={() => void props.onRefresh()}
+        onEditSelected={() => singleSelected && props.onEdit(singleSelected)}
+        onAddTags={(tags) => void props.onAddTags(selectedIds, tags)}
+        onMoveToFolder={(folderId) => void props.onMove(selectedIds, folderId)}
+        onCloneSelected={() => singleSelected && void props.onClone(singleSelected)}
+        onClearCacheSelected={() => void handleClearCache(selectedIds)}
+        onTrashSelected={() => void props.onTrash(selectedIds)}
+        onClearSelection={() => onSelectedChange(new Set())}
+        moveSignal={moveSignal}
+      />
+
+      <div className="card flex min-h-0 flex-1 flex-col overflow-hidden">
+        {profiles.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-12 text-center">
+            <span className="grid h-12 w-12 place-items-center rounded-full bg-accent/10">
+              <LayoutGrid className="h-6 w-6 text-accent" aria-hidden="true" />
+            </span>
+            <p className="text-sm font-medium text-fg">{t("table.emptyTitle")}</p>
+            <p className="max-w-xs text-xs text-fg-muted">{t("table.emptyHint")}</p>
+            <button type="button" onClick={props.onNewProfile} className="btn-primary mt-1">
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              <span>{t("toolbar.create")}</span>
+            </button>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 p-12 text-center">
+            <SearchX className="h-8 w-8 text-fg-muted/50" aria-hidden="true" />
+            <p className="text-sm text-fg-muted">{t("table.noMatches")}</p>
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-surface-1 text-left text-xs text-fg-muted uppercase tracking-wider">
-              <tr>
-                <th scope="col" className="px-4 py-2 font-medium">{t("table.name")}</th>
-                <th scope="col" className="px-4 py-2 font-medium">{t("table.status")}</th>
-                <th scope="col" className="px-4 py-2 font-medium">{t("table.os")}</th>
-                <th scope="col" className="px-4 py-2 font-medium">{t("table.proxy")}</th>
-                <th scope="col" className="px-4 py-2 font-medium">{t("table.tags")}</th>
-                <th scope="col" className="px-4 py-2 font-medium">{t("table.updated")}</th>
-                <th scope="col" className="px-4 py-2 font-medium">{t("table.actions")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((p) => {
-                const running = runningIds.has(p.id);
-                return (
-                  <tr key={p.id} className="border-b border-border hover:bg-surface-1">
-                    <td className="px-4 py-2 font-medium">{p.name}</td>
-                    <td className="px-4 py-2">
-                      <span className="inline-flex items-center gap-1.5">
-                        <StatusIndicator status={running ? "running" : "stopped"} />
-                        <span className="text-xs text-fg-muted">
-                          {running ? t("table.running") : t("table.stopped")}
-                        </span>
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 capitalize text-fg-muted">{p.platform}</td>
-                    <td className="px-4 py-2 text-fg-muted">{proxyName(p.proxy_id)}</td>
-                    <td className="px-4 py-2">
-                      <span className="flex gap-1 flex-wrap">
-                        {p.tags.map((tag) => (
-                          <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-3 text-fg-muted">
-                            {tag}
-                          </span>
-                        ))}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 text-xs text-fg-muted whitespace-nowrap">{fmtDate(p.updated_at)}</td>
-                    <td className="px-4 py-2">
-                      <span className="flex items-center gap-2">
-                        <LaunchButton
-                          status={running ? "running" : "stopped"}
-                          onLaunch={() => onLaunch(p.id)}
-                          onStop={() => onStop(p.id)}
-                        />
-                        <button
-                          onClick={() => onEdit(p)}
-                          className="btn-secondary px-2"
-                          aria-label={`${t("table.edit")}: ${p.name}`}
-                        >
-                          <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-                        </button>
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="flex-1 overflow-auto">
+            <ProfileTable
+              rows={paged}
+              folders={folders}
+              runningIds={runningIds}
+              selected={selected}
+              sizes={sizes}
+              onToggleRow={toggleRow}
+              onTogglePage={togglePage}
+              sort={sort}
+              onSortChange={setSort}
+              columns={columns}
+              onColumnsChange={setColumns}
+              onToggleFavorite={(p) => void props.onToggleFavorite(p)}
+              onLaunch={props.onLaunch}
+              onStop={props.onStop}
+              onEdit={props.onEdit}
+              onClone={(p) => void props.onClone(p)}
+              onExport={(p) => void handleExport(p)}
+              onMove={(ids, folderId) => void props.onMove(ids, folderId)}
+              onAddTags={(ids, tags) => void props.onAddTags(ids, tags)}
+              onClearCache={(ids) => void handleClearCache(ids)}
+              onTrash={(ids) => void props.onTrash(ids)}
+              renamingId={renamingId}
+              onRenameStart={setRenamingId}
+              onRenameSubmit={(id, name) => void handleRenameSubmit(id, name)}
+              onRenameCancel={() => setRenamingId(null)}
+              onCopyId={(id) => void handleCopyId(id)}
+              onBringToFront={(id) => void handleBringToFront(id)}
+            />
+          </div>
         )}
+        <TableFooter
+          total={filtered.length}
+          page={safePage}
+          rowsPerPage={rowsPerPage}
+          onPageChange={setPage}
+          onRowsPerPageChange={setRowsPerPage}
+          profileCount={profiles.length}
+          settings={props.settings}
+        />
       </div>
+
+      {toast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-6 right-6 z-50 rounded-lg bg-fg px-4 py-2.5 text-sm text-surface-0 shadow-lg"
+        >
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

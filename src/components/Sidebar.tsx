@@ -1,49 +1,291 @@
-import { Folder, Globe, Play, Trash2 } from "lucide-react";
+import {
+  Building2,
+  Folder,
+  LayoutGrid,
+  Network,
+  Plus,
+  Search,
+  Smartphone,
+  Star,
+  Trash2,
+  User,
+  Users2,
+} from "lucide-react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-export type MainView = "profiles" | "running" | "trash" | "proxies";
+export type MainView =
+  | "profiles"
+  | "running"
+  | "favorites"
+  | "trash"
+  | "proxies"
+  | "settings";
+
+export interface SidebarFolder {
+  id: string;
+  name: string;
+  count: number;
+}
 
 interface SidebarProps {
   view: MainView;
-  runningCount: number;
   onNavigate: (view: MainView) => void;
+  folders: SidebarFolder[];
+  counts: { all: number; running: number; favorites: number; trash: number };
+  activeFolderId: string | null;
+  onSelectFolder: (id: string | null) => void;
+  onCreateFolder: (name: string) => void;
 }
 
-export function Sidebar({ view, runningCount, onNavigate }: SidebarProps) {
-  const { t } = useTranslation();
+const rowBase =
+  "w-full flex items-center gap-2.5 p-2 rounded-md text-sm font-medium text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60";
+const rowIdle = "text-[#1D192B] hover:bg-surface-3";
+const rowActive = "bg-[#F0F6FF] text-accent";
 
-  const items: { key: MainView; label: string; icon: React.ReactNode; badge?: number }[] = [
-    { key: "profiles", label: t("sidebar.allProfiles"), icon: <Folder className="h-4 w-4" aria-hidden="true" /> },
-    { key: "running", label: t("sidebar.running"), icon: <Play className="h-4 w-4" aria-hidden="true" />, badge: runningCount },
-    { key: "proxies", label: t("sidebar.proxies"), icon: <Globe className="h-4 w-4" aria-hidden="true" /> },
-    { key: "trash", label: t("sidebar.trash"), icon: <Trash2 className="h-4 w-4" aria-hidden="true" /> },
-  ];
+function NavRow({
+  icon,
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  count?: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={active ? "page" : undefined}
+      className={`${rowBase} ${active ? rowActive : rowIdle}`}
+    >
+      {icon}
+      <span className="flex-1 truncate">{label}</span>
+      {count !== undefined && (
+        <span className={`text-xs tabular-nums ${active ? "text-accent" : "text-fg-muted"}`}>
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
+
+export function Sidebar({
+  view,
+  onNavigate,
+  folders,
+  counts,
+  activeFolderId,
+  onSelectFolder,
+  onCreateFolder,
+}: SidebarProps) {
+  const { t } = useTranslation();
+  const [device, setDevice] = useState<"mobile" | "browser">("browser");
+  const [folderSearch, setFolderSearch] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+
+  const visibleFolders = useMemo(() => {
+    const q = folderSearch.trim().toLowerCase();
+    return q ? folders.filter((f) => f.name.toLowerCase().includes(q)) : folders;
+  }, [folders, folderSearch]);
+
+  const commitCreate = () => {
+    const name = newName.trim();
+    if (name) onCreateFolder(name);
+    setNewName("");
+    setCreating(false);
+  };
 
   return (
     <nav
-      className="w-52 shrink-0 border-r border-border bg-surface-1 p-2 space-y-0.5"
+      className="card m-2 mr-0 flex w-[260px] shrink-0 flex-col overflow-y-auto p-3"
       aria-label={t("sidebar.folders")}
     >
-      {items.map((item) => (
+      <div className="flex rounded-lg bg-surface-3 p-1" role="group" aria-label={t("sidebar.deviceType")}>
+        {(["mobile", "browser"] as const).map((d) => (
+          <button
+            key={d}
+            type="button"
+            onClick={() => setDevice(d)}
+            aria-pressed={device === d}
+            className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
+              device === d
+                ? "bg-accent text-white shadow-sm"
+                : "text-fg-muted hover:text-fg"
+            }`}
+          >
+            {t(`sidebar.${d}`)}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-3 space-y-0.5">
+        <NavRow
+          icon={<LayoutGrid className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />}
+          label={t("sidebar.allProfiles")}
+          count={counts.all}
+          active={view === "profiles" && activeFolderId === null}
+          onClick={() => {
+            onSelectFolder(null);
+            onNavigate("profiles");
+          }}
+        />
+        <NavRow
+          icon={<User className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />}
+          label={t("sidebar.runningProfiles")}
+          count={counts.running}
+          active={view === "running"}
+          onClick={() => onNavigate("running")}
+        />
+        <NavRow
+          icon={<Star className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />}
+          label={t("sidebar.favorites")}
+          count={counts.favorites}
+          active={view === "favorites"}
+          onClick={() => onNavigate("favorites")}
+        />
+      </div>
+
+      <div className="mt-3 flex items-center gap-2">
+        <div className="relative flex-1">
+          <input
+            type="search"
+            value={folderSearch}
+            onChange={(e) => setFolderSearch(e.target.value)}
+            placeholder={t("sidebar.searchFolders")}
+            aria-label={t("sidebar.searchFolders")}
+            className="h-9 w-full rounded-md bg-surface-2 pl-3 pr-8 text-sm text-fg placeholder:text-fg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+          />
+          <Search
+            className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-fg-muted"
+            aria-hidden="true"
+          />
+        </div>
         <button
-          key={item.key}
-          onClick={() => onNavigate(item.key)}
-          aria-current={view === item.key ? "page" : undefined}
-          className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
-            view === item.key
-              ? "bg-surface-3 font-medium"
-              : "text-fg-muted hover:bg-surface-2 hover:text-fg"
-          }`}
+          type="button"
+          onClick={() => setCreating(true)}
+          aria-label={t("sidebar.newFolder")}
+          title={t("sidebar.newFolder")}
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-accent/10 text-accent transition-colors hover:bg-accent/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
         >
-          {item.icon}
-          <span className="flex-1 truncate">{item.label}</span>
-          {item.badge !== undefined && item.badge > 0 && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/15 text-accent font-medium">
-              {item.badge}
-            </span>
-          )}
+          <Plus className="h-4 w-4" aria-hidden="true" />
         </button>
-      ))}
+      </div>
+
+      {creating && (
+        <input
+          autoFocus
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commitCreate();
+            if (e.key === "Escape") {
+              setNewName("");
+              setCreating(false);
+            }
+          }}
+          onBlur={commitCreate}
+          placeholder={t("sidebar.folderName")}
+          aria-label={t("sidebar.folderName")}
+          className="input mt-2 py-1.5 text-xs"
+        />
+      )}
+
+      <div className="mt-2 space-y-0.5">
+        {visibleFolders.map((f) => {
+          const active = view === "profiles" && activeFolderId === f.id;
+          return (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => {
+                onSelectFolder(f.id);
+                onNavigate("profiles");
+              }}
+              aria-current={active ? "page" : undefined}
+              className={`${rowBase} ${active ? rowActive : rowIdle}`}
+            >
+              <Folder
+                fill="currentColor"
+                strokeWidth={0}
+                className={`h-4 w-4 shrink-0 ${
+                  active || f.count > 0 ? "text-accent" : "text-fg-muted"
+                }`}
+                aria-hidden="true"
+              />
+              <span className="flex-1 truncate">{f.name}</span>
+              <span className={`text-xs tabular-nums ${active ? "text-accent" : "text-fg-muted"}`}>
+                {f.count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <hr className="my-2 border-border" aria-hidden="true" />
+      <NavRow
+        icon={<Trash2 className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />}
+        label={t("sidebar.trashBin")}
+        count={counts.trash}
+        active={view === "trash"}
+        onClick={() => onNavigate("trash")}
+      />
+
+      <div className="mt-auto pt-3">
+        <hr className="mb-2 border-border" aria-hidden="true" />
+        <div className="space-y-0.5">
+          <StatRow
+            icon={<Users2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+            label={t("sidebar.statTeam")}
+            value="—"
+          />
+          <StatRow
+            icon={<Network className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+            label={t("sidebar.statProxy")}
+            value="—"
+          />
+          <StatRow
+            icon={<Building2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+            label={t("sidebar.statIspProxies")}
+            value="0"
+          />
+          <StatRow
+            icon={<Smartphone className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+            label={t("sidebar.statMinutes")}
+            value="—"
+          />
+          <StatRow
+            icon={<LayoutGrid className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+            label={t("sidebar.profilesStat")}
+            value={counts.all}
+          />
+        </div>
+      </div>
     </nav>
+  );
+}
+
+function StatRow({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between px-3 py-1 text-xs">
+      <span className="flex items-center gap-2 font-medium text-fg-muted">
+        {icon}
+        {label}
+      </span>
+      <span className="tabular-nums text-fg">{value}</span>
+    </div>
   );
 }

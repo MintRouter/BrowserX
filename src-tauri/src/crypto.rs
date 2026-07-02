@@ -206,6 +206,16 @@ fn decode_key_b64(b64: &str) -> std::result::Result<[u8; KEY_LEN], String> {
         .map_err(|_| format!("expected {KEY_LEN}-byte key, got {} bytes", bytes.len()))
 }
 
+/// Cài khoá test CỐ ĐỊNH (env + cache) cho unit test module khác (vd. `export`)
+/// cần crypto mà không đụng OS keychain. Mọi caller cài đúng MỘT khoá nên an
+/// toàn khi test chạy song song (cùng giá trị với `install_env_master_key`).
+#[cfg(test)]
+pub(crate) fn install_test_master_key() {
+    let key = [42u8; KEY_LEN];
+    std::env::set_var(MASTER_KEY_ENV, B64.encode(key));
+    *MASTER_KEY.lock().unwrap() = Some(key);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

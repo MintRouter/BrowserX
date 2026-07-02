@@ -154,10 +154,39 @@ pub async fn eval(port: u16, js: &str) -> Result<serde_json::Value> {
     result
 }
 
+/// (W20a) `Page.bringToFront` trên tab đầu tiên — kích hoạt tab và đưa cửa sổ
+/// browser lên trước (Chromium headful trên macOS/Windows/Linux đều raise window).
+pub async fn bring_to_front(port: u16) -> Result<()> {
+    let session = CdpSession::connect(port).await?;
+    let result = tokio::time::timeout(OP_TIMEOUT, async {
+        let page = session.first_page().await?;
+        page.bring_to_front()
+            .await
+            .map_err(|e| AppError::Cdp(format!("bringToFront thất bại: {e}")))?;
+        Ok(())
+    })
+    .await
+    .unwrap_or_else(|_| {
+        Err(AppError::Cdp(format!(
+            "bringToFront timeout sau {OP_TIMEOUT:?}"
+        )))
+    });
+    session.disconnect();
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Không có endpoint CDP tại port → bring_to_front phải trả lỗi Cdp (fail
+    /// nhanh, không panic). Port 1 luôn đóng với user thường.
+    #[tokio::test]
+    async fn bring_to_front_fails_without_endpoint() {
+        let err = bring_to_front(1).await.unwrap_err();
+        assert!(matches!(err, AppError::Cdp(_) | AppError::Http(_)));
+    }
 
     #[test]
     fn parse_ws_url_ok() {

@@ -120,6 +120,41 @@ pub fn build_args(profile: &Profile, proxy_url: Option<&str>, cdp_port: u16) -> 
         ));
     }
 
+    // (W19c) Fingerprint controls nâng cao — flag thật của CloakBrowser binary.
+    // Noise injection (canvas/WebGL/audio/client-rects) bật mặc định trong binary;
+    // chỉ cần emit khi TẮT.
+    if !profile.fp_noise {
+        args.set("--fingerprint-noise=false");
+    }
+    // WebRTC: binary chỉ hỗ trợ spoof ICE public IP. "masked" → set IP (nếu trống
+    // → "auto": binary tự lấy IP công khai từ proxy/mạng). "real" → không đụng.
+    if profile.webrtc_mode == "masked" {
+        let ip = profile
+            .webrtc_ip
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("auto");
+        args.set(format!("--fingerprint-webrtc-ip={}", ip));
+    }
+    // Geolocation: "manual" + đủ lat/lon → --fingerprint-location=lat,lon.
+    if profile.geolocation_mode == "manual" {
+        if let (Some(lat), Some(lon)) = (
+            profile
+                .geo_latitude
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty()),
+            profile
+                .geo_longitude
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty()),
+        ) {
+            args.set(format!("--fingerprint-location={},{}", lat, lon));
+        }
+    }
+
     // Cờ vận hành bắt buộc — luôn từ tham số của ta.
     args.set(format!("--user-data-dir={}", profile.user_data_dir));
     args.set(format!("--remote-debugging-port={}", cdp_port));
@@ -129,7 +164,27 @@ pub fn build_args(profile: &Profile, proxy_url: Option<&str>, cdp_port: u16) -> 
         args.set(flag);
     }
 
-    args.into_vec()
+    // Startup behavior (W18c): "custom" → URLs làm positional args (append SAU mọi
+    // flag, không dedup theo key); mặc định/"restore" → mở lại phiên trước.
+    let mut startup_urls: Vec<String> = Vec::new();
+    if profile.startup_behavior == "custom" {
+        if let Some(list) = profile.startup_urls.as_array() {
+            for v in list {
+                if let Some(s) = v.as_str() {
+                    let s = s.trim();
+                    if !s.is_empty() {
+                        startup_urls.push(s.to_string());
+                    }
+                }
+            }
+        }
+    } else {
+        args.set("--restore-last-session");
+    }
+
+    let mut argv = args.into_vec();
+    argv.extend(startup_urls);
+    argv
 }
 
 /// Dựng arg proxy từ URL đã giải mã. Port `_resolve_proxy_config` (#L1305-L1352):
@@ -166,10 +221,25 @@ mod tests {
             launch_args: serde_json::json!([]),
             user_data_dir: "/tmp/udd".into(),
             notes: None,
+            folder_id: None,
+            favorite: false,
+            is_quick: false,
             proxy_id: None,
             tags: vec![],
             created_at: "2026-07-01T00:00:00Z".into(),
             updated_at: "2026-07-01T00:00:00Z".into(),
+            last_start_at: None,
+            startup_behavior: "restore".into(),
+            startup_urls: serde_json::json!([]),
+            fp_noise: true,
+            webrtc_mode: "real".into(),
+            webrtc_ip: None,
+            geolocation_mode: "auto".into(),
+            geo_latitude: None,
+            geo_longitude: None,
+            store_history: true,
+            store_passwords: true,
+            store_sw_cache: true,
         }
     }
 
@@ -278,6 +348,103 @@ mod tests {
         assert_eq!(count_key(&args, "--lang"), 1);
         // flag không đụng key vẫn giữ.
         assert_eq!(value_of(&args, "--window-size"), Some("800,600"));
+    }
+
+    #[test]
+    fn startup_restore_adds_flag_no_positional() {
+        let p = base_profile();
+        let args = build_args(&p, None, 1);
+        assert!(args.iter().any(|a| a == "--restore-last-session"));
+        // Không có positional arg nào (mọi phần tử đều là flag).
+        assert!(args.iter().all(|a| a.starts_with("--")));
+    }
+
+    #[test]
+    fn startup_custom_appends_urls_as_positional_after_flags() {
+        let mut p = base_profile();
+        p.startup_behavior = "custom".into();
+        p.startup_urls =
+            serde_json::json!(["https://a.example", " https://b.example ", ""]);
+        let args = build_args(&p, None, 1);
+        assert!(!args.iter().any(|a| a == "--restore-last-session"));
+        // URLs (trim, bỏ rỗng) nằm CUỐI argv, sau mọi flag.
+        assert_eq!(
+            &args[args.len() - 2..],
+            ["https://a.example", "https://b.example"]
+        );
+        assert!(args[..args.len() - 2].iter().all(|a| a.starts_with("--")));
+
+        // Custom nhưng danh sách rỗng → không có positional, cũng không restore.
+        p.startup_urls = serde_json::json!([]);
+        let args = build_args(&p, None, 1);
+        assert!(!args.iter().any(|a| a == "--restore-last-session"));
+        assert!(args.iter().all(|a| a.starts_with("--")));
+    }
+
+    #[test]
+    fn fp_noise_flag_only_when_disabled() {
+        let mut p = base_profile();
+        // Mặc định (bật) → không emit flag.
+        assert_eq!(count_key(&build_args(&p, None, 1), "--fingerprint-noise"), 0);
+        p.fp_noise = false;
+        let args = build_args(&p, None, 1);
+        assert_eq!(value_of(&args, "--fingerprint-noise"), Some("false"));
+        assert_eq!(count_key(&args, "--fingerprint-noise"), 1);
+    }
+
+    #[test]
+    fn webrtc_masked_sets_ip_real_omits() {
+        let mut p = base_profile();
+        // real (mặc định) → không có flag.
+        assert_eq!(
+            count_key(&build_args(&p, None, 1), "--fingerprint-webrtc-ip"),
+            0
+        );
+        // masked không IP → "auto".
+        p.webrtc_mode = "masked".into();
+        assert_eq!(
+            value_of(&build_args(&p, None, 1), "--fingerprint-webrtc-ip"),
+            Some("auto")
+        );
+        // masked + IP cụ thể (có khoảng trắng thừa) → dùng IP đó.
+        p.webrtc_ip = Some(" 203.0.113.7 ".into());
+        assert_eq!(
+            value_of(&build_args(&p, None, 1), "--fingerprint-webrtc-ip"),
+            Some("203.0.113.7")
+        );
+        // real + IP set sẵn → vẫn không emit.
+        p.webrtc_mode = "real".into();
+        assert_eq!(
+            count_key(&build_args(&p, None, 1), "--fingerprint-webrtc-ip"),
+            0
+        );
+    }
+
+    #[test]
+    fn geolocation_manual_sets_location_when_complete() {
+        let mut p = base_profile();
+        // auto → không có flag.
+        assert_eq!(
+            count_key(&build_args(&p, None, 1), "--fingerprint-location"),
+            0
+        );
+        // manual nhưng thiếu toạ độ → bỏ qua.
+        p.geolocation_mode = "manual".into();
+        assert_eq!(
+            count_key(&build_args(&p, None, 1), "--fingerprint-location"),
+            0
+        );
+        p.geo_latitude = Some("52.5".into());
+        assert_eq!(
+            count_key(&build_args(&p, None, 1), "--fingerprint-location"),
+            0
+        );
+        // Đủ lat+lon → lat,lon (trim).
+        p.geo_longitude = Some(" 13.4 ".into());
+        assert_eq!(
+            value_of(&build_args(&p, None, 1), "--fingerprint-location"),
+            Some("52.5,13.4")
+        );
     }
 
     #[test]

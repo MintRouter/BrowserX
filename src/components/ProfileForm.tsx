@@ -1,8 +1,21 @@
-import { Dices, Save, Trash2, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ChevronLeft } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { Platform, Profile, ProfileInput, Proxy } from "../lib/api";
+import {
+  api,
+  type Folder,
+  type Profile,
+  type ProfileInput,
+  type ProfileTemplate,
+  type Proxy,
+} from "../lib/api";
 import { detectHostPlatform } from "../lib/host";
+import { ExtraTab } from "./profile-form/ExtraTab";
+import { FingerprintTab } from "./profile-form/FingerprintTab";
+import { GeneralTab } from "./profile-form/GeneralTab";
+import { OverviewPanel } from "./profile-form/OverviewPanel";
+import { ProxyTab } from "./profile-form/ProxyTab";
+import type { FormState, SetField } from "./profile-form/types";
 
 interface ProfileFormProps {
   profile: Profile | null; // null = create mode
@@ -10,528 +23,509 @@ interface ProfileFormProps {
   onSave: (data: ProfileInput) => Promise<void>;
   onDelete?: () => Promise<void>;
   onCancel: () => void;
+  /** Optional: pass folders to skip the internal api.listFolders() fetch. */
+  folders?: Folder[];
 }
 
-const RESOLUTION_PRESETS: Record<string, { width: number; height: number }> = {
-  "1920 × 1080 (Full HD)": { width: 1920, height: 1080 },
-  "2560 × 1440 (QHD)": { width: 2560, height: 1440 },
-  "1366 × 768 (HD)": { width: 1366, height: 768 },
-  "1440 × 900": { width: 1440, height: 900 },
-  "1536 × 864": { width: 1536, height: 864 },
-  "1280 × 720 (720p)": { width: 1280, height: 720 },
-};
-
-const GPU_PRESETS: Record<string, { vendor: string; renderer: string }> = {
-  "NVIDIA RTX 3070": {
-    vendor: "Google Inc. (NVIDIA)",
-    renderer: "ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 (0x00002484) Direct3D11 vs_5_0 ps_5_0, D3D11)",
-  },
-  "NVIDIA RTX 4070": {
-    vendor: "Google Inc. (NVIDIA)",
-    renderer: "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 (0x00002786) Direct3D11 vs_5_0 ps_5_0, D3D11)",
-  },
-  "AMD RX 6800 XT": {
-    vendor: "Google Inc. (AMD)",
-    renderer: "ANGLE (AMD, AMD Radeon RX 6800 XT (0x000073BF) Direct3D11 vs_5_0 ps_5_0, D3D11)",
-  },
-  "Intel UHD 770": {
-    vendor: "Google Inc. (Intel)",
-    renderer: "ANGLE (Intel, Intel(R) UHD Graphics 770 (0x00004680) Direct3D11 vs_5_0 ps_5_0, D3D11)",
-  },
-  "Apple M3 (macOS)": {
-    vendor: "Google Inc. (Apple)",
-    renderer: "ANGLE (Apple, ANGLE Metal Renderer: Apple M3, Unspecified Version)",
-  },
-};
+const TABS = ["general", "proxy", "fingerprint", "extra"] as const;
+type TabId = (typeof TABS)[number];
 
 const HOST_PLATFORM = detectHostPlatform();
+const DEFAULT_FOLDER_NAME = "Default folder";
 
-export function ProfileForm({ profile, proxies, onSave, onDelete, onCancel }: ProfileFormProps) {
-  const { t } = useTranslation();
-  const isEdit = profile !== null;
-
-  const [form, setForm] = useState<ProfileInput>({
-    name: "",
+function initialState(profile: Profile | null, defaultName: string): FormState {
+  if (profile) {
+    return {
+      name: profile.name,
+      fingerprint_seed: profile.fingerprint_seed,
+      platform: profile.platform,
+      timezone: profile.timezone,
+      locale: profile.locale,
+      screen_width: profile.screen_width,
+      screen_height: profile.screen_height,
+      gpu_vendor: profile.gpu_vendor,
+      gpu_renderer: profile.gpu_renderer,
+      hardware_concurrency: profile.hardware_concurrency,
+      humanize: profile.humanize,
+      human_preset: profile.human_preset ?? "default",
+      headless: profile.headless,
+      geoip: profile.geoip,
+      color_scheme: profile.color_scheme,
+      notes: profile.notes ?? "",
+      proxy_id: profile.proxy_id,
+      tags: profile.tags ?? [],
+      folder_id: profile.folder_id,
+      startup_behavior: profile.startup_behavior ?? "restore",
+      startup_urls: profile.startup_urls ?? [],
+      fp_noise: profile.fp_noise ?? true,
+      webrtc_mode: profile.webrtc_mode ?? "real",
+      webrtc_ip: profile.webrtc_ip,
+      geolocation_mode: profile.geolocation_mode ?? "auto",
+      geo_latitude: profile.geo_latitude,
+      geo_longitude: profile.geo_longitude,
+      store_history: profile.store_history ?? true,
+      store_passwords: profile.store_passwords ?? true,
+      store_sw_cache: profile.store_sw_cache ?? true,
+    };
+  }
+  return {
+    name: defaultName,
+    fingerprint_seed: null,
     platform: HOST_PLATFORM,
+    timezone: null,
+    locale: null,
     screen_width: 1920,
     screen_height: 1080,
+    gpu_vendor: null,
+    gpu_renderer: null,
+    hardware_concurrency: null,
     humanize: false,
     human_preset: "default",
     headless: false,
     geoip: false,
-    launch_args: [],
-    tags: [],
+    color_scheme: null,
+    notes: "",
     proxy_id: null,
-  });
+    tags: [],
+    folder_id: null,
+    startup_behavior: "restore",
+    startup_urls: [],
+    fp_noise: true,
+    webrtc_mode: "real",
+    webrtc_ip: null,
+    geolocation_mode: "auto",
+    geo_latitude: null,
+    geo_longitude: null,
+    store_history: true,
+    store_passwords: true,
+    store_sw_cache: true,
+  };
+}
 
+/** Parse the launch-args textarea: must be empty or a JSON array of strings. */
+function parseLaunchArgs(text: string): { args: string[] } | { error: true } {
+  const trimmed = text.trim();
+  if (!trimmed) return { args: [] };
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (Array.isArray(parsed) && parsed.every((x) => typeof x === "string")) {
+      return { args: parsed as string[] };
+    }
+  } catch {
+    // fall through to error
+  }
+  return { error: true };
+}
+
+export function ProfileForm({
+  profile,
+  proxies,
+  onSave,
+  onDelete,
+  onCancel,
+  folders: foldersProp,
+}: ProfileFormProps) {
+  const { t } = useTranslation();
+  const isEdit = profile !== null;
+
+  const [form, setForm] = useState<FormState>(() =>
+    initialState(profile, t("pform.ov.defaultName")),
+  );
+  const [argsText, setArgsText] = useState(() =>
+    profile && profile.launch_args.length > 0
+      ? JSON.stringify(profile.launch_args)
+      : "",
+  );
+  const [activeTab, setActiveTab] = useState<TabId>("general");
   const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [tagInput, setTagInput] = useState("");
-  const [launchArgInput, setLaunchArgInput] = useState("");
+  const [trashing, setTrashing] = useState(false);
+  const [folders, setFolders] = useState<Folder[]>(foldersProp ?? []);
+  const [allTags, setAllTags] = useState<string[]>([]);
+  // (W20b) Profile templates: dropdown fills the form in create mode;
+  // "Save as template" snapshots the current form.
+  const [templates, setTemplates] = useState<ProfileTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [templateStatus, setTemplateStatus] = useState<
+    "idle" | "saved" | "error"
+  >("idle");
+  const defaultFolderApplied = useRef(false);
+  const tabRefs = useRef<Partial<Record<TabId, HTMLButtonElement | null>>>({});
 
+  const set: SetField = (key, value) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  // Re-sync when switching to a different profile.
   useEffect(() => {
     if (profile) {
-      setForm({
-        name: profile.name,
-        fingerprint_seed: profile.fingerprint_seed,
-        platform: profile.platform,
-        timezone: profile.timezone,
-        locale: profile.locale,
-        screen_width: profile.screen_width,
-        screen_height: profile.screen_height,
-        gpu_vendor: profile.gpu_vendor,
-        gpu_renderer: profile.gpu_renderer,
-        hardware_concurrency: profile.hardware_concurrency,
-        humanize: profile.humanize,
-        human_preset: profile.human_preset ?? "default",
-        headless: profile.headless,
-        geoip: profile.geoip,
-        color_scheme: profile.color_scheme,
-        launch_args: profile.launch_args ?? [],
-        notes: profile.notes,
-        proxy_id: profile.proxy_id,
-        tags: profile.tags ?? [],
-      });
+      setForm(initialState(profile, ""));
+      setArgsText(
+        profile.launch_args.length > 0 ? JSON.stringify(profile.launch_args) : "",
+      );
     }
   }, [profile?.id]);
 
-  const set = <K extends keyof ProfileInput>(key: K, value: ProfileInput[K]) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
+  // Folders: prefer the optional prop, otherwise self-fetch.
+  useEffect(() => {
+    if (foldersProp) {
+      setFolders(foldersProp);
+      return;
+    }
+    let cancelled = false;
+    api
+      .listFolders()
+      .then((f) => {
+        if (!cancelled) setFolders(f);
+      })
+      .catch(() => {
+        // offline / non-Tauri: keep empty list
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [foldersProp]);
+
+  // Tag suggestions.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listTags()
+      .then((tags) => {
+        if (!cancelled) setAllTags(tags);
+      })
+      .catch(() => {
+        // offline / non-Tauri: keep empty list
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // (W20b) Available templates for the create-mode dropdown.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listTemplates()
+      .then((list) => {
+        if (!cancelled) setTemplates(list);
+      })
+      .catch(() => {
+        // offline / non-Tauri: keep empty list
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Create mode: preselect the "Default folder" once folders arrive.
+  useEffect(() => {
+    if (isEdit || defaultFolderApplied.current || folders.length === 0) return;
+    defaultFolderApplied.current = true;
+    const def = folders.find((f) => f.name === DEFAULT_FOLDER_NAME) ?? folders[0];
+    if (!def) return;
+    setForm((prev) => (prev.folder_id ? prev : { ...prev, folder_id: def.id }));
+  }, [folders, isEdit]);
+
+  const parsedArgs = parseLaunchArgs(argsText);
+  const argsInvalid = "error" in parsedArgs;
+  const canSave = form.name.trim().length > 0 && !argsInvalid && !saving;
+
+  /** Snapshot the form as a ProfileInput (shared by save and save-as-template). */
+  const buildInput = (launchArgs: string[]): ProfileInput => ({
+    name: form.name.trim(),
+    fingerprint_seed: form.fingerprint_seed,
+    platform: form.platform,
+    timezone: form.timezone,
+    locale: form.locale,
+    screen_width: form.screen_width,
+    screen_height: form.screen_height,
+    gpu_vendor: form.gpu_vendor,
+    gpu_renderer: form.gpu_renderer,
+    hardware_concurrency: form.hardware_concurrency,
+    humanize: form.humanize,
+    human_preset: form.human_preset,
+    headless: form.headless,
+    geoip: form.geoip,
+    color_scheme: form.color_scheme,
+    launch_args: launchArgs,
+    notes: form.notes.trim() || null,
+    proxy_id: form.proxy_id,
+    tags: form.tags,
+    folder_id: form.folder_id,
+    startup_behavior: form.startup_behavior,
+    startup_urls: form.startup_urls,
+    fp_noise: form.fp_noise,
+    webrtc_mode: form.webrtc_mode,
+    webrtc_ip: form.webrtc_ip?.trim() || null,
+    geolocation_mode: form.geolocation_mode,
+    geo_latitude: form.geo_latitude?.trim() || null,
+    geo_longitude: form.geo_longitude?.trim() || null,
+    store_history: form.store_history,
+    store_passwords: form.store_passwords,
+    store_sw_cache: form.store_sw_cache,
+  });
+
+  // (W20b) Save the current form as a reusable template.
+  const handleSaveTemplate = async () => {
+    if ("error" in parsedArgs) return;
+    try {
+      await api.saveAsTemplate(
+        form.name.trim() || t("pform.ov.defaultName"),
+        buildInput(parsedArgs.args),
+      );
+      setTemplateStatus("saved");
+      api.listTemplates().then(setTemplates).catch(() => {});
+    } catch {
+      setTemplateStatus("error");
+    }
+  };
+
+  // (W20b) Fill the form from a template (create mode). Name is kept as typed;
+  // fingerprint seed stays null so the new profile gets a fresh one.
+  const applyTemplate = (id: string) => {
+    setSelectedTemplateId(id);
+    const tpl = templates.find((x) => x.id === id);
+    if (!tpl) return;
+    const c = tpl.config;
+    setForm((prev) => ({
+      ...prev,
+      fingerprint_seed: null,
+      platform: c.platform ?? prev.platform,
+      timezone: c.timezone ?? null,
+      locale: c.locale ?? null,
+      screen_width: c.screen_width ?? 1920,
+      screen_height: c.screen_height ?? 1080,
+      gpu_vendor: c.gpu_vendor ?? null,
+      gpu_renderer: c.gpu_renderer ?? null,
+      hardware_concurrency: c.hardware_concurrency ?? null,
+      humanize: c.humanize ?? false,
+      human_preset: c.human_preset ?? "default",
+      headless: c.headless ?? false,
+      geoip: c.geoip ?? false,
+      color_scheme: c.color_scheme ?? null,
+      notes: c.notes ?? "",
+      proxy_id: c.proxy_id ?? null,
+      tags: c.tags ?? [],
+      folder_id: c.folder_id !== undefined ? c.folder_id : prev.folder_id,
+      startup_behavior: c.startup_behavior ?? "restore",
+      startup_urls: c.startup_urls ?? [],
+      fp_noise: c.fp_noise ?? true,
+      webrtc_mode: c.webrtc_mode ?? "real",
+      webrtc_ip: c.webrtc_ip ?? null,
+      geolocation_mode: c.geolocation_mode ?? "auto",
+      geo_latitude: c.geo_latitude ?? null,
+      geo_longitude: c.geo_longitude ?? null,
+      store_history: c.store_history ?? true,
+      store_passwords: c.store_passwords ?? true,
+      store_sw_cache: c.store_sw_cache ?? true,
+    }));
+    setArgsText(
+      c.launch_args && c.launch_args.length > 0
+        ? JSON.stringify(c.launch_args)
+        : "",
+    );
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim()) return;
+    if (!canSave || "error" in parsedArgs) return;
     setSaving(true);
     try {
-      await onSave(form);
+      const input = buildInput(parsedArgs.args);
+      if (isEdit && profile) {
+        // Backend ProfileUpdate has no folder_id — persist the move explicitly.
+        if (form.folder_id !== profile.folder_id) {
+          try {
+            await api.moveProfilesToFolder([profile.id], form.folder_id);
+          } catch {
+            // non-fatal: profile is still saved without the folder change
+          }
+        }
+        await onSave(input);
+      } else {
+        await onSave(input);
+        // Backend ProfileInput has no folder_id — locate the created profile
+        // by name and move it into the selected folder.
+        if (form.folder_id) {
+          try {
+            const list = await api.listProfiles();
+            const created = list
+              .filter((p) => p.name === input.name)
+              .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+            if (created && created.folder_id !== form.folder_id) {
+              await api.moveProfilesToFolder([created.id], form.folder_id);
+            }
+          } catch {
+            // non-fatal: profile created without folder assignment
+          }
+        }
+      }
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDelete = async () => {
-    if (!onDelete) return;
-    if (!confirm(t("form.confirmDelete"))) return;
-    setDeleting(true);
+  const handleTrash = async () => {
+    if (!profile) return;
+    if (!confirm(t("pform.confirmTrash"))) return;
+    setTrashing(true);
     try {
-      await onDelete();
+      try {
+        await api.trashProfiles([profile.id]);
+        onCancel();
+      } catch {
+        // trash command unavailable → fall back to hard delete
+        if (onDelete) await onDelete();
+        else onCancel();
+      }
     } finally {
-      setDeleting(false);
+      setTrashing(false);
     }
   };
 
-  const applyGpuPreset = (name: string) => {
-    const preset = GPU_PRESETS[name];
-    if (preset) {
-      setForm((prev) => ({ ...prev, gpu_vendor: preset.vendor, gpu_renderer: preset.renderer }));
+  const handleTabKeyDown = (e: React.KeyboardEvent) => {
+    const idx = TABS.indexOf(activeTab);
+    let next: TabId | null = null;
+    if (e.key === "ArrowRight") next = TABS[(idx + 1) % TABS.length] ?? null;
+    else if (e.key === "ArrowLeft") next = TABS[(idx - 1 + TABS.length) % TABS.length] ?? null;
+    else if (e.key === "Home") next = TABS[0] ?? null;
+    else if (e.key === "End") next = TABS[TABS.length - 1] ?? null;
+    if (next) {
+      e.preventDefault();
+      setActiveTab(next);
+      tabRefs.current[next]?.focus();
     }
   };
-
-  const randomizeSeed = () => {
-    set("fingerprint_seed", String(Math.floor(Math.random() * 90000) + 10000));
-  };
-
-  const currentResolution =
-    Object.entries(RESOLUTION_PRESETS).find(
-      ([, v]) => v.width === form.screen_width && v.height === form.screen_height,
-    )?.[0] ?? "custom";
-
-  const addTag = () => {
-    const tag = tagInput.trim();
-    if (!tag || form.tags?.includes(tag)) return;
-    set("tags", [...(form.tags ?? []), tag]);
-    setTagInput("");
-  };
-
-  const removeTag = (tag: string) => {
-    set("tags", (form.tags ?? []).filter((x) => x !== tag));
-  };
-
-  const addLaunchArg = () => {
-    const arg = launchArgInput.trim();
-    if (!arg || (form.launch_args ?? []).includes(arg)) return;
-    set("launch_args", [...(form.launch_args ?? []), arg]);
-    setLaunchArgInput("");
-  };
-
-  const removeLaunchArg = (idx: number) => {
-    set("launch_args", (form.launch_args ?? []).filter((_, i) => i !== idx));
-  };
-
-  const platformMismatch = form.platform !== HOST_PLATFORM;
 
   return (
-    <form onSubmit={handleSubmit} className="p-6 max-w-2xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold">
-            {isEdit ? t("form.editProfile") : t("form.newProfile")}
-          </h2>
-          {isEdit && onDelete && (
-            <button type="button" onClick={handleDelete} disabled={deleting} className="btn-danger">
-              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-              <span>{deleting ? t("form.deleting") : t("form.delete")}</span>
+    <form onSubmit={handleSubmit} className="flex h-full min-h-0 flex-col">
+      {/* Header */}
+      <div className="px-6 pb-3 pt-5">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="inline-flex items-center gap-0.5 rounded text-sm font-medium text-accent hover:text-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+        >
+          <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+          {t("pform.back")}
+        </button>
+        <h1 className="mt-1 text-lg font-medium leading-6 text-[#1D192B] dark:text-fg">
+          {isEdit ? t("pform.editTitle") : t("pform.createTitle")}
+        </h1>
+      </div>
+
+      {/* Tab bar */}
+      <div
+        role="tablist"
+        aria-label={t("pform.tabsLabel")}
+        onKeyDown={handleTabKeyDown}
+        className="flex border-b border-border px-6"
+      >
+        {TABS.map((tab) => {
+          const active = tab === activeTab;
+          return (
+            <button
+              key={tab}
+              ref={(el) => {
+                tabRefs.current[tab] = el;
+              }}
+              type="button"
+              role="tab"
+              id={`pf-tab-${tab}`}
+              aria-selected={active}
+              aria-controls="pf-tabpanel"
+              tabIndex={active ? 0 : -1}
+              onClick={() => setActiveTab(tab)}
+              className={[
+                "-mb-px inline-flex h-12 items-center border-b-2 px-8 text-sm font-medium",
+                "transition-colors motion-reduce:transition-none",
+                "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60",
+                active
+                  ? "border-accent text-accent"
+                  : "border-transparent text-[#1D192B] hover:text-fg dark:text-fg",
+              ].join(" ")}
+            >
+              {t(`pform.tabs.${tab}`)}
             </button>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={onCancel} className="btn-secondary">
-            {t("form.cancel")}
-          </button>
-          <button type="submit" disabled={saving} className="btn-primary">
-            <Save className="h-3.5 w-3.5" aria-hidden="true" />
-            <span>{saving ? t("form.saving") : isEdit ? t("form.save") : t("form.create")}</span>
-          </button>
+          );
+        })}
+      </div>
+
+      {/* Content: form column + overview column */}
+      <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
+        <div className="flex flex-col gap-6 px-6 py-5 lg:h-full lg:flex-row">
+          <div
+            id="pf-tabpanel"
+            role="tabpanel"
+            aria-labelledby={`pf-tab-${activeTab}`}
+            tabIndex={0}
+            className="min-w-0 flex-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 lg:h-full lg:max-w-[640px] lg:overflow-y-auto lg:pr-2"
+          >
+            {activeTab === "general" && (
+              <GeneralTab
+                form={form}
+                set={set}
+                folders={folders}
+                allTags={allTags}
+                autoFocusName={!isEdit}
+                templates={templates}
+                selectedTemplateId={selectedTemplateId}
+                onApplyTemplate={isEdit ? undefined : applyTemplate}
+                onSaveTemplate={handleSaveTemplate}
+                templateStatus={templateStatus}
+              />
+            )}
+            {activeTab === "proxy" && (
+              <ProxyTab form={form} set={set} proxies={proxies} />
+            )}
+            {activeTab === "fingerprint" && <FingerprintTab form={form} set={set} />}
+            {activeTab === "extra" && (
+              <ExtraTab
+                form={form}
+                set={set}
+                argsText={argsText}
+                onArgsChange={setArgsText}
+                argsError={argsInvalid ? t("pform.launchArgsError") : null}
+              />
+            )}
+          </div>
+          <aside
+            aria-label={t("pform.ov.title")}
+            className="w-full shrink-0 lg:h-full lg:w-[340px] lg:overflow-y-auto"
+          >
+            <div className="lg:sticky lg:top-0">
+              <OverviewPanel form={form} proxies={proxies} />
+            </div>
+          </aside>
         </div>
       </div>
 
-      <div className="space-y-5">
-        {/* Basic */}
-        <section>
-          <h3 className="text-xs font-semibold text-fg-muted uppercase tracking-wider mb-3">{t("form.basic")}</h3>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2">
-              <label className="label" htmlFor="pf-name">{t("form.profileName")}</label>
-              <input
-                id="pf-name"
-                className="input"
-                value={form.name}
-                onChange={(e) => set("name", e.target.value)}
-                placeholder={t("form.namePlaceholder")}
-                required
-              />
-            </div>
-            <div>
-              <label className="label" htmlFor="pf-platform">{t("form.platform")}</label>
-              <select
-                id="pf-platform"
-                className="input"
-                value={form.platform}
-                onChange={(e) => set("platform", e.target.value as Platform)}
-              >
-                <option value="windows">Windows</option>
-                <option value="macos">macOS</option>
-                <option value="linux">Linux</option>
-              </select>
-            </div>
-            <div>
-              <label className="label" htmlFor="pf-seed">{t("form.fingerprintSeed")}</label>
-              <div className="flex gap-2">
-                <input
-                  id="pf-seed"
-                  className="input flex-1"
-                  value={form.fingerprint_seed ?? ""}
-                  onChange={(e) => set("fingerprint_seed", e.target.value || null)}
-                  placeholder={t("form.seedPlaceholder")}
-                />
-                <button
-                  type="button"
-                  onClick={randomizeSeed}
-                  className="btn-secondary px-2.5"
-                  aria-label={t("form.randomizeSeed")}
-                  title={t("form.randomizeSeed")}
-                >
-                  <Dices className="h-4 w-4" aria-hidden="true" />
-                </button>
-              </div>
-            </div>
-            {platformMismatch && (
-              <p
-                className="col-span-2 text-xs text-warning bg-warning/10 border border-warning/30 rounded-md px-3 py-2"
-                role="alert"
-              >
-                {t("form.platformMismatch", { target: form.platform, host: HOST_PLATFORM })}
-              </p>
-            )}
-          </div>
-        </section>
-
-        {/* Network */}
-        <section>
-          <h3 className="text-xs font-semibold text-fg-muted uppercase tracking-wider mb-3">{t("form.network")}</h3>
-          <div className="space-y-3">
-            <div>
-              <label className="label" htmlFor="pf-proxy">{t("form.proxy")}</label>
-              <select
-                id="pf-proxy"
-                className="input"
-                value={form.proxy_id ?? ""}
-                onChange={(e) => set("proxy_id", e.target.value || null)}
-              >
-                <option value="">{t("form.noProxy")}</option>
-                {proxies.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.protocol}://{p.host}:{p.port})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="label" htmlFor="pf-tz">{t("form.timezone")}</label>
-                <input
-                  id="pf-tz"
-                  className="input"
-                  value={form.timezone ?? ""}
-                  onChange={(e) => set("timezone", e.target.value || null)}
-                  placeholder="Asia/Ho_Chi_Minh"
-                />
-              </div>
-              <div>
-                <label className="label" htmlFor="pf-locale">{t("form.locale")}</label>
-                <input
-                  id="pf-locale"
-                  className="input"
-                  value={form.locale ?? ""}
-                  onChange={(e) => set("locale", e.target.value || null)}
-                  placeholder="vi-VN"
-                />
-              </div>
-            </div>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={form.geoip ?? false}
-                onChange={(e) => set("geoip", e.target.checked)}
-                className="rounded border-border bg-surface-2"
-              />
-              {t("form.geoip")}
-            </label>
-          </div>
-        </section>
-
-        {/* Hardware */}
-        <section>
-          <h3 className="text-xs font-semibold text-fg-muted uppercase tracking-wider mb-3">{t("form.hardware")}</h3>
-          <div className="space-y-3">
-            <div>
-              <label className="label" htmlFor="pf-res">{t("form.resolution")}</label>
-              <select
-                id="pf-res"
-                className="input"
-                value={currentResolution}
-                onChange={(e) => {
-                  const preset = RESOLUTION_PRESETS[e.target.value];
-                  if (preset) {
-                    setForm((prev) => ({ ...prev, screen_width: preset.width, screen_height: preset.height }));
-                  }
-                }}
-              >
-                {Object.keys(RESOLUTION_PRESETS).map((name) => (
-                  <option key={name} value={name}>{name}</option>
-                ))}
-                <option value="custom">{t("form.custom")}</option>
-              </select>
-            </div>
-            {currentResolution === "custom" && (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="label" htmlFor="pf-w">{t("form.width")}</label>
-                  <input
-                    id="pf-w"
-                    className="input"
-                    type="number"
-                    value={form.screen_width ?? 1920}
-                    onChange={(e) => set("screen_width", Number(e.target.value))}
-                  />
-                </div>
-                <div>
-                  <label className="label" htmlFor="pf-h">{t("form.height")}</label>
-                  <input
-                    id="pf-h"
-                    className="input"
-                    type="number"
-                    value={form.screen_height ?? 1080}
-                    onChange={(e) => set("screen_height", Number(e.target.value))}
-                  />
-                </div>
-              </div>
-            )}
-            <div>
-              <label className="label" htmlFor="pf-hc">{t("form.hardwareConcurrency")}</label>
-              <input
-                id="pf-hc"
-                className="input no-spin"
-                type="number"
-                value={form.hardware_concurrency ?? ""}
-                onChange={(e) => set("hardware_concurrency", e.target.value ? Number(e.target.value) : null)}
-                placeholder={t("form.auto")}
-              />
-            </div>
-            <div>
-              <label className="label" htmlFor="pf-gpu-preset">{t("form.gpuPreset")}</label>
-              <select
-                id="pf-gpu-preset"
-                className="input"
-                value=""
-                onChange={(e) => {
-                  if (e.target.value) applyGpuPreset(e.target.value);
-                }}
-              >
-                <option value="">{t("form.selectPreset")}</option>
-                {Object.keys(GPU_PRESETS).map((name) => (
-                  <option key={name} value={name}>{name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="label" htmlFor="pf-gpu-v">{t("form.gpuVendor")}</label>
-              <input
-                id="pf-gpu-v"
-                className="input"
-                value={form.gpu_vendor ?? ""}
-                onChange={(e) => set("gpu_vendor", e.target.value || null)}
-                placeholder={t("form.auto")}
-              />
-            </div>
-            <div>
-              <label className="label" htmlFor="pf-gpu-r">{t("form.gpuRenderer")}</label>
-              <input
-                id="pf-gpu-r"
-                className="input"
-                value={form.gpu_renderer ?? ""}
-                onChange={(e) => set("gpu_renderer", e.target.value || null)}
-                placeholder={t("form.auto")}
-              />
-            </div>
-          </div>
-        </section>
-
-        {/* Behavior */}
-        <section>
-          <h3 className="text-xs font-semibold text-fg-muted uppercase tracking-wider mb-3">{t("form.behavior")}</h3>
-          <div className="space-y-3">
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={form.humanize ?? false}
-                onChange={(e) => set("humanize", e.target.checked)}
-                className="rounded border-border bg-surface-2"
-              />
-              {t("form.humanize")}
-            </label>
-            {form.humanize && (
-              <div>
-                <label className="label" htmlFor="pf-human">{t("form.humanPreset")}</label>
-                <select
-                  id="pf-human"
-                  className="input"
-                  value={form.human_preset ?? "default"}
-                  onChange={(e) => set("human_preset", e.target.value)}
-                >
-                  <option value="default">{t("form.humanDefault")}</option>
-                  <option value="careful">{t("form.humanCareful")}</option>
-                </select>
-              </div>
-            )}
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={form.headless ?? false}
-                onChange={(e) => set("headless", e.target.checked)}
-                className="rounded border-border bg-surface-2"
-              />
-              {t("form.headless")}
-            </label>
-            <div>
-              <label className="label" htmlFor="pf-cs">{t("form.colorScheme")}</label>
-              <select
-                id="pf-cs"
-                className="input"
-                value={form.color_scheme ?? ""}
-                onChange={(e) => set("color_scheme", e.target.value || null)}
-              >
-                <option value="">{t("form.systemDefault")}</option>
-                <option value="light">{t("form.light")}</option>
-                <option value="dark">{t("form.dark")}</option>
-              </select>
-            </div>
-          </div>
-        </section>
-
-        {/* Tags */}
-        <section>
-          <h3 className="text-xs font-semibold text-fg-muted uppercase tracking-wider mb-3">{t("form.tags")}</h3>
-          {(form.tags ?? []).length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {(form.tags ?? []).map((tag) => (
-                <span key={tag} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-surface-3">
-                  {tag}
-                  <button
-                    type="button"
-                    onClick={() => removeTag(tag)}
-                    className="hover:opacity-70"
-                    aria-label={`${t("form.delete")}: ${tag}`}
-                  >
-                    <X className="h-3 w-3" aria-hidden="true" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-          <div className="flex gap-2">
-            <input
-              className="input flex-1"
-              value={tagInput}
-              onChange={(e) => setTagInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
-              placeholder={t("form.addTag")}
-              aria-label={t("form.addTag")}
-            />
-            <button type="button" onClick={addTag} className="btn-secondary text-xs">
-              {t("form.add")}
-            </button>
-          </div>
-        </section>
-
-        {/* Launch args */}
-        <section>
-          <h3 className="text-xs font-semibold text-fg-muted uppercase tracking-wider mb-3">{t("form.launchArgs")}</h3>
-          <p className="text-xs text-fg-muted mb-2">{t("form.launchArgsHint")}</p>
-          {(form.launch_args ?? []).length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {(form.launch_args ?? []).map((arg, idx) => (
-                <span key={idx} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-surface-3 font-mono">
-                  {arg}
-                  <button
-                    type="button"
-                    onClick={() => removeLaunchArg(idx)}
-                    className="hover:opacity-70"
-                    aria-label={`${t("form.delete")}: ${arg}`}
-                  >
-                    <X className="h-3 w-3" aria-hidden="true" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-          <div className="flex gap-2">
-            <input
-              className="input flex-1 font-mono"
-              value={launchArgInput}
-              onChange={(e) => setLaunchArgInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addLaunchArg(); } }}
-              placeholder="--lang=vi"
-              aria-label={t("form.launchArgs")}
-            />
-            <button type="button" onClick={addLaunchArg} className="btn-secondary text-xs">
-              {t("form.add")}
-            </button>
-          </div>
-        </section>
-
-        {/* Notes */}
-        <section>
-          <h3 className="text-xs font-semibold text-fg-muted uppercase tracking-wider mb-3">{t("form.notes")}</h3>
-          <textarea
-            className="input min-h-[80px] resize-y"
-            value={form.notes ?? ""}
-            onChange={(e) => set("notes", e.target.value || null)}
-            placeholder={t("form.notesPlaceholder")}
-            aria-label={t("form.notes")}
-          />
-        </section>
+      {/* Sticky footer */}
+      <div className="flex items-center gap-3 border-t border-border bg-surface-1 px-6 py-3">
+        <button type="submit" disabled={!canSave} className="btn-primary h-10 px-3">
+          {saving
+            ? t("pform.saving")
+            : isEdit
+              ? t("pform.save")
+              : t("pform.create")}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="inline-flex h-10 items-center rounded px-3 text-sm font-medium text-accent hover:text-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+        >
+          {t("pform.cancel")}
+        </button>
+        {isEdit && (
+          <button
+            type="button"
+            onClick={handleTrash}
+            disabled={trashing}
+            className="btn-danger ml-auto"
+          >
+            {trashing ? t("pform.trashing") : t("pform.moveToTrash")}
+          </button>
+        )}
       </div>
     </form>
   );

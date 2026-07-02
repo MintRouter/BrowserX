@@ -17,7 +17,7 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, Result};
-use crate::models::Profile;
+use crate::models::{Folder, Profile, ProfileTemplate};
 
 // ---------------------------------------------------------------------------
 // Type nội bộ của DB layer (W3a map sang models::Proxy sau khi giải mã)
@@ -28,6 +28,9 @@ use crate::models::Profile;
 /// screen 1920×1080, human_preset "default", user_data_dir `<data_dir>/profiles/<id>`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProfileInput {
+    /// `#[serde(default)]` để deserialize được từ template config không có name
+    /// (create_profile vẫn validate name không rỗng).
+    #[serde(default)]
     pub name: String,
     pub fingerprint_seed: Option<String>,
     pub platform: Option<String>,
@@ -47,9 +50,31 @@ pub struct ProfileInput {
     pub launch_args: Option<serde_json::Value>,
     pub user_data_dir: Option<String>,
     pub notes: Option<String>,
+    /// "restore" | "custom" (None → "restore").
+    pub startup_behavior: Option<String>,
+    /// Mảng JSON URL mở khi khởi động (dùng khi startup_behavior = "custom").
+    pub startup_urls: Option<serde_json::Value>,
     /// Gán proxy ngay khi tạo (FK → proxies.id).
     pub proxy_id: Option<String>,
     pub tags: Option<Vec<String>>,
+    /// Đánh dấu quick profile (dùng-xong-xoá, W18b). None = false = profile thường.
+    pub is_quick: Option<bool>,
+    /// (W19c) Noise injection master switch (None → default true = bật).
+    pub fp_noise: Option<bool>,
+    /// (W19c) WebRTC mode "real" | "masked" (None → "real").
+    pub webrtc_mode: Option<String>,
+    /// (W19c) IP spoof WebRTC khi masked.
+    pub webrtc_ip: Option<String>,
+    /// (W19c) Geolocation mode "auto" | "manual" (None → "auto").
+    pub geolocation_mode: Option<String>,
+    pub geo_latitude: Option<String>,
+    pub geo_longitude: Option<String>,
+    /// (W20b) Lưu lịch sử duyệt web (None → default true).
+    pub store_history: Option<bool>,
+    /// (W20b) Lưu mật khẩu (None → default true).
+    pub store_passwords: Option<bool>,
+    /// (W20b) Giữ service-worker cache (None → default true).
+    pub store_sw_cache: Option<bool>,
 }
 
 /// Update từng phần: chỉ field `Some(_)` được ghi đè (giống `update_profile` Python).
@@ -75,7 +100,27 @@ pub struct ProfileUpdate {
     pub launch_args: Option<serde_json::Value>,
     pub user_data_dir: Option<String>,
     pub notes: Option<String>,
+    /// "restore" | "custom".
+    pub startup_behavior: Option<String>,
+    /// Mảng JSON URL mở khi khởi động (dùng khi startup_behavior = "custom").
+    pub startup_urls: Option<serde_json::Value>,
     pub tags: Option<Vec<String>>,
+    /// (W19c) Noise injection master switch.
+    pub fp_noise: Option<bool>,
+    /// (W19c) WebRTC mode "real" | "masked".
+    pub webrtc_mode: Option<String>,
+    /// (W19c) IP spoof WebRTC khi masked.
+    pub webrtc_ip: Option<String>,
+    /// (W19c) Geolocation mode "auto" | "manual".
+    pub geolocation_mode: Option<String>,
+    pub geo_latitude: Option<String>,
+    pub geo_longitude: Option<String>,
+    /// (W20b) Lưu lịch sử duyệt web.
+    pub store_history: Option<bool>,
+    /// (W20b) Lưu mật khẩu.
+    pub store_passwords: Option<bool>,
+    /// (W20b) Giữ service-worker cache.
+    pub store_sw_cache: Option<bool>,
 }
 
 /// Bản ghi proxy như lưu trong DB: credential là BLOB **đã mã hoá** bởi layer
@@ -143,7 +188,7 @@ pub struct AuditEntry {
 // ---------------------------------------------------------------------------
 
 /// Schema version hiện tại (PRAGMA user_version).
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 7;
 
 const SCHEMA_V1: &str = "
 CREATE TABLE IF NOT EXISTS profiles (
@@ -219,6 +264,81 @@ CREATE INDEX IF NOT EXISTS idx_profile_tags_tag ON profile_tags(tag);
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit(ts);
 ";
 
+/// Migration v1→v2 (docs/08 UI Multilogin): folders + favorite + trash (soft-delete).
+/// ALTER TABLE không có IF NOT EXISTS — idempotency đảm bảo bởi guard `user_version < 2`.
+const SCHEMA_V2: &str = "
+CREATE TABLE IF NOT EXISTS folders (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL
+);
+
+ALTER TABLE profiles ADD COLUMN folder_id TEXT REFERENCES folders(id);
+ALTER TABLE profiles ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE profiles ADD COLUMN deleted_at TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_profiles_folder_id ON profiles(folder_id);
+CREATE INDEX IF NOT EXISTS idx_profiles_deleted_at ON profiles(deleted_at);
+";
+
+/// Migration v2→v3: `last_start_at` — lần launch thành công gần nhất (RFC3339 UTC, nullable).
+/// ALTER TABLE không có IF NOT EXISTS — idempotency đảm bảo bởi guard `user_version < 3`.
+const SCHEMA_V3: &str = "
+ALTER TABLE profiles ADD COLUMN last_start_at TEXT;
+";
+
+/// Migration v3→v4 (W18b): `is_quick` — quick profile dùng-xong-xoá; khi Stop
+/// UI hỏi Save as regular (bỏ cờ) / Close & delete (purge data).
+/// ALTER TABLE không có IF NOT EXISTS — idempotency đảm bảo bởi guard `user_version < 4`.
+const SCHEMA_V4: &str = "
+ALTER TABLE profiles ADD COLUMN is_quick INTEGER NOT NULL DEFAULT 0;
+";
+
+/// Migration v4→v5 (W18c): hành vi khởi động — `startup_behavior` ("restore" |
+/// "custom") + `startup_urls` (JSON array chuỗi, dùng khi "custom").
+/// ALTER TABLE không có IF NOT EXISTS — idempotency đảm bảo bởi guard `user_version < 5`.
+const SCHEMA_V5: &str = "
+ALTER TABLE profiles ADD COLUMN startup_behavior TEXT NOT NULL DEFAULT 'restore';
+ALTER TABLE profiles ADD COLUMN startup_urls TEXT NOT NULL DEFAULT '[]';
+";
+
+/// Migration v5→v6 (W19c): fingerprint controls map sang flag CloakBrowser thật —
+/// `fp_noise` (--fingerprint-noise=false khi tắt), `webrtc_mode`/`webrtc_ip`
+/// (--fingerprint-webrtc-ip), `geolocation_mode` + `geo_latitude`/`geo_longitude`
+/// (--fingerprint-location=lat,lon). ALTER TABLE không có IF NOT EXISTS —
+/// idempotency đảm bảo bởi guard `user_version < 6`.
+const SCHEMA_V6: &str = "
+ALTER TABLE profiles ADD COLUMN fp_noise INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE profiles ADD COLUMN webrtc_mode TEXT NOT NULL DEFAULT 'real';
+ALTER TABLE profiles ADD COLUMN webrtc_ip TEXT;
+ALTER TABLE profiles ADD COLUMN geolocation_mode TEXT NOT NULL DEFAULT 'auto';
+ALTER TABLE profiles ADD COLUMN geo_latitude TEXT;
+ALTER TABLE profiles ADD COLUMN geo_longitude TEXT;
+";
+
+/// Migration v6→v7 (W20b): profile templates + storage options per-profile.
+/// - `profile_templates`: config JSON shape `ProfileInput` (giống pattern
+///   launch_args/startup_urls lưu JSON TEXT).
+/// - `store_history`/`store_passwords`/`store_sw_cache`: default 1 (giữ dữ liệu).
+///   `0` → dọn file tương ứng khi phiên dừng (binary không có flag disable —
+///   cơ chế là cleanup, xem `storage::clear_storage_options`).
+///
+/// ALTER TABLE không có IF NOT EXISTS — idempotency đảm bảo bởi guard `user_version < 7`.
+const SCHEMA_V7: &str = "
+CREATE TABLE IF NOT EXISTS profile_templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    config TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+
+ALTER TABLE profiles ADD COLUMN store_history INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE profiles ADD COLUMN store_passwords INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE profiles ADD COLUMN store_sw_cache INTEGER NOT NULL DEFAULT 1;
+
+CREATE INDEX IF NOT EXISTS idx_profile_templates_name ON profile_templates(name);
+";
+
 /// Kết nối SQLite của app. `Mutex<Connection>` để dùng được trong `tauri::State`
 /// (single-process, mọi thao tác tuần tự qua lock — đủ cho local app).
 pub struct Db {
@@ -283,6 +403,34 @@ fn migrate(conn: &Connection) -> Result<()> {
     let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
     if version < 1 {
         conn.execute_batch(SCHEMA_V1)?;
+    }
+    if version < 2 {
+        conn.execute_batch(SCHEMA_V2)?;
+        // Seed 1 folder mặc định nếu bảng rỗng (UI Multilogin luôn có "Default folder").
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM folders", [], |r| r.get(0))?;
+        if count == 0 {
+            conn.execute(
+                "INSERT INTO folders (id, name, created_at) VALUES (?1, ?2, ?3)",
+                params![uuid::Uuid::new_v4().to_string(), "Default folder", now()],
+            )?;
+        }
+    }
+    if version < 3 {
+        conn.execute_batch(SCHEMA_V3)?;
+    }
+    if version < 4 {
+        conn.execute_batch(SCHEMA_V4)?;
+    }
+    if version < 5 {
+        conn.execute_batch(SCHEMA_V5)?;
+    }
+    if version < 6 {
+        conn.execute_batch(SCHEMA_V6)?;
+    }
+    if version < 7 {
+        conn.execute_batch(SCHEMA_V7)?;
+    }
+    if version < SCHEMA_VERSION {
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     }
     Ok(())
@@ -295,6 +443,36 @@ fn migrate(conn: &Connection) -> Result<()> {
 /// Thời điểm hiện tại, RFC3339 UTC (tương đương `_now()` Python).
 fn now() -> String {
     chrono::Utc::now().to_rfc3339()
+}
+
+/// `startup_behavior` chỉ nhận "restore" | "custom".
+fn validate_startup_behavior(v: &str) -> Result<()> {
+    match v {
+        "restore" | "custom" => Ok(()),
+        other => Err(AppError::InvalidInput(format!(
+            "startup_behavior must be \"restore\" or \"custom\", got {other:?}"
+        ))),
+    }
+}
+
+/// (W19c) `webrtc_mode` chỉ nhận "real" | "masked".
+fn validate_webrtc_mode(v: &str) -> Result<()> {
+    match v {
+        "real" | "masked" => Ok(()),
+        other => Err(AppError::InvalidInput(format!(
+            "webrtc_mode must be \"real\" or \"masked\", got {other:?}"
+        ))),
+    }
+}
+
+/// (W19c) `geolocation_mode` chỉ nhận "auto" | "manual".
+fn validate_geolocation_mode(v: &str) -> Result<()> {
+    match v {
+        "auto" | "manual" => Ok(()),
+        other => Err(AppError::InvalidInput(format!(
+            "geolocation_mode must be \"auto\" or \"manual\", got {other:?}"
+        ))),
+    }
 }
 
 /// Escape `%`/`_`/`\` cho pattern LIKE (dùng với `ESCAPE '\'`).
@@ -316,11 +494,22 @@ fn sql_bool(b: bool) -> SqlValue {
     SqlValue::Integer(b as i64)
 }
 
+/// Chuỗi placeholder "?start, ?start+1, …" cho mệnh đề `IN (…)` với `n` phần tử.
+fn placeholders(start: usize, n: usize) -> String {
+    (start..start + n)
+        .map(|i| format!("?{i}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// Map một row (SELECT p.*, pp.proxy_id) → `models::Profile` (tags rỗng, caller tự điền).
 fn row_to_profile(row: &Row) -> rusqlite::Result<Profile> {
     let launch_args_raw: String = row.get("launch_args")?;
     let launch_args: serde_json::Value =
         serde_json::from_str(&launch_args_raw).unwrap_or_else(|_| serde_json::Value::Array(vec![]));
+    let startup_urls_raw: String = row.get("startup_urls")?;
+    let startup_urls: serde_json::Value = serde_json::from_str(&startup_urls_raw)
+        .unwrap_or_else(|_| serde_json::Value::Array(vec![]));
     Ok(Profile {
         id: row.get("id")?,
         name: row.get("name")?,
@@ -341,10 +530,35 @@ fn row_to_profile(row: &Row) -> rusqlite::Result<Profile> {
         launch_args,
         user_data_dir: row.get("user_data_dir")?,
         notes: row.get("notes")?,
+        folder_id: row.get("folder_id")?,
+        favorite: row.get("favorite")?,
+        is_quick: row.get("is_quick")?,
         proxy_id: row.get("proxy_id")?,
         tags: Vec::new(),
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
+        last_start_at: row.get("last_start_at")?,
+        startup_behavior: row.get("startup_behavior")?,
+        startup_urls,
+        fp_noise: row.get("fp_noise")?,
+        webrtc_mode: row.get("webrtc_mode")?,
+        webrtc_ip: row.get("webrtc_ip")?,
+        geolocation_mode: row.get("geolocation_mode")?,
+        geo_latitude: row.get("geo_latitude")?,
+        geo_longitude: row.get("geo_longitude")?,
+        store_history: row.get("store_history")?,
+        store_passwords: row.get("store_passwords")?,
+        store_sw_cache: row.get("store_sw_cache")?,
+    })
+}
+
+/// Map một row của [`FOLDER_SELECT`] → `models::Folder`.
+fn row_to_folder(row: &Row) -> rusqlite::Result<Folder> {
+    Ok(Folder {
+        id: row.get("id")?,
+        name: row.get("name")?,
+        profile_count: row.get("profile_count")?,
+        created_at: row.get("created_at")?,
     })
 }
 
@@ -413,6 +627,15 @@ impl Db {
                 "profile name must not be empty".into(),
             ));
         }
+        if let Some(b) = input.startup_behavior.as_deref() {
+            validate_startup_behavior(b)?;
+        }
+        if let Some(m) = input.webrtc_mode.as_deref() {
+            validate_webrtc_mode(m)?;
+        }
+        if let Some(m) = input.geolocation_mode.as_deref() {
+            validate_geolocation_mode(m)?;
+        }
         let id = uuid::Uuid::new_v4().to_string();
         let seed = input
             .fingerprint_seed
@@ -427,6 +650,9 @@ impl Db {
         let launch_args = input
             .launch_args
             .unwrap_or_else(|| serde_json::Value::Array(vec![]));
+        let startup_urls = input
+            .startup_urls
+            .unwrap_or_else(|| serde_json::Value::Array(vec![]));
         let ts = now();
 
         {
@@ -437,8 +663,11 @@ impl Db {
                     id, name, fingerprint_seed, platform, timezone, locale,
                     screen_width, screen_height, gpu_vendor, gpu_renderer,
                     hardware_concurrency, humanize, human_preset, headless, geoip,
-                    color_scheme, launch_args, user_data_dir, notes, created_at, updated_at
-                ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)",
+                    color_scheme, launch_args, user_data_dir, notes, created_at, updated_at,
+                    is_quick, startup_behavior, startup_urls,
+                    fp_noise, webrtc_mode, webrtc_ip, geolocation_mode, geo_latitude, geo_longitude,
+                    store_history, store_passwords, store_sw_cache
+                ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33)",
                 params![
                     id,
                     input.name,
@@ -461,6 +690,18 @@ impl Db {
                     input.notes,
                     ts,
                     ts,
+                    input.is_quick.unwrap_or(false),
+                    input.startup_behavior.as_deref().unwrap_or("restore"),
+                    serde_json::to_string(&startup_urls)?,
+                    input.fp_noise.unwrap_or(true),
+                    input.webrtc_mode.as_deref().unwrap_or("real"),
+                    input.webrtc_ip,
+                    input.geolocation_mode.as_deref().unwrap_or("auto"),
+                    input.geo_latitude,
+                    input.geo_longitude,
+                    input.store_history.unwrap_or(true),
+                    input.store_passwords.unwrap_or(true),
+                    input.store_sw_cache.unwrap_or(true),
                 ],
             )?;
             if let Some(tags) = &input.tags {
@@ -494,10 +735,11 @@ impl Db {
         Ok(profile)
     }
 
-    /// Danh sách toàn bộ profile, mới cập nhật trước (batch-load tags, không N+1).
+    /// Danh sách profile còn sống (không tính trash), mới cập nhật trước
+    /// (batch-load tags, không N+1).
     pub fn list_profiles(&self) -> Result<Vec<Profile>> {
         let conn = self.lock();
-        let sql = format!("{PROFILE_SELECT} ORDER BY p.updated_at DESC");
+        let sql = format!("{PROFILE_SELECT} WHERE p.deleted_at IS NULL ORDER BY p.updated_at DESC");
         let mut stmt = conn.prepare(&sql)?;
         let mut profiles = stmt
             .query_map([], row_to_profile)?
@@ -512,10 +754,12 @@ impl Db {
     }
 
     /// Search theo tên (LIKE, không phân biệt hoa thường ASCII) + lọc tag tuỳ chọn.
+    /// Chỉ trả profile còn sống (deleted_at IS NULL).
     pub fn search_profiles(&self, query: &str, tag: Option<&str>) -> Result<Vec<Profile>> {
         let conn = self.lock();
         let pattern = format!("%{}%", escape_like(query));
-        let mut sql = format!("{PROFILE_SELECT} WHERE p.name LIKE ?1 ESCAPE '\\'");
+        let mut sql =
+            format!("{PROFILE_SELECT} WHERE p.deleted_at IS NULL AND p.name LIKE ?1 ESCAPE '\\'");
         let mut values: Vec<SqlValue> = vec![sql_text(pattern)];
         if let Some(tag) = tag {
             sql.push_str(" AND p.id IN (SELECT profile_id FROM profile_tags WHERE tag = ?2)");
@@ -617,6 +861,53 @@ impl Db {
             cols.push("notes");
             values.push(sql_text(v));
         }
+        if let Some(v) = input.startup_behavior {
+            validate_startup_behavior(&v)?;
+            cols.push("startup_behavior");
+            values.push(sql_text(v));
+        }
+        if let Some(v) = input.startup_urls {
+            cols.push("startup_urls");
+            values.push(sql_text(serde_json::to_string(&v)?));
+        }
+        if let Some(v) = input.fp_noise {
+            cols.push("fp_noise");
+            values.push(sql_bool(v));
+        }
+        if let Some(v) = input.webrtc_mode {
+            validate_webrtc_mode(&v)?;
+            cols.push("webrtc_mode");
+            values.push(sql_text(v));
+        }
+        if let Some(v) = input.webrtc_ip {
+            cols.push("webrtc_ip");
+            values.push(sql_text(v));
+        }
+        if let Some(v) = input.geolocation_mode {
+            validate_geolocation_mode(&v)?;
+            cols.push("geolocation_mode");
+            values.push(sql_text(v));
+        }
+        if let Some(v) = input.geo_latitude {
+            cols.push("geo_latitude");
+            values.push(sql_text(v));
+        }
+        if let Some(v) = input.geo_longitude {
+            cols.push("geo_longitude");
+            values.push(sql_text(v));
+        }
+        if let Some(v) = input.store_history {
+            cols.push("store_history");
+            values.push(sql_bool(v));
+        }
+        if let Some(v) = input.store_passwords {
+            cols.push("store_passwords");
+            values.push(sql_bool(v));
+        }
+        if let Some(v) = input.store_sw_cache {
+            cols.push("store_sw_cache");
+            values.push(sql_bool(v));
+        }
 
         {
             let conn = self.lock();
@@ -657,6 +948,262 @@ impl Db {
     pub fn delete_profile(&self, id: &str) -> Result<bool> {
         let conn = self.lock();
         let n = conn.execute("DELETE FROM profiles WHERE id = ?1", params![id])?;
+        Ok(n > 0)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Trash (soft-delete) + favorite
+// ---------------------------------------------------------------------------
+
+impl Db {
+    /// Danh sách profile trong thùng rác (deleted_at IS NOT NULL), mới cập nhật trước.
+    pub fn list_trash(&self) -> Result<Vec<Profile>> {
+        let conn = self.lock();
+        let sql =
+            format!("{PROFILE_SELECT} WHERE p.deleted_at IS NOT NULL ORDER BY p.updated_at DESC");
+        let mut stmt = conn.prepare(&sql)?;
+        let mut profiles = stmt
+            .query_map([], row_to_profile)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut tag_map = tags_for_profiles(&conn)?;
+        for p in &mut profiles {
+            if let Some(tags) = tag_map.remove(&p.id) {
+                p.tags = tags;
+            }
+        }
+        Ok(profiles)
+    }
+
+    /// Chuyển các profile vào thùng rác (set deleted_at = now). Trả số hàng thay đổi;
+    /// id không tồn tại hoặc đã trong trash bị bỏ qua.
+    pub fn trash_profiles(&self, ids: &[String]) -> Result<usize> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let conn = self.lock();
+        let sql = format!(
+            "UPDATE profiles SET deleted_at = ?1, updated_at = ?1
+             WHERE deleted_at IS NULL AND id IN ({})",
+            placeholders(2, ids.len())
+        );
+        let mut values: Vec<SqlValue> = vec![sql_text(now())];
+        values.extend(ids.iter().cloned().map(sql_text));
+        Ok(conn.execute(&sql, rusqlite::params_from_iter(values))?)
+    }
+
+    /// Khôi phục các profile từ thùng rác (deleted_at về NULL). Trả số hàng thay đổi.
+    pub fn restore_profiles(&self, ids: &[String]) -> Result<usize> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let conn = self.lock();
+        let sql = format!(
+            "UPDATE profiles SET deleted_at = NULL, updated_at = ?1
+             WHERE deleted_at IS NOT NULL AND id IN ({})",
+            placeholders(2, ids.len())
+        );
+        let mut values: Vec<SqlValue> = vec![sql_text(now())];
+        values.extend(ids.iter().cloned().map(sql_text));
+        Ok(conn.execute(&sql, rusqlite::params_from_iter(values))?)
+    }
+
+    /// Xoá hẳn các profile khỏi DB (cascade tags/proxy assignment). Trả số hàng xoá.
+    /// KHÔNG đụng `user_data_dir` trên filesystem — caller quyết định.
+    pub fn purge_profiles(&self, ids: &[String]) -> Result<usize> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let conn = self.lock();
+        let sql = format!(
+            "DELETE FROM profiles WHERE id IN ({})",
+            placeholders(1, ids.len())
+        );
+        let values: Vec<SqlValue> = ids.iter().cloned().map(sql_text).collect();
+        Ok(conn.execute(&sql, rusqlite::params_from_iter(values))?)
+    }
+
+    /// Bật/tắt yêu thích cho 1 profile. `NotFound` nếu không tồn tại.
+    pub fn set_favorite(&self, id: &str, favorite: bool) -> Result<()> {
+        let conn = self.lock();
+        let n = conn.execute(
+            "UPDATE profiles SET favorite = ?1, updated_at = ?2 WHERE id = ?3",
+            params![favorite, now(), id],
+        )?;
+        if n == 0 {
+            return Err(AppError::NotFound(format!("profile {id}")));
+        }
+        Ok(())
+    }
+
+    /// Bật/tắt cờ quick (dùng-xong-xoá, W18b) cho 1 profile. `NotFound` nếu không
+    /// tồn tại. "Save as regular" = `set_quick(id, false)` — giữ nguyên user_data_dir.
+    pub fn set_quick(&self, id: &str, is_quick: bool) -> Result<()> {
+        let conn = self.lock();
+        let n = conn.execute(
+            "UPDATE profiles SET is_quick = ?1, updated_at = ?2 WHERE id = ?3",
+            params![is_quick, now(), id],
+        )?;
+        if n == 0 {
+            return Err(AppError::NotFound(format!("profile {id}")));
+        }
+        Ok(())
+    }
+
+    /// Ghi nhận launch thành công: `last_start_at = now` (KHÔNG đụng `updated_at`).
+    /// `NotFound` nếu không tồn tại.
+    pub fn touch_last_start(&self, id: &str) -> Result<()> {
+        let conn = self.lock();
+        let n = conn.execute(
+            "UPDATE profiles SET last_start_at = ?1 WHERE id = ?2",
+            params![now(), id],
+        )?;
+        if n == 0 {
+            return Err(AppError::NotFound(format!("profile {id}")));
+        }
+        Ok(())
+    }
+
+    /// Chuyển các profile vào folder (`Some(folder_id)`) hoặc ra ngoài (`None`).
+    /// `NotFound` nếu folder không tồn tại. Trả số hàng thay đổi.
+    pub fn move_profiles_to_folder(
+        &self,
+        ids: &[String],
+        folder_id: Option<&str>,
+    ) -> Result<usize> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let conn = self.lock();
+        if let Some(fid) = folder_id {
+            let exists = conn
+                .query_row("SELECT 1 FROM folders WHERE id = ?1", params![fid], |_| {
+                    Ok(())
+                })
+                .optional()?
+                .is_some();
+            if !exists {
+                return Err(AppError::NotFound(format!("folder {fid}")));
+            }
+        }
+        let sql = format!(
+            "UPDATE profiles SET folder_id = ?1, updated_at = ?2 WHERE id IN ({})",
+            placeholders(3, ids.len())
+        );
+        let mut values: Vec<SqlValue> = vec![
+            folder_id.map_or(SqlValue::Null, |s| sql_text(s.to_string())),
+            sql_text(now()),
+        ];
+        values.extend(ids.iter().cloned().map(sql_text));
+        Ok(conn.execute(&sql, rusqlite::params_from_iter(values))?)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Folders CRUD
+// ---------------------------------------------------------------------------
+
+/// SELECT folder kèm `profile_count` (chỉ đếm profile còn sống — deleted_at IS NULL).
+const FOLDER_SELECT: &str = "SELECT f.id, f.name, f.created_at, COUNT(p.id) AS profile_count
+     FROM folders f
+     LEFT JOIN profiles p ON p.folder_id = f.id AND p.deleted_at IS NULL";
+
+impl Db {
+    /// Danh sách folder (kèm số profile còn sống), thứ tự tạo trước → sau.
+    pub fn list_folders(&self) -> Result<Vec<Folder>> {
+        let conn = self.lock();
+        let sql = format!("{FOLDER_SELECT} GROUP BY f.id ORDER BY f.created_at, f.name");
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt
+            .query_map([], row_to_folder)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Đọc 1 folder. `NotFound` nếu không tồn tại.
+    pub fn get_folder(&self, id: &str) -> Result<Folder> {
+        let conn = self.lock();
+        let sql = format!("{FOLDER_SELECT} WHERE f.id = ?1 GROUP BY f.id");
+        conn.query_row(&sql, params![id], row_to_folder)
+            .optional()?
+            .ok_or_else(|| AppError::NotFound(format!("folder {id}")))
+    }
+
+    /// Tạo folder mới. Tên trim, không rỗng, không trùng (UNIQUE).
+    pub fn create_folder(&self, name: &str) -> Result<Folder> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(AppError::InvalidInput(
+                "folder name must not be empty".into(),
+            ));
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        {
+            let conn = self.lock();
+            let dup = conn
+                .query_row("SELECT 1 FROM folders WHERE name = ?1", params![name], |_| {
+                    Ok(())
+                })
+                .optional()?
+                .is_some();
+            if dup {
+                return Err(AppError::InvalidInput(format!(
+                    "folder name already exists: {name}"
+                )));
+            }
+            conn.execute(
+                "INSERT INTO folders (id, name, created_at) VALUES (?1, ?2, ?3)",
+                params![id, name, now()],
+            )?;
+        }
+        self.get_folder(&id)
+    }
+
+    /// Đổi tên folder. `NotFound` nếu không tồn tại, `InvalidInput` nếu tên rỗng/trùng.
+    pub fn rename_folder(&self, id: &str, name: &str) -> Result<Folder> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(AppError::InvalidInput(
+                "folder name must not be empty".into(),
+            ));
+        }
+        {
+            let conn = self.lock();
+            let dup = conn
+                .query_row(
+                    "SELECT 1 FROM folders WHERE name = ?1 AND id != ?2",
+                    params![name, id],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_some();
+            if dup {
+                return Err(AppError::InvalidInput(format!(
+                    "folder name already exists: {name}"
+                )));
+            }
+            let n = conn.execute(
+                "UPDATE folders SET name = ?1 WHERE id = ?2",
+                params![name, id],
+            )?;
+            if n == 0 {
+                return Err(AppError::NotFound(format!("folder {id}")));
+            }
+        }
+        self.get_folder(id)
+    }
+
+    /// Xoá folder; profiles thuộc folder về `folder_id = NULL` (không xoá profile).
+    /// Trả `true` nếu có xoá.
+    pub fn delete_folder(&self, id: &str) -> Result<bool> {
+        let mut conn = self.lock();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "UPDATE profiles SET folder_id = NULL WHERE folder_id = ?1",
+            params![id],
+        )?;
+        let n = tx.execute("DELETE FROM folders WHERE id = ?1", params![id])?;
+        tx.commit()?;
         Ok(n > 0)
     }
 }
@@ -980,6 +1527,101 @@ impl Db {
 }
 
 // ---------------------------------------------------------------------------
+// Profile templates (W20b)
+// ---------------------------------------------------------------------------
+
+/// Map một row của bảng `profile_templates` → `models::ProfileTemplate`.
+fn row_to_template(row: &Row) -> rusqlite::Result<ProfileTemplate> {
+    let config_raw: String = row.get("config")?;
+    let config: serde_json::Value = serde_json::from_str(&config_raw)
+        .unwrap_or_else(|_| serde_json::Value::Object(Default::default()));
+    Ok(ProfileTemplate {
+        id: row.get("id")?,
+        name: row.get("name")?,
+        config,
+        created_at: row.get("created_at")?,
+    })
+}
+
+impl Db {
+    /// Tạo template mới. `config` là JSON shape `ProfileInput` (field lạ bị bỏ
+    /// qua lúc tạo profile). Tên trim, không rỗng.
+    pub fn create_template(
+        &self,
+        name: &str,
+        config: &serde_json::Value,
+    ) -> Result<ProfileTemplate> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(AppError::InvalidInput(
+                "template name must not be empty".into(),
+            ));
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        {
+            let conn = self.lock();
+            conn.execute(
+                "INSERT INTO profile_templates (id, name, config, created_at) VALUES (?1, ?2, ?3, ?4)",
+                params![id, name, serde_json::to_string(config)?, now()],
+            )?;
+        }
+        self.get_template(&id)
+    }
+
+    /// Đọc 1 template. `NotFound` nếu không tồn tại.
+    pub fn get_template(&self, id: &str) -> Result<ProfileTemplate> {
+        let conn = self.lock();
+        conn.query_row(
+            "SELECT * FROM profile_templates WHERE id = ?1",
+            params![id],
+            row_to_template,
+        )
+        .optional()?
+        .ok_or_else(|| AppError::NotFound(format!("template {id}")))
+    }
+
+    /// Danh sách template, mới tạo trước.
+    pub fn list_templates(&self) -> Result<Vec<ProfileTemplate>> {
+        let conn = self.lock();
+        let mut stmt = conn
+            .prepare("SELECT * FROM profile_templates ORDER BY created_at DESC, name")?;
+        let rows = stmt
+            .query_map([], row_to_template)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Xoá template. Trả `true` nếu có xoá (không đụng profile đã tạo từ template).
+    pub fn delete_template(&self, id: &str) -> Result<bool> {
+        let conn = self.lock();
+        let n = conn.execute("DELETE FROM profile_templates WHERE id = ?1", params![id])?;
+        Ok(n > 0)
+    }
+
+    /// Tạo profile mới điền sẵn field từ template. Seed + user_data_dir LUÔN
+    /// cấp mới (mỗi profile một fingerprint/thư mục riêng); is_quick bị bỏ qua.
+    /// `name` None/rỗng → dùng tên template.
+    pub fn create_profile_from_template(
+        &self,
+        template_id: &str,
+        name: Option<&str>,
+    ) -> Result<Profile> {
+        let tpl = self.get_template(template_id)?;
+        let mut input: ProfileInput = serde_json::from_value(tpl.config.clone())
+            .map_err(|e| AppError::InvalidInput(format!("invalid template config: {e}")))?;
+        input.name = name
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .unwrap_or(tpl.name);
+        input.fingerprint_seed = None;
+        input.user_data_dir = None;
+        input.is_quick = None;
+        self.create_profile(input)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -1020,6 +1662,467 @@ mod tests {
     }
 
     #[test]
+    fn migration_v1_to_v2_upgrades_old_db() {
+        let dir = std::env::temp_dir().join(format!("browserx-db-test-{}", uuid::Uuid::new_v4()));
+        let _guard = TempDir(dir.clone());
+        std::fs::create_dir_all(&dir).unwrap();
+        {
+            // DB "cũ" chỉ có schema v1 + 1 profile, user_version = 1.
+            let conn = Connection::open(dir.join("browserx.db")).unwrap();
+            conn.execute_batch(SCHEMA_V1).unwrap();
+            conn.pragma_update(None, "user_version", 1).unwrap();
+            conn.execute(
+                "INSERT INTO profiles (id, name, fingerprint_seed, user_data_dir, created_at, updated_at)
+                 VALUES ('old-1', 'old profile', '42', '/tmp/x', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+        }
+
+        let db = Db::open_at_dir(&dir).unwrap();
+        {
+            let version: i64 = db
+                .lock()
+                .pragma_query_value(None, "user_version", |r| r.get(0))
+                .unwrap();
+            assert_eq!(version, SCHEMA_VERSION);
+        }
+        // Profile cũ đọc được với default mới: folder_id NULL, favorite=false,
+        // last_start_at NULL, is_quick=false, startup restore, không trash.
+        let profiles = db.list_profiles().unwrap();
+        assert_eq!(profiles.len(), 1);
+        assert!(profiles[0].folder_id.is_none());
+        assert!(!profiles[0].favorite);
+        assert!(profiles[0].last_start_at.is_none());
+        assert!(!profiles[0].is_quick);
+        assert_eq!(profiles[0].startup_behavior, "restore");
+        assert_eq!(profiles[0].startup_urls, serde_json::json!([]));
+        assert!(db.list_trash().unwrap().is_empty());
+        // Folder mặc định được seed.
+        let folders = db.list_folders().unwrap();
+        assert_eq!(folders.len(), 1);
+        assert_eq!(folders[0].name, "Default folder");
+        assert_eq!(folders[0].profile_count, 0);
+        // Mở lại lần nữa → không lỗi, không seed trùng.
+        drop(db);
+        let db = Db::open_at_dir(&dir).unwrap();
+        assert_eq!(db.list_folders().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn migration_v6_fingerprint_defaults_and_roundtrip() {
+        let dir = std::env::temp_dir().join(format!("browserx-db-test-{}", uuid::Uuid::new_v4()));
+        let _guard = TempDir(dir.clone());
+        std::fs::create_dir_all(&dir).unwrap();
+        {
+            // DB "cũ" schema v1 + 1 profile → upgrade qua v6 phải set default mới.
+            let conn = Connection::open(dir.join("browserx.db")).unwrap();
+            conn.execute_batch(SCHEMA_V1).unwrap();
+            conn.pragma_update(None, "user_version", 1).unwrap();
+            conn.execute(
+                "INSERT INTO profiles (id, name, fingerprint_seed, user_data_dir, created_at, updated_at)
+                 VALUES ('old-1', 'old profile', '42', '/tmp/x', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+        }
+
+        let db = Db::open_at_dir(&dir).unwrap();
+        // Profile cũ nhận default W19c: noise bật, webrtc real, geolocation auto.
+        let old = db.get_profile("old-1").unwrap();
+        assert!(old.fp_noise);
+        assert_eq!(old.webrtc_mode, "real");
+        assert!(old.webrtc_ip.is_none());
+        assert_eq!(old.geolocation_mode, "auto");
+        assert!(old.geo_latitude.is_none());
+        assert!(old.geo_longitude.is_none());
+
+        // Create với giá trị tuỳ chỉnh → đọc lại đúng.
+        let p = db
+            .create_profile(ProfileInput {
+                name: "fp".into(),
+                fp_noise: Some(false),
+                webrtc_mode: Some("masked".into()),
+                webrtc_ip: Some("203.0.113.7".into()),
+                geolocation_mode: Some("manual".into()),
+                geo_latitude: Some("52.5".into()),
+                geo_longitude: Some("13.4".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(!p.fp_noise);
+        assert_eq!(p.webrtc_mode, "masked");
+        assert_eq!(p.webrtc_ip.as_deref(), Some("203.0.113.7"));
+        assert_eq!(p.geolocation_mode, "manual");
+        assert_eq!(p.geo_latitude.as_deref(), Some("52.5"));
+        assert_eq!(p.geo_longitude.as_deref(), Some("13.4"));
+
+        // Update từng phần → chỉ field gửi lên thay đổi.
+        let p2 = db
+            .update_profile(
+                &p.id,
+                ProfileUpdate {
+                    fp_noise: Some(true),
+                    webrtc_mode: Some("real".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(p2.fp_noise);
+        assert_eq!(p2.webrtc_mode, "real");
+        assert_eq!(p2.webrtc_ip.as_deref(), Some("203.0.113.7"));
+        assert_eq!(p2.geolocation_mode, "manual");
+
+        // Mode không hợp lệ → InvalidInput.
+        assert!(matches!(
+            db.create_profile(ProfileInput {
+                name: "bad".into(),
+                webrtc_mode: Some("disabled".into()),
+                ..Default::default()
+            }),
+            Err(AppError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            db.update_profile(
+                &p.id,
+                ProfileUpdate {
+                    geolocation_mode: Some("block".into()),
+                    ..Default::default()
+                }
+            ),
+            Err(AppError::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn migration_v7_storage_defaults_and_template_table() {
+        let dir = std::env::temp_dir().join(format!("browserx-db-test-{}", uuid::Uuid::new_v4()));
+        let _guard = TempDir(dir.clone());
+        std::fs::create_dir_all(&dir).unwrap();
+        {
+            // DB "cũ" schema v1 + 1 profile → upgrade thẳng v1→v7.
+            let conn = Connection::open(dir.join("browserx.db")).unwrap();
+            conn.execute_batch(SCHEMA_V1).unwrap();
+            conn.pragma_update(None, "user_version", 1).unwrap();
+            conn.execute(
+                "INSERT INTO profiles (id, name, fingerprint_seed, user_data_dir, created_at, updated_at)
+                 VALUES ('old-1', 'old profile', '42', '/tmp/x', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+        }
+
+        let db = Db::open_at_dir(&dir).unwrap();
+        {
+            let version: i64 = db
+                .lock()
+                .pragma_query_value(None, "user_version", |r| r.get(0))
+                .unwrap();
+            assert_eq!(version, SCHEMA_VERSION);
+        }
+        // Profile cũ nhận default W20b: giữ mọi dữ liệu (store_* = true).
+        let old = db.get_profile("old-1").unwrap();
+        assert!(old.store_history);
+        assert!(old.store_passwords);
+        assert!(old.store_sw_cache);
+
+        // Bảng profile_templates dùng được ngay sau migrate.
+        assert!(db.list_templates().unwrap().is_empty());
+        let tpl = db
+            .create_template("Base", &serde_json::json!({ "platform": "macos" }))
+            .unwrap();
+        assert_eq!(db.list_templates().unwrap().len(), 1);
+        assert_eq!(tpl.name, "Base");
+
+        // Create/update storage options roundtrip.
+        let p = db
+            .create_profile(ProfileInput {
+                name: "s".into(),
+                store_history: Some(false),
+                store_sw_cache: Some(false),
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(!p.store_history);
+        assert!(p.store_passwords);
+        assert!(!p.store_sw_cache);
+        let p2 = db
+            .update_profile(
+                &p.id,
+                ProfileUpdate {
+                    store_history: Some(true),
+                    store_passwords: Some(false),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(p2.store_history);
+        assert!(!p2.store_passwords);
+        assert!(!p2.store_sw_cache);
+
+        // Mở lại → migrate idempotent, dữ liệu còn nguyên.
+        drop(db);
+        let db = Db::open_at_dir(&dir).unwrap();
+        assert_eq!(db.list_templates().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn template_crud_and_create_profile_from_template() {
+        let (db, _guard) = temp_db();
+
+        // Config shape ProfileInput (field lạ bị bỏ qua khi tạo profile).
+        let config = serde_json::json!({
+            "platform": "macos",
+            "timezone": "Asia/Ho_Chi_Minh",
+            "locale": "vi-VN",
+            "screen_width": 1440,
+            "screen_height": 900,
+            "hardware_concurrency": 10,
+            "humanize": true,
+            "human_preset": "careful",
+            "startup_behavior": "custom",
+            "startup_urls": ["https://example.com"],
+            "launch_args": ["--lang=vi"],
+            "webrtc_mode": "masked",
+            "webrtc_ip": "203.0.113.7",
+            "store_history": false,
+            "store_sw_cache": false,
+            "tags": ["shop"],
+            "unknown_field": "ignored"
+        });
+        let tpl = db.create_template("VN Shop", &config).unwrap();
+        assert_eq!(tpl.name, "VN Shop");
+        assert_eq!(tpl.config["platform"], "macos");
+        assert!(matches!(
+            db.create_template("   ", &config),
+            Err(AppError::InvalidInput(_))
+        ));
+
+        // Tạo profile từ template → field điền đúng, seed + user_data_dir mới.
+        let p = db.create_profile_from_template(&tpl.id, None).unwrap();
+        assert_eq!(p.name, "VN Shop");
+        assert_eq!(p.platform, "macos");
+        assert_eq!(p.timezone.as_deref(), Some("Asia/Ho_Chi_Minh"));
+        assert_eq!(p.locale.as_deref(), Some("vi-VN"));
+        assert_eq!(p.screen_width, 1440);
+        assert_eq!(p.screen_height, 900);
+        assert_eq!(p.hardware_concurrency, 10);
+        assert!(p.humanize);
+        assert_eq!(p.human_preset.as_deref(), Some("careful"));
+        assert_eq!(p.startup_behavior, "custom");
+        assert_eq!(p.startup_urls, serde_json::json!(["https://example.com"]));
+        assert_eq!(p.launch_args, serde_json::json!(["--lang=vi"]));
+        assert_eq!(p.webrtc_mode, "masked");
+        assert_eq!(p.webrtc_ip.as_deref(), Some("203.0.113.7"));
+        assert!(!p.store_history);
+        assert!(p.store_passwords);
+        assert!(!p.store_sw_cache);
+        assert_eq!(p.tags, vec!["shop".to_string()]);
+        assert!(p.fingerprint_seed.parse::<u32>().is_ok());
+        assert!(p.user_data_dir.contains(&p.id));
+
+        // Tên tuỳ chỉnh + seed mỗi lần một profile độc lập.
+        let p2 = db
+            .create_profile_from_template(&tpl.id, Some("Shop #2"))
+            .unwrap();
+        assert_eq!(p2.name, "Shop #2");
+        assert_ne!(p2.id, p.id);
+        assert_ne!(p2.user_data_dir, p.user_data_dir);
+
+        // Delete + NotFound.
+        assert!(db.delete_template(&tpl.id).unwrap());
+        assert!(!db.delete_template(&tpl.id).unwrap());
+        assert!(matches!(
+            db.create_profile_from_template(&tpl.id, None),
+            Err(AppError::NotFound(_))
+        ));
+        // Profile đã tạo từ template không bị ảnh hưởng.
+        assert_eq!(db.list_profiles().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn trash_restore_purge_flow() {
+        let (db, _guard) = temp_db();
+        let a = db
+            .create_profile(ProfileInput {
+                name: "trash-a".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let b = db
+            .create_profile(ProfileInput {
+                name: "trash-b".into(),
+                ..Default::default()
+            })
+            .unwrap();
+
+        // Trash a → list/search ẩn, list_trash hiện.
+        assert_eq!(db.trash_profiles(std::slice::from_ref(&a.id)).unwrap(), 1);
+        let alive = db.list_profiles().unwrap();
+        assert_eq!(alive.len(), 1);
+        assert_eq!(alive[0].id, b.id);
+        assert_eq!(db.search_profiles("trash-a", None).unwrap().len(), 0);
+        let trash = db.list_trash().unwrap();
+        assert_eq!(trash.len(), 1);
+        assert_eq!(trash[0].id, a.id);
+        // Trash lại lần nữa → không thay đổi thêm (đã ở trash).
+        assert_eq!(db.trash_profiles(std::slice::from_ref(&a.id)).unwrap(), 0);
+
+        // Restore → sống lại.
+        assert_eq!(db.restore_profiles(std::slice::from_ref(&a.id)).unwrap(), 1);
+        assert_eq!(db.list_profiles().unwrap().len(), 2);
+        assert!(db.list_trash().unwrap().is_empty());
+        assert_eq!(db.restore_profiles(std::slice::from_ref(&a.id)).unwrap(), 0);
+
+        // Purge → xoá hẳn khỏi DB.
+        db.trash_profiles(std::slice::from_ref(&b.id)).unwrap();
+        assert_eq!(db.purge_profiles(std::slice::from_ref(&b.id)).unwrap(), 1);
+        assert!(db.list_trash().unwrap().is_empty());
+        assert!(matches!(
+            db.get_profile(&b.id),
+            Err(AppError::NotFound(_))
+        ));
+
+        // Batch rỗng → no-op.
+        assert_eq!(db.trash_profiles(&[]).unwrap(), 0);
+        assert_eq!(db.restore_profiles(&[]).unwrap(), 0);
+        assert_eq!(db.purge_profiles(&[]).unwrap(), 0);
+    }
+
+    #[test]
+    fn favorite_toggle() {
+        let (db, _guard) = temp_db();
+        let p = db
+            .create_profile(ProfileInput {
+                name: "fav".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(!p.favorite);
+        db.set_favorite(&p.id, true).unwrap();
+        assert!(db.get_profile(&p.id).unwrap().favorite);
+        db.set_favorite(&p.id, false).unwrap();
+        assert!(!db.get_profile(&p.id).unwrap().favorite);
+        assert!(matches!(
+            db.set_favorite("nope", true),
+            Err(AppError::NotFound(_))
+        ));
+    }
+
+    #[test]
+    fn quick_profile_flag_and_convert_to_regular() {
+        let (db, _guard) = temp_db();
+        // Mặc định (không truyền is_quick) → profile thường.
+        let regular = db
+            .create_profile(ProfileInput {
+                name: "thường".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(!regular.is_quick);
+
+        let quick = db
+            .create_profile(ProfileInput {
+                name: "Quick 1".into(),
+                is_quick: Some(true),
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(quick.is_quick);
+
+        // "Save as regular": bỏ cờ, giữ nguyên user_data_dir.
+        db.set_quick(&quick.id, false).unwrap();
+        let converted = db.get_profile(&quick.id).unwrap();
+        assert!(!converted.is_quick);
+        assert_eq!(converted.user_data_dir, quick.user_data_dir);
+
+        assert!(matches!(
+            db.set_quick("nope", true),
+            Err(AppError::NotFound(_))
+        ));
+    }
+
+    #[test]
+    fn folder_crud_and_profile_count() {
+        let (db, _guard) = temp_db();
+        // DB mới đã seed "Default folder".
+        let seeded = db.list_folders().unwrap();
+        assert_eq!(seeded.len(), 1);
+        assert_eq!(seeded[0].name, "Default folder");
+
+        let f = db.create_folder("Work").unwrap();
+        assert_eq!(f.name, "Work");
+        assert_eq!(f.profile_count, 0);
+        assert!(matches!(
+            db.create_folder("Work"),
+            Err(AppError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            db.create_folder("   "),
+            Err(AppError::InvalidInput(_))
+        ));
+
+        let renamed = db.rename_folder(&f.id, "Work 2").unwrap();
+        assert_eq!(renamed.name, "Work 2");
+        assert!(matches!(
+            db.rename_folder("nope", "x"),
+            Err(AppError::NotFound(_))
+        ));
+        assert!(matches!(
+            db.rename_folder(&f.id, "Default folder"),
+            Err(AppError::InvalidInput(_))
+        ));
+
+        let a = db
+            .create_profile(ProfileInput {
+                name: "a".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let b = db
+            .create_profile(ProfileInput {
+                name: "b".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(
+            db.move_profiles_to_folder(&[a.id.clone(), b.id.clone()], Some(&f.id))
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            db.get_profile(&a.id).unwrap().folder_id.as_deref(),
+            Some(f.id.as_str())
+        );
+        assert_eq!(db.get_folder(&f.id).unwrap().profile_count, 2);
+
+        // profile_count chỉ đếm profile còn sống.
+        db.trash_profiles(std::slice::from_ref(&a.id)).unwrap();
+        assert_eq!(db.get_folder(&f.id).unwrap().profile_count, 1);
+
+        // Move ra ngoài folder (None) + folder không tồn tại → NotFound.
+        assert_eq!(
+            db.move_profiles_to_folder(std::slice::from_ref(&b.id), None)
+                .unwrap(),
+            1
+        );
+        assert!(db.get_profile(&b.id).unwrap().folder_id.is_none());
+        assert_eq!(db.get_folder(&f.id).unwrap().profile_count, 0);
+        assert!(matches!(
+            db.move_profiles_to_folder(std::slice::from_ref(&b.id), Some("nope")),
+            Err(AppError::NotFound(_))
+        ));
+
+        // Xoá folder → profile thuộc folder về NULL, không bị xoá.
+        db.move_profiles_to_folder(std::slice::from_ref(&b.id), Some(&f.id))
+            .unwrap();
+        assert!(db.delete_folder(&f.id).unwrap());
+        assert!(!db.delete_folder(&f.id).unwrap());
+        assert!(db.get_profile(&b.id).unwrap().folder_id.is_none());
+        assert_eq!(db.list_folders().unwrap().len(), 1);
+    }
+
+    #[test]
     fn profile_crud_roundtrip() {
         let (db, _guard) = temp_db();
 
@@ -1038,6 +2141,7 @@ mod tests {
         assert_eq!(created.tags, vec!["fb".to_string(), "work".to_string()]);
         assert!(created.user_data_dir.contains(&created.id));
         assert!(created.fingerprint_seed.parse::<u32>().is_ok());
+        assert!(created.last_start_at.is_none());
 
         let fetched = db.get_profile(&created.id).unwrap();
         assert_eq!(fetched.launch_args, serde_json::json!(["--lang=vi"]));
@@ -1069,6 +2173,28 @@ mod tests {
         assert!(!db.delete_profile(&created.id).unwrap());
         assert!(matches!(
             db.get_profile(&created.id),
+            Err(AppError::NotFound(_))
+        ));
+    }
+
+    #[test]
+    fn touch_last_start_sets_timestamp_without_touching_updated_at() {
+        let (db, _guard) = temp_db();
+        let p = db
+            .create_profile(ProfileInput {
+                name: "ls".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(p.last_start_at.is_none());
+
+        db.touch_last_start(&p.id).unwrap();
+        let after = db.get_profile(&p.id).unwrap();
+        assert!(after.last_start_at.is_some());
+        assert_eq!(after.updated_at, p.updated_at);
+
+        assert!(matches!(
+            db.touch_last_start("nope"),
             Err(AppError::NotFound(_))
         ));
     }
