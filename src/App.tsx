@@ -101,24 +101,40 @@ export default function App() {
     return () => unlisten?.();
   }, []);
 
+  // (W23d) Per-resource loaders — mutation handlers refetch only the
+  // resources they touched instead of reloading everything on every action.
+  const refetchProfiles = useCallback(async () => {
+    setProfiles(await api.listProfiles());
+  }, []);
+  const refetchProxies = useCallback(async () => {
+    setProxies(await api.listProxies());
+  }, []);
+  const refetchRunning = useCallback(async () => {
+    setRunning(await api.listRunning());
+  }, []);
+  const refetchFolders = useCallback(async () => {
+    setFolders(await api.listFolders());
+  }, []);
+  const refetchTrash = useCallback(async () => {
+    setTrash(await api.listTrash());
+  }, []);
+
+  /** Await the given refetches; a failed one keeps the last known state. */
+  const refetch = (...tasks: Promise<void>[]) => Promise.allSettled(tasks);
+
+  /** Full reload — only for the initial mount and the manual Refresh button. */
   const loadAll = useCallback(async () => {
     if (!isTauri()) return;
-    const [p, x, r, f, tr, s] = await Promise.allSettled([
-      api.listProfiles(),
-      api.listProxies(),
-      api.listRunning(),
-      api.listFolders(),
-      api.listTrash(),
-      api.getSettings(),
+    const [p, x, r] = await Promise.allSettled([
+      refetchProfiles(),
+      refetchProxies(),
+      refetchRunning(),
+      refetchFolders(),
+      refetchTrash(),
+      api.getSettings().then(setSettings),
     ]);
-    if (p.status === "fulfilled") setProfiles(p.value);
-    if (x.status === "fulfilled") setProxies(x.value);
-    if (r.status === "fulfilled") setRunning(r.value);
-    if (f.status === "fulfilled") setFolders(f.value);
-    if (tr.status === "fulfilled") setTrash(tr.value);
-    if (s.status === "fulfilled") setSettings(s.value);
     setLoadError([p, x, r].some((res) => res.status === "rejected"));
-  }, []);
+  }, [refetchProfiles, refetchProxies, refetchRunning, refetchFolders, refetchTrash]);
 
   useEffect(() => {
     void loadAll();
@@ -233,7 +249,7 @@ export default function App() {
   const handleCreateFolder = async (name: string) => {
     try {
       await api.createFolder(name);
-      setFolders(await api.listFolders());
+      await refetchFolders();
     } catch (err) {
       setActionError(errMsg(err));
     }
@@ -246,14 +262,14 @@ export default function App() {
       await api.createProfile(input);
     }
     setEditing(null);
-    await loadAll();
+    await refetch(refetchProfiles(), refetchFolders());
   };
 
   const handleDeleteProfile = async () => {
     if (editing && editing !== "new") {
       await api.deleteProfile(editing.id);
       setEditing(null);
-      await loadAll();
+      await refetch(refetchProfiles(), refetchFolders());
     }
   };
 
@@ -263,7 +279,7 @@ export default function App() {
       return;
     }
     await api.launchProfile(id);
-    setRunning(await api.listRunning());
+    await refetchRunning();
   };
 
   const handleStop = async (id: string) => {
@@ -272,7 +288,7 @@ export default function App() {
       return;
     }
     await api.stopProfile(id);
-    setRunning(await api.listRunning());
+    await refetchRunning();
   };
 
   const profileName = (id: string) =>
@@ -306,7 +322,7 @@ export default function App() {
       }
     }
     try {
-      setRunning(await api.listRunning());
+      await refetchRunning();
     } catch {
       // keep last known running state
     }
@@ -329,7 +345,7 @@ export default function App() {
       }
     }
     try {
-      setRunning(await api.listRunning());
+      await refetchRunning();
     } catch {
       // keep last known running state
     }
@@ -357,7 +373,7 @@ export default function App() {
     setQuickStopBusy(false);
     setQuickStop(null);
     setActionError(errors.length ? errors.join(" · ") : null);
-    await loadAll();
+    await refetch(refetchProfiles(), refetchRunning());
   };
 
   const nextQuickName = () => {
@@ -384,7 +400,7 @@ export default function App() {
     } catch (err) {
       setActionError(errMsg(err));
     }
-    await loadAll();
+    await refetch(refetchProfiles(), refetchRunning());
   };
 
   const handleClone = async (p: Profile) => {
@@ -414,7 +430,7 @@ export default function App() {
         store_passwords: p.store_passwords,
         store_sw_cache: p.store_sw_cache,
       });
-      await loadAll();
+      await refetch(refetchProfiles());
     } catch (err) {
       setActionError(errMsg(err));
     }
@@ -427,7 +443,7 @@ export default function App() {
     try {
       await api.trashProfiles(ids);
       setSelected(new Set());
-      await loadAll();
+      await refetch(refetchProfiles(), refetchFolders(), refetchTrash());
     } catch (err) {
       setActionError(errMsg(err));
     }
@@ -439,7 +455,7 @@ export default function App() {
     try {
       await api.moveProfilesToFolder(ids, folderId);
       setSelected(new Set());
-      await loadAll();
+      await refetch(refetchProfiles(), refetchFolders());
     } catch (err) {
       setActionError(errMsg(err));
     }
@@ -459,7 +475,7 @@ export default function App() {
       }
     }
     setActionError(errors.length ? errors.join(" · ") : null);
-    await loadAll();
+    await refetch(refetchProfiles());
   };
 
   const handleToggleFavorite = async (p: Profile) => {
@@ -479,22 +495,22 @@ export default function App() {
 
   const handleRestore = async (ids: string[]) => {
     await api.restoreProfiles(ids);
-    await loadAll();
+    await refetch(refetchProfiles(), refetchFolders(), refetchTrash());
   };
 
   const handlePurge = async (ids: string[]) => {
     await api.purgeProfiles(ids);
-    await loadAll();
+    await refetch(refetchTrash());
   };
 
   const handleCreateProxy = async (input: ProxyInput) => {
     await api.createProxy(input);
-    setProxies(await api.listProxies());
+    await refetchProxies();
   };
 
   const handleDeleteProxy = async (id: string) => {
     await api.deleteProxy(id);
-    setProxies(await api.listProxies());
+    await refetchProxies();
   };
 
   // (W23b) Re-encrypt proxy credentials with the current master key. A blank
@@ -506,7 +522,7 @@ export default function App() {
   ) => {
     if (!username) await api.updateProxy(id, { clear_credentials: true });
     await api.updateProxy(id, { username, password });
-    setProxies(await api.listProxies());
+    await refetchProxies();
   };
 
   return (

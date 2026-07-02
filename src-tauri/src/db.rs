@@ -2499,11 +2499,11 @@ mod tests {
     }
 
     #[test]
-    fn thousand_profiles_list_and_search_are_fast() {
+    fn five_thousand_profiles_list_and_search_are_fast() {
         let (db, _guard) = temp_db();
 
         let t_insert = std::time::Instant::now();
-        for i in 0..1000 {
+        for i in 0..5000 {
             db.create_profile(ProfileInput {
                 name: format!("profile-{i:04}"),
                 tags: if i % 10 == 0 {
@@ -2520,7 +2520,7 @@ mod tests {
         let t_list = std::time::Instant::now();
         let all = db.list_profiles().unwrap();
         let list_ms = t_list.elapsed().as_millis();
-        assert_eq!(all.len(), 1000);
+        assert_eq!(all.len(), 5000);
 
         let t_search = std::time::Instant::now();
         let hits = db.search_profiles("profile-09", None).unwrap();
@@ -2530,14 +2530,15 @@ mod tests {
         let t_tag = std::time::Instant::now();
         let vips = db.search_profiles("profile", Some("vip")).unwrap();
         let tag_ms = t_tag.elapsed().as_millis();
-        assert_eq!(vips.len(), 100);
+        assert_eq!(vips.len(), 500);
 
         println!(
-            "1000 profiles: insert={insert_ms}ms list={list_ms}ms search={search_ms}ms tag_search={tag_ms}ms"
+            "5000 profiles: insert={insert_ms}ms list={list_ms}ms search={search_ms}ms tag_search={tag_ms}ms"
         );
-        // Mục tiêu docs: <200ms p95 (release). Debug build chậm hơn → ngưỡng 1500ms chống flaky.
-        assert!(list_ms < 1500, "list_profiles too slow: {list_ms}ms");
-        assert!(search_ms < 1500, "search_profiles too slow: {search_ms}ms");
-        assert!(tag_ms < 1500, "tag search too slow: {tag_ms}ms");
+        // Mục tiêu docs: <200ms p95 (release) cho 1000. Debug build chậm hơn và
+        // canary 5000 profile (5×) → ngưỡng 5000ms chống flaky.
+        assert!(list_ms < 5000, "list_profiles too slow: {list_ms}ms");
+        assert!(search_ms < 5000, "search_profiles too slow: {search_ms}ms");
+        assert!(tag_ms < 5000, "tag search too slow: {tag_ms}ms");
     }
 }
