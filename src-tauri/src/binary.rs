@@ -74,10 +74,18 @@ pub async fn ensure_binary(
     // 2) Fail fast nếu platform không có binary (download.py#L194).
     config::get_platform_tag()?;
 
-    // 3) Cache hit.
+    // 3) Cache hit — re-verify SHA-256 đã ghi lúc tải (hash ghi ngay sau khi
+    // archive pass manifest đã ký, nên transitively ràng với manifest).
+    // Lệch → coi như cache hỏng/bị sửa, tải + verify lại từ đầu.
     let binary_path = config::get_binary_path(version);
     if binary_path.exists() {
-        return Ok(binary_path);
+        if cached_binary_is_valid(&config::get_binary_dir(version), &binary_path)? {
+            return Ok(binary_path);
+        }
+        tracing::warn!(
+            "Cached binary failed SHA-256 re-verification — re-downloading: {}",
+            binary_path.display()
+        );
     }
 
     // 4) Tải + verify + giải nén.
@@ -134,6 +142,12 @@ async fn download_and_extract(
         emit(progress, "extract", 0);
         extract_archive(&tmp_path, &binary_dir, &binary_path, std::env::consts::OS)?;
         emit(progress, "extract", 100);
+
+        // Ghi SHA-256 của executable vừa extract từ archive ĐÃ verify manifest,
+        // để lần dùng sau re-verify cache (xem ensure_binary bước 3).
+        if binary_path.exists() {
+            record_verified_hash(&binary_dir, &binary_path)?;
+        }
         Ok(())
     }
     .await;
@@ -402,8 +416,8 @@ fn verify_checksum_bytes(data: &[u8], expected: &str) -> Result<()> {
     Ok(())
 }
 
-/// Verify SHA-256 của file (đọc theo chunk).
-fn verify_checksum_file(path: &Path, expected: &str) -> Result<()> {
+/// SHA-256 hex của file (đọc theo chunk).
+fn sha256_file(path: &Path) -> Result<String> {
     use std::io::Read;
     let mut f = std::fs::File::open(path)?;
     let mut hasher = Sha256::new();
@@ -415,7 +429,12 @@ fn verify_checksum_file(path: &Path, expected: &str) -> Result<()> {
         }
         hasher.update(&buf[..n]);
     }
-    let actual = hex::encode(hasher.finalize());
+    Ok(hex::encode(hasher.finalize()))
+}
+
+/// Verify SHA-256 của file so với hash kỳ vọng.
+fn verify_checksum_file(path: &Path, expected: &str) -> Result<()> {
+    let actual = sha256_file(path)?;
     if actual != expected.to_lowercase() {
         return Err(binary_err(format!(
             "Checksum verification failed! expected {expected}, got {actual}. \
@@ -423,6 +442,45 @@ fn verify_checksum_file(path: &Path, expected: &str) -> Result<()> {
         )));
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Cache re-verify: sidecar ghi SHA-256 của executable lúc tải (đã pass manifest
+// ký Ed25519) — lần dùng sau so lại, lệch → tải lại.
+// ---------------------------------------------------------------------------
+
+/// Đường dẫn sidecar chứa SHA-256 đã verify (nằm ở root binary_dir, ngoài .app).
+fn verified_hash_path(binary_dir: &Path) -> PathBuf {
+    binary_dir.join(".verified_sha256")
+}
+
+/// Ghi SHA-256 của executable vào sidecar sau khi download+verify+extract.
+fn record_verified_hash(binary_dir: &Path, binary_path: &Path) -> Result<()> {
+    let hash = sha256_file(binary_path)?;
+    std::fs::write(verified_hash_path(binary_dir), hash)?;
+    Ok(())
+}
+
+/// Kiểm cache: SHA-256 hiện tại của executable khớp sidecar đã ghi lúc tải?
+/// - Khớp → `true` (dùng cache).
+/// - Lệch → `false` (caller tải + verify lại).
+/// - Sidecar thiếu (cache từ version cũ chưa có tính năng này) → ghi hash hiện
+///   tại (trust-on-first-use, có cảnh báo) và trả `true`.
+fn cached_binary_is_valid(binary_dir: &Path, binary_path: &Path) -> Result<bool> {
+    let sidecar = verified_hash_path(binary_dir);
+    let actual = sha256_file(binary_path)?;
+    match std::fs::read_to_string(&sidecar) {
+        Ok(expected) => Ok(expected.trim().eq_ignore_ascii_case(&actual)),
+        Err(_) => {
+            tracing::warn!(
+                "No recorded SHA-256 for cached binary (pre-existing cache) — \
+                 recording current hash: {}",
+                binary_path.display()
+            );
+            std::fs::write(&sidecar, &actual)?;
+            Ok(true)
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -637,6 +695,52 @@ mod tests {
         // Uppercase vẫn khớp (case-insensitive).
         assert!(verify_checksum_bytes(data, &expected.to_uppercase()).is_ok());
         assert!(verify_checksum_bytes(data, &"0".repeat(64)).is_err());
+    }
+
+    /// Tạo binary_dir tạm + file "chrome" giả; caller tự dọn.
+    fn cache_fixture(tag: &str) -> (PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "browserx-cache-test-{}-{tag}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let bin = dir.join("chrome");
+        std::fs::write(&bin, b"fake chromium bytes").unwrap();
+        (dir, bin)
+    }
+
+    #[test]
+    fn cached_binary_valid_when_hash_matches_record() {
+        let (dir, bin) = cache_fixture("ok");
+        record_verified_hash(&dir, &bin).unwrap();
+        assert!(cached_binary_is_valid(&dir, &bin).unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cached_binary_invalid_on_hash_mismatch() {
+        let (dir, bin) = cache_fixture("tamper");
+        // Mock hash lệch: sidecar ghi hash khác nội dung binary → phải trả false
+        // (ensure_binary sẽ tải + verify lại).
+        std::fs::write(verified_hash_path(&dir), "0".repeat(64)).unwrap();
+        assert!(!cached_binary_is_valid(&dir, &bin).unwrap());
+
+        // Binary bị sửa SAU khi ghi hash đúng → cũng phải trả false.
+        record_verified_hash(&dir, &bin).unwrap();
+        std::fs::write(&bin, b"tampered bytes").unwrap();
+        assert!(!cached_binary_is_valid(&dir, &bin).unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cached_binary_tofu_when_sidecar_missing() {
+        let (dir, bin) = cache_fixture("tofu");
+        // Cache cũ chưa có sidecar → chấp nhận (TOFU) và ghi hash hiện tại.
+        assert!(cached_binary_is_valid(&dir, &bin).unwrap());
+        let recorded = std::fs::read_to_string(verified_hash_path(&dir)).unwrap();
+        assert_eq!(recorded.trim(), sha256_hex(b"fake chromium bytes"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

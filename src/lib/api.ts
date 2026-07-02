@@ -68,7 +68,8 @@ export interface Proxy {
   host: string;
   port: number;
   username: string | null;
-  password: string | null;
+  /** Password never crosses IPC in plaintext — backend only reports presence. */
+  has_password: boolean;
   created_at: string;
   updated_at: string;
 }

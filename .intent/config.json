@@ -1,0 +1,28 @@
+{
+  "scripts": [
+    {
+      "name": "dev",
+      "command": "pnpm dev",
+      "mode": "service",
+      "category": "dev"
+    },
+    {
+      "name": "build",
+      "command": "pnpm build",
+      "mode": "command",
+      "category": "build"
+    },
+    {
+      "name": "preview",
+      "command": "pnpm preview",
+      "mode": "service",
+      "category": "dev"
+    },
+    {
+      "name": "tauri",
+      "command": "pnpm tauri",
+      "mode": "command",
+      "category": "other"
+    }
+  ]
+}

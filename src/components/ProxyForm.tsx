@@ -65,7 +65,7 @@ export function ProxyForm({ proxies, onCreate, onDelete }: ProxyFormProps) {
               <div>
                 <div className="text-sm font-medium">{p.name}</div>
                 <div className="text-xs text-fg-muted font-mono">
-                  {p.protocol}://{p.username ? `${p.username}@` : ""}{p.host}:{p.port}
+                  {p.protocol}://{p.username ? `${p.username}${p.has_password ? ":•••" : ""}@` : ""}{p.host}:{p.port}
                 </div>
               </div>
               <button

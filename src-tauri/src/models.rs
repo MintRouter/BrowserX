@@ -55,8 +55,10 @@ pub struct Proxy {
     pub host: String,
     pub port: u16,
     pub username: Option<String>,
-    /// Mã hoá at-rest (XChaCha20-Poly1305, khoá trong OS keychain) — xem `crypto`.
-    pub password: Option<String>,
+    /// Password KHÔNG bao giờ trả plaintext qua IPC — chỉ báo đã lưu hay chưa.
+    /// Bản mã hoá at-rest (XChaCha20-Poly1305, khoá trong OS keychain) chỉ được
+    /// giải mã trong backend lúc launch — xem `crypto`.
+    pub has_password: bool,
     pub created_at: String,
     pub updated_at: String,
 }

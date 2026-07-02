@@ -70,7 +70,9 @@ fn emit_status(
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// ProxyRecord (credential mã hoá) → models::Proxy (credential plaintext cho FE).
+/// ProxyRecord (credential mã hoá) → models::Proxy trả về FE.
+/// Password KHÔNG giải mã — chỉ trả `has_password`; giải mã duy nhất lúc launch
+/// (`proxy_url_from`).
 fn proxy_to_model(rec: db::ProxyRecord) -> Result<Proxy> {
     Ok(Proxy {
         id: rec.id,
@@ -83,11 +85,7 @@ fn proxy_to_model(rec: db::ProxyRecord) -> Result<Proxy> {
             .as_deref()
             .map(crypto::decrypt_secret)
             .transpose()?,
-        password: rec
-            .password_enc
-            .as_deref()
-            .map(crypto::decrypt_secret)
-            .transpose()?,
+        has_password: rec.password_enc.is_some(),
         created_at: rec.created_at,
         updated_at: rec.updated_at,
     })
