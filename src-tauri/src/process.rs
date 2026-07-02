@@ -25,8 +25,9 @@ use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 use crate::error::{AppError, Result};
 use crate::models::RunningSession;
 
-/// Default max concurrent khi settings chưa cung cấp và không đọc được RAM host.
-/// Đây cũng là TRẦN tuyệt đối cho `recommended_max_concurrent`.
+/// Default max concurrent — CHỈ dùng làm fallback khi settings chưa cung cấp
+/// VÀ không đọc được RAM host. KHÔNG còn là trần tuyệt đối:
+/// `recommended_max_concurrent` scale theo RAM (xem `cap_from_ram_gib`).
 pub const DEFAULT_MAX_CONCURRENT: usize = 8;
 
 /// RAM vật lý của host (bytes), best-effort. macOS: `sysctl -n hw.memsize`;
@@ -58,16 +59,20 @@ fn host_ram_bytes() -> Option<u64> {
     }
 }
 
-/// Cap concurrency an toàn theo RAM host: chừa 4 GiB cho OS/app, ngân sách
-/// ~1.5 GiB mỗi phiên Chromium headful, kẹp trong [1, DEFAULT_MAX_CONCURRENT].
-/// Ví dụ: 8 GiB → 2 phiên; 16 GiB → 8; 24 GiB → 8 (chạm trần).
+/// Lõi công thức cap theo RAM (thuần, test được): chừa 4 GiB cho OS/app,
+/// ngân sách ~2.5 GiB mỗi phiên Chromium headful (soak thực tế trên macOS 24 GiB:
+/// N=10 mất ổn định, N=8 ổn định 30 phút), kẹp trong [1, 64].
+/// Ví dụ: 8 GiB → 1; 16 GiB → 4; 24 GiB → 8; 32 GiB → 11; 64 GiB → 24.
+fn cap_from_ram_gib(ram_gib: u64) -> usize {
+    ((ram_gib.saturating_sub(4) * 2 / 5) as usize).clamp(1, 64)
+}
+
+/// Cap concurrency an toàn, tỉ lệ theo RAM host (không còn trần cứng 8):
+/// map `host_ram_bytes()` qua `cap_from_ram_gib`. Khi không đọc được RAM
+/// → fallback `DEFAULT_MAX_CONCURRENT`.
 pub fn recommended_max_concurrent() -> usize {
     match host_ram_bytes() {
-        Some(bytes) => {
-            let gib = bytes >> 30;
-            let budget_gib = gib.saturating_sub(4);
-            ((budget_gib * 2 / 3) as usize).clamp(1, DEFAULT_MAX_CONCURRENT)
-        }
+        Some(bytes) => cap_from_ram_gib(bytes >> 30),
         None => DEFAULT_MAX_CONCURRENT,
     }
 }
@@ -376,10 +381,31 @@ mod tests {
         handle.abort();
     }
 
-    /// Cap theo RAM luôn nằm trong [1, DEFAULT_MAX_CONCURRENT].
+    /// Cap theo RAM luôn nằm trong [1, 64] (RAM đọc được) hoặc = fallback.
     #[test]
     fn recommended_cap_in_bounds() {
         let cap = recommended_max_concurrent();
-        assert!((1..=DEFAULT_MAX_CONCURRENT).contains(&cap));
+        assert!((1..=64).contains(&cap) || cap == DEFAULT_MAX_CONCURRENT);
+    }
+
+    /// Công thức cap theo RAM: reserve 4 GiB OS, ~2.5 GiB/phiên, clamp [1, 64].
+    /// Kiểm biên (clamp min/max) + các mốc RAM phổ biến + monotonic.
+    #[test]
+    fn cap_from_ram_gib_formula() {
+        assert_eq!(cap_from_ram_gib(4), 1); // clamp min
+        assert_eq!(cap_from_ram_gib(6), 1);
+        assert_eq!(cap_from_ram_gib(8), 1);
+        assert_eq!(cap_from_ram_gib(16), 4);
+        assert_eq!(cap_from_ram_gib(24), 8);
+        assert_eq!(cap_from_ram_gib(32), 11);
+        assert_eq!(cap_from_ram_gib(64), 24);
+        assert_eq!(cap_from_ram_gib(200), 64); // clamp max
+        // Monotonic không giảm theo RAM.
+        let mut prev = 0;
+        for gib in 0..=256 {
+            let cap = cap_from_ram_gib(gib);
+            assert!(cap >= prev);
+            prev = cap;
+        }
     }
 }

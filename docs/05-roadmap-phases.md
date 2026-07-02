@@ -31,7 +31,9 @@ Liên quan: [`docs/02-critique-risks.md`](02-critique-risks.md) ·
 2. **Phân biệt "lưu trữ" vs "chạy đồng thời".** Mục tiêu **hàng nghìn profiles** là
    số *stored* (hàng SQLite + `user_data_dir` trên đĩa — gần như miễn phí). Số
    *concurrent* bị chặn bởi RAM host (~0.3–1GB/phiên — Spec §🔁; docs/02 R3) → chỉ
-   **vài chục** trên 1 máy desktop. Exit criteria tách rõ hai chỉ số.
+   **vài chục** trên 1 máy desktop. Cap mặc định scale theo RAM: reserve 4GiB cho OS,
+   ngân sách ~2.5GiB/phiên → 24GiB → 8, 32GiB → 11 (≥10 khi RAM ≥32GiB),
+   trần 64. Exit criteria tách rõ hai chỉ số.
 3. **Kế thừa, đừng làm lại.** Fingerprint theo seed, proxy per-profile, GeoIP tz/locale,
    WebRTC spoof, CDP, persistence qua `user_data_dir` đã có trong CloakBrowser (docs/07
    §9) → **port sang Rust**, không viết lại engine.
@@ -130,7 +132,10 @@ seed + proxy per-profile + timezone; **tái dùng React frontend**; **tải bina
 - [ ] Lưu & CRUD **≥1.000 profile stored**; list/search local **< 200ms p95**.
 - [ ] Launch/stop 1 profile qua UI: cửa sổ **headful thật** mở, teardown `kill(pid)`
       **không rác tiến trình** (kiểm tra bằng process list).
-- [ ] Chạy ổn định **≥10 phiên concurrent** trên 1 máy dev ≥ 30 phút, tỉ lệ launch ≥ 99%.
+- [ ] Chạy ổn định **≥10 phiên concurrent** trên 1 máy dev ≥ 30 phút, tỉ lệ launch ≥ 99%
+      — **điều kiện theo RAM**: đạt khi host RAM **≥32GiB** (cap → 11 ≥ 10). Trên host
+      24GiB cap mặc định = 8; ổn định đã chứng minh bằng soak **N=8 / 30 phút** (chạy 10
+      trên 24GiB overcommit bộ nhớ macOS → **không** phải default).
 - [ ] ≥2 profile khác seed → canvas/WebGL hash khác nhau (như Pha 0, nhưng qua BrowserX).
 - [ ] Proxy credential **mã hoá at-rest** (dump SQLite: **0** plaintext creds).
 - [ ] Binary **tải runtime + verify Ed25519** pass; **không** binary nào trong repo/artifact
