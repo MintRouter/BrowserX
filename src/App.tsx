@@ -7,16 +7,18 @@ import {
 } from "./components/EngineSetup";
 import { ProfileForm } from "./components/ProfileForm";
 import { ProfileList } from "./components/ProfileList";
-import { ProxyForm } from "./components/ProxyForm";
+import { ProxiesView, type ProxyPatch } from "./components/ProxiesView";
 import { QuickStopDialog } from "./components/QuickStopDialog";
 import { QuitDialog } from "./components/QuitDialog";
 import { RunningDashboard } from "./components/RunningDashboard";
 import { SettingsView } from "./components/SettingsView";
 import { Sidebar, type MainView } from "./components/Sidebar";
+import { TemplatesView } from "./components/TemplatesView";
 import { TopBar } from "./components/TopBar";
 import { TrashView } from "./components/TrashView";
 import {
   api,
+  DEFAULT_TEMPLATE_SETTING,
   isTauri,
   onBinaryProgress,
   onExitRequested,
@@ -24,6 +26,7 @@ import {
   type Folder,
   type Profile,
   type ProfileInput,
+  type ProfileTemplate,
   type Proxy,
   type ProxyInput,
   type RunningSession,
@@ -41,6 +44,7 @@ export default function App() {
   const [running, setRunning] = useState<RunningSession[]>([]);
   const [trash, setTrash] = useState<Profile[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
+  const [templates, setTemplates] = useState<ProfileTemplate[]>([]);
   const [settings, setSettings] = useState<Record<string, string> | null>(null);
   const [editing, setEditing] = useState<Profile | "new" | null>(null);
   const [loadError, setLoadError] = useState(false);
@@ -118,6 +122,9 @@ export default function App() {
   const refetchTrash = useCallback(async () => {
     setTrash(await api.listTrash());
   }, []);
+  const refetchTemplates = useCallback(async () => {
+    setTemplates(await api.listTemplates());
+  }, []);
 
   /** Await the given refetches; a failed one keeps the last known state. */
   const refetch = (...tasks: Promise<void>[]) => Promise.allSettled(tasks);
@@ -131,10 +138,11 @@ export default function App() {
       refetchRunning(),
       refetchFolders(),
       refetchTrash(),
+      refetchTemplates(),
       api.getSettings().then(setSettings),
     ]);
     setLoadError([p, x, r].some((res) => res.status === "rejected"));
-  }, [refetchProfiles, refetchProxies, refetchRunning, refetchFolders, refetchTrash]);
+  }, [refetchProfiles, refetchProxies, refetchRunning, refetchFolders, refetchTrash, refetchTemplates]);
 
   useEffect(() => {
     void loadAll();
@@ -230,8 +238,10 @@ export default function App() {
       running: running.length,
       favorites: favoriteProfiles.length,
       trash: trash.length,
+      proxies: proxies.length,
+      templates: templates.length,
     }),
-    [profiles.length, running.length, favoriteProfiles.length, trash.length],
+    [profiles.length, running.length, favoriteProfiles.length, trash.length, proxies.length, templates.length],
   );
 
   const navigate = (v: MainView) => {
@@ -508,21 +518,56 @@ export default function App() {
     await refetchProxies();
   };
 
-  const handleDeleteProxy = async (id: string) => {
-    await api.deleteProxy(id);
+  // (W23b) Typing a password re-encrypts with the current master key;
+  // clear_credentials wipes stale blobs so the invalid flag can't linger.
+  const handleUpdateProxy = async (id: string, patch: ProxyPatch) => {
+    await api.updateProxy(id, patch);
     await refetchProxies();
   };
 
-  // (W23b) Re-encrypt proxy credentials with the current master key. A blank
-  // username first clears both stale blobs so the invalid flag can't linger.
-  const handleReenterProxyCredentials = async (
-    id: string,
-    username: string | null,
-    password: string,
-  ) => {
-    if (!username) await api.updateProxy(id, { clear_credentials: true });
-    await api.updateProxy(id, { username, password });
+  const handleDeleteProxies = async (ids: string[]) => {
+    for (const id of ids) await api.deleteProxy(id);
     await refetchProxies();
+  };
+
+  // (F2b) Template CRUD + default-template setting.
+  const handleCreateTemplate = async (name: string, config: ProfileInput) => {
+    await api.saveAsTemplate(name, config);
+    await refetchTemplates();
+  };
+
+  const handleUpdateTemplate = async (
+    id: string,
+    name: string,
+    config: ProfileInput,
+  ) => {
+    await api.updateTemplate(id, name, config);
+    await refetchTemplates();
+  };
+
+  const handleDeleteTemplates = async (ids: string[]) => {
+    setActionError(null);
+    try {
+      for (const id of ids) await api.deleteTemplate(id);
+      // Deleting the default template clears the setting too.
+      if (ids.includes(settings?.[DEFAULT_TEMPLATE_SETTING] ?? "")) {
+        await api.setSetting(DEFAULT_TEMPLATE_SETTING, "");
+        setSettings((s) => (s ? { ...s, [DEFAULT_TEMPLATE_SETTING]: "" } : s));
+      }
+      await refetchTemplates();
+    } catch (err) {
+      setActionError(errMsg(err));
+    }
+  };
+
+  const handleSetDefaultTemplate = async (id: string) => {
+    setActionError(null);
+    try {
+      await api.setSetting(DEFAULT_TEMPLATE_SETTING, id);
+      setSettings((s) => (s ? { ...s, [DEFAULT_TEMPLATE_SETTING]: id } : s));
+    } catch (err) {
+      setActionError(errMsg(err));
+    }
   };
 
   return (
@@ -583,6 +628,9 @@ export default function App() {
               onSave={handleSaveProfile}
               onDelete={editing !== "new" ? handleDeleteProfile : undefined}
               onCancel={() => setEditing(null)}
+              onTrashed={async () => {
+                await refetch(refetchProfiles(), refetchFolders(), refetchTrash());
+              }}
             />
           ) : view === "profiles" || view === "favorites" ? (
             <ProfileList
@@ -603,6 +651,10 @@ export default function App() {
               onLaunchSelected={handleLaunchSelected}
               onStopSelected={handleStopSelected}
               onRefresh={loadAll}
+              onImported={async () => {
+                await refetch(refetchProfiles(), refetchFolders());
+              }}
+              onRenamed={refetchProfiles}
               onClone={handleClone}
               onTrash={handleTrash}
               onMove={handleMove}
@@ -616,11 +668,24 @@ export default function App() {
               onStop={handleStop}
             />
           ) : view === "proxies" ? (
-            <ProxyForm
+            <ProxiesView
               proxies={proxies}
+              profiles={profiles}
+              settings={settings}
               onCreate={handleCreateProxy}
-              onDelete={handleDeleteProxy}
-              onReenterCredentials={handleReenterProxyCredentials}
+              onUpdate={handleUpdateProxy}
+              onDelete={handleDeleteProxies}
+            />
+          ) : view === "templates" ? (
+            <TemplatesView
+              templates={templates}
+              proxies={proxies}
+              profileCount={profiles.length}
+              settings={settings}
+              onCreate={handleCreateTemplate}
+              onUpdate={handleUpdateTemplate}
+              onDelete={handleDeleteTemplates}
+              onSetDefault={handleSetDefaultTemplate}
             />
           ) : view === "settings" ? (
             <SettingsView />

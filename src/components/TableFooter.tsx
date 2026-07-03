@@ -43,7 +43,7 @@ export function TableFooter({
     "grid h-7 w-7 place-items-center rounded-lg text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-fg-muted";
 
   return (
-    <div className="flex items-center justify-between gap-3 border-t border-border px-3 py-2 text-sm text-fg">
+    <div className="flex h-20 shrink-0 items-center justify-between gap-3 border-t border-border px-3 text-xs text-fg">
       <Popover
         open={infoOpen}
         onClose={() => setInfoOpen(false)}
@@ -87,7 +87,7 @@ export function TableFooter({
           <select
             value={rowsPerPage}
             onChange={(e) => onRowsPerPageChange(Number(e.target.value))}
-            className="rounded-md border border-border bg-surface-1 px-1.5 py-1 text-sm text-fg focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/50"
+            className="rounded-md border border-border bg-surface-1 px-1.5 py-1 text-xs text-fg focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/50"
           >
             {ROWS_PER_PAGE_OPTIONS.map((n) => (
               <option key={n} value={n}>

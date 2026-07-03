@@ -972,6 +972,19 @@ pub fn save_as_template(
     Ok(tpl)
 }
 
+/// Cập nhật template (F2b): đổi tên + tuỳ chọn thay config (None = giữ nguyên).
+#[tauri::command]
+pub fn update_template(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+    config: Option<serde_json::Value>,
+) -> Result<ProfileTemplate> {
+    let tpl = state.db.update_template(&id, &name, config.as_ref())?;
+    state.db.insert_audit("template.update", Some(&id), None)?;
+    Ok(tpl)
+}
+
 #[tauri::command]
 pub fn delete_template(state: State<'_, AppState>, id: String) -> Result<bool> {
     let deleted = state.db.delete_template(&id)?;

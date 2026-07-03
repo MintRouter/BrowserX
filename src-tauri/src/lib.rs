@@ -117,6 +117,7 @@ pub fn run() {
             commands::clear_profile_cache,
             commands::list_templates,
             commands::save_as_template,
+            commands::update_template,
             commands::delete_template,
             commands::create_profile_from_template,
             commands::export_profile,

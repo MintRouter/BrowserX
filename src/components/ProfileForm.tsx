@@ -23,6 +23,8 @@ interface ProfileFormProps {
   onSave: (data: ProfileInput) => Promise<void>;
   onDelete?: () => Promise<void>;
   onCancel: () => void;
+  /** Called after a successful move-to-trash so the parent can refetch. */
+  onTrashed?: () => void | Promise<void>;
   /** Optional: pass folders to skip the internal api.listFolders() fetch. */
   folders?: Folder[];
 }
@@ -123,6 +125,7 @@ export function ProfileForm({
   onSave,
   onDelete,
   onCancel,
+  onTrashed,
   folders: foldersProp,
 }: ProfileFormProps) {
   const { t } = useTranslation();
@@ -142,12 +145,10 @@ export function ProfileForm({
   const [folders, setFolders] = useState<Folder[]>(foldersProp ?? []);
   const [allTags, setAllTags] = useState<string[]>([]);
   // (W20b) Profile templates: dropdown fills the form in create mode;
-  // "Save as template" snapshots the current form.
+  // the "Save as a profile template" toggle snapshots the form on submit.
   const [templates, setTemplates] = useState<ProfileTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
-  const [templateStatus, setTemplateStatus] = useState<
-    "idle" | "saved" | "error"
-  >("idle");
+  const [saveAsTemplate, setSaveAsTemplate] = useState(false);
   const defaultFolderApplied = useRef(false);
   const tabRefs = useRef<Partial<Record<TabId, HTMLButtonElement | null>>>({});
 
@@ -265,21 +266,6 @@ export function ProfileForm({
     store_sw_cache: form.store_sw_cache,
   });
 
-  // (W20b) Save the current form as a reusable template.
-  const handleSaveTemplate = async () => {
-    if ("error" in parsedArgs) return;
-    try {
-      await api.saveAsTemplate(
-        form.name.trim() || t("pform.ov.defaultName"),
-        buildInput(parsedArgs.args),
-      );
-      setTemplateStatus("saved");
-      api.listTemplates().then(setTemplates).catch(() => {});
-    } catch {
-      setTemplateStatus("error");
-    }
-  };
-
   // (W20b) Fill the form from a template (create mode). Name is kept as typed;
   // fingerprint seed stays null so the new profile gets a fresh one.
   const applyTemplate = (id: string) => {
@@ -332,6 +318,17 @@ export function ProfileForm({
     setSaving(true);
     try {
       const input = buildInput(parsedArgs.args);
+      // (W20b) Toggle on → also snapshot the form as a reusable template.
+      if (saveAsTemplate) {
+        try {
+          await api.saveAsTemplate(
+            form.name.trim() || t("pform.ov.defaultName"),
+            input,
+          );
+        } catch {
+          // non-fatal: the profile is still saved without the template
+        }
+      }
       if (isEdit && profile) {
         // Backend ProfileUpdate has no folder_id — persist the move explicitly.
         if (form.folder_id !== profile.folder_id) {
@@ -372,6 +369,7 @@ export function ProfileForm({
     try {
       try {
         await api.trashProfiles([profile.id]);
+        await onTrashed?.();
         onCancel();
       } catch {
         // trash command unavailable → fall back to hard delete
@@ -398,7 +396,10 @@ export function ProfileForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex h-full min-h-0 flex-col">
+    <form onSubmit={handleSubmit} className="flex h-full min-h-0 flex-col p-4">
+      {/* (R6 2.1) White card wrapper: full-height, 16px margin, 8px radius,
+          footer inside the card. */}
+      <div className="card flex min-h-0 flex-1 flex-col overflow-hidden">
       {/* Header */}
       <div className="px-6 pb-3 pt-5">
         <button
@@ -471,8 +472,8 @@ export function ProfileForm({
                 templates={templates}
                 selectedTemplateId={selectedTemplateId}
                 onApplyTemplate={isEdit ? undefined : applyTemplate}
-                onSaveTemplate={handleSaveTemplate}
-                templateStatus={templateStatus}
+                saveAsTemplate={saveAsTemplate}
+                onSaveAsTemplateChange={setSaveAsTemplate}
               />
             )}
             {activeTab === "proxy" && (
@@ -526,6 +527,7 @@ export function ProfileForm({
             {trashing ? t("pform.trashing") : t("pform.moveToTrash")}
           </button>
         )}
+      </div>
       </div>
     </form>
   );

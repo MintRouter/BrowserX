@@ -1,4 +1,4 @@
-import { LayoutGrid, Plus, SearchX } from "lucide-react";
+import { Plus, SearchX } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, type Folder, type Profile } from "../lib/api";
@@ -31,6 +31,10 @@ interface ProfileListProps {
   onLaunchSelected: () => Promise<void>;
   onStopSelected: () => Promise<void>;
   onRefresh: () => Promise<void>;
+  /** (F1a) Selective refetch after import — profiles + folder counts (W23d pattern). */
+  onImported: () => Promise<void>;
+  /** (F1a) Selective refetch after inline rename — profiles only (W23d pattern). */
+  onRenamed: () => Promise<void>;
   onClone: (profile: Profile) => Promise<void>;
   onTrash: (ids: string[]) => Promise<void>;
   onMove: (ids: string[], folderId: string | null) => Promise<void>;
@@ -173,7 +177,7 @@ export function ProfileList(props: ProfileListProps) {
     try {
       const json = await file.text();
       const profile = await api.importProfile(json);
-      await props.onRefresh();
+      await props.onImported();
       setToast(t("exchange.importSuccess", { name: profile.name }));
     } catch (err) {
       setToast(t("exchange.importFailed", { error: String(err) }));
@@ -188,7 +192,7 @@ export function ProfileList(props: ProfileListProps) {
     if (!trimmed || !current || trimmed === current.name) return;
     try {
       await api.updateProfile(id, { name: trimmed });
-      await props.onRefresh();
+      await props.onRenamed();
     } catch (err) {
       setToast(t("listUtils.renameFailed", { error: String(err) }));
     }
@@ -282,39 +286,51 @@ export function ProfileList(props: ProfileListProps) {
   const selectedIds = [...selected];
 
   return (
-    <div className="flex h-full flex-col gap-3 p-3">
-      <ProfilesToolbar
-        search={search}
-        onSearchChange={props.onSearchChange}
-        selectedCount={selected.size}
-        hasRunningSelected={hasRunningSelected}
-        folders={folders}
-        sort={sort}
-        onSortChange={setSort}
-        onNewProfile={props.onNewProfile}
-        onQuickProfile={() => void props.onQuickProfile()}
-        onImport={(file) => void handleImport(file)}
-        onLaunchSelected={() => void props.onLaunchSelected()}
-        onStopSelected={() => void props.onStopSelected()}
-        onRefresh={() => void props.onRefresh()}
-        onEditSelected={() => singleSelected && props.onEdit(singleSelected)}
-        onAddTags={(tags) => void props.onAddTags(selectedIds, tags)}
-        onMoveToFolder={(folderId) => void props.onMove(selectedIds, folderId)}
-        onCloneSelected={() => singleSelected && void props.onClone(singleSelected)}
-        onClearCacheSelected={() => void handleClearCache(selectedIds)}
-        onTrashSelected={() => void props.onTrash(selectedIds)}
-        onClearSelection={() => onSelectedChange(new Set())}
-        moveSignal={moveSignal}
-      />
-
+    <div className="flex h-full flex-col p-4">
+      {/* Toolbar lives inside the table's white card (ML table-header, 1.1) */}
       <div className="card flex min-h-0 flex-1 flex-col overflow-hidden">
+        <ProfilesToolbar
+          search={search}
+          onSearchChange={props.onSearchChange}
+          selectedCount={selected.size}
+          hasRunningSelected={hasRunningSelected}
+          folders={folders}
+          sort={sort}
+          onSortChange={setSort}
+          onNewProfile={props.onNewProfile}
+          onQuickProfile={() => void props.onQuickProfile()}
+          onImport={(file) => void handleImport(file)}
+          onLaunchSelected={() => void props.onLaunchSelected()}
+          onStopSelected={() => void props.onStopSelected()}
+          onRefresh={() => void props.onRefresh()}
+          onEditSelected={() => singleSelected && props.onEdit(singleSelected)}
+          onAddTags={(tags) => void props.onAddTags(selectedIds, tags)}
+          onMoveToFolder={(folderId) => void props.onMove(selectedIds, folderId)}
+          onCloneSelected={() => singleSelected && void props.onClone(singleSelected)}
+          onClearCacheSelected={() => void handleClearCache(selectedIds)}
+          onTrashSelected={() => void props.onTrash(selectedIds)}
+          onClearSelection={() => onSelectedChange(new Set())}
+          moveSignal={moveSignal}
+        />
         {profiles.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-12 text-center">
-            <span className="grid h-12 w-12 place-items-center rounded-full bg-accent/10">
-              <LayoutGrid className="h-6 w-6 text-accent" aria-hidden="true" />
-            </span>
-            <p className="text-sm font-medium text-fg">{t("table.emptyTitle")}</p>
-            <p className="max-w-xs text-xs text-fg-muted">{t("table.emptyHint")}</p>
+            <svg
+              width="140"
+              height="100"
+              viewBox="0 0 140 100"
+              fill="none"
+              aria-hidden="true"
+            >
+              <rect x="26" y="22" width="62" height="72" rx="6" fill="#F1EDED" transform="rotate(-8 26 22)" />
+              <rect x="50" y="10" width="62" height="80" rx="6" fill="#FFFFFF" stroke="#E5E1E1" strokeWidth="1.5" />
+              <rect x="60" y="24" width="34" height="5" rx="2.5" fill="#E5E1E1" />
+              <rect x="60" y="36" width="42" height="5" rx="2.5" fill="#F1EDED" />
+              <rect x="60" y="48" width="26" height="5" rx="2.5" fill="#F1EDED" />
+              <circle cx="106" cy="72" r="16" fill="#F0F6FF" />
+              <path d="M106 66v12M100 72h12" stroke="#055FF0" strokeWidth="2.5" strokeLinecap="round" />
+            </svg>
+            <p className="text-xl font-medium text-fg">{t("table.emptyTitle")}</p>
+            <p className="max-w-xs text-sm text-fg-muted">{t("table.emptyHint")}</p>
             <button type="button" onClick={props.onNewProfile} className="btn-primary mt-1">
               <Plus className="h-4 w-4" aria-hidden="true" />
               <span>{t("toolbar.create")}</span>

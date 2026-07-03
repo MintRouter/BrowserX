@@ -1,6 +1,7 @@
 import {
   Building2,
   Folder,
+  Laptop,
   LayoutGrid,
   Network,
   Plus,
@@ -20,6 +21,7 @@ export type MainView =
   | "favorites"
   | "trash"
   | "proxies"
+  | "templates"
   | "settings";
 
 export interface SidebarFolder {
@@ -32,7 +34,14 @@ interface SidebarProps {
   view: MainView;
   onNavigate: (view: MainView) => void;
   folders: SidebarFolder[];
-  counts: { all: number; running: number; favorites: number; trash: number };
+  counts: {
+    all: number;
+    running: number;
+    favorites: number;
+    trash: number;
+    proxies: number;
+    templates: number;
+  };
   activeFolderId: string | null;
   onSelectFolder: (id: string | null) => void;
   onCreateFolder: (name: string) => void;
@@ -101,19 +110,61 @@ export function Sidebar({
     setCreating(false);
   };
 
+  // Templates view keeps the shell sidebar but swaps folders for template nav (F2b).
+  if (view === "templates") {
+    return (
+      <nav
+        className="card my-4 ml-4 flex w-[270px] shrink-0 flex-col overflow-y-auto p-3"
+        aria-label={t("sidebar.templates")}
+      >
+        <div className="space-y-0.5">
+          <NavRow
+            icon={<Laptop className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />}
+            label={t("sidebar.allTemplates")}
+            count={counts.templates}
+            active
+            onClick={() => onNavigate("templates")}
+          />
+        </div>
+        <SidebarStats counts={counts} />
+      </nav>
+    );
+  }
+
+  // Proxies view keeps the shell sidebar but swaps folders for proxy nav (F2a).
+  if (view === "proxies") {
+    return (
+      <nav
+        className="card my-4 ml-4 flex w-[270px] shrink-0 flex-col overflow-y-auto p-3"
+        aria-label={t("sidebar.proxies")}
+      >
+        <div className="space-y-0.5">
+          <NavRow
+            icon={<Network className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />}
+            label={t("sidebar.allProxies")}
+            count={counts.proxies}
+            active
+            onClick={() => onNavigate("proxies")}
+          />
+        </div>
+        <SidebarStats counts={counts} />
+      </nav>
+    );
+  }
+
   return (
     <nav
-      className="card m-2 mr-0 flex w-[260px] shrink-0 flex-col overflow-y-auto p-3"
+      className="card my-4 ml-4 flex w-[270px] shrink-0 flex-col overflow-y-auto p-3"
       aria-label={t("sidebar.folders")}
     >
-      <div className="flex rounded-lg bg-surface-3 p-1" role="group" aria-label={t("sidebar.deviceType")}>
+      <div className="flex h-9 shrink-0 rounded-lg bg-surface-3 p-1" role="group" aria-label={t("sidebar.deviceType")}>
         {(["mobile", "browser"] as const).map((d) => (
           <button
             key={d}
             type="button"
             onClick={() => setDevice(d)}
             aria-pressed={device === d}
-            className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
+            className={`h-7 flex-1 rounded-md text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
               device === d
                 ? "bg-accent text-white shadow-sm"
                 : "text-fg-muted hover:text-fg"
@@ -171,7 +222,7 @@ export function Sidebar({
           onClick={() => setCreating(true)}
           aria-label={t("sidebar.newFolder")}
           title={t("sidebar.newFolder")}
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-accent/10 text-accent transition-colors hover:bg-accent/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-[#F0F6FF] text-accent transition-colors hover:bg-[#E0EDFF] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
         >
           <Plus className="h-4 w-4" aria-hidden="true" />
         </button>
@@ -236,37 +287,44 @@ export function Sidebar({
         onClick={() => onNavigate("trash")}
       />
 
-      <div className="mt-auto pt-3">
-        <hr className="mb-2 border-border" aria-hidden="true" />
-        <div className="space-y-0.5">
-          <StatRow
-            icon={<Users2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
-            label={t("sidebar.statTeam")}
-            value="—"
-          />
-          <StatRow
-            icon={<Network className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
-            label={t("sidebar.statProxy")}
-            value="—"
-          />
-          <StatRow
-            icon={<Building2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
-            label={t("sidebar.statIspProxies")}
-            value="0"
-          />
-          <StatRow
-            icon={<Smartphone className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
-            label={t("sidebar.statMinutes")}
-            value="—"
-          />
-          <StatRow
-            icon={<LayoutGrid className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
-            label={t("sidebar.profilesStat")}
-            value={counts.all}
-          />
-        </div>
-      </div>
+      <SidebarStats counts={counts} />
     </nav>
+  );
+}
+
+function SidebarStats({ counts }: { counts: SidebarProps["counts"] }) {
+  const { t } = useTranslation();
+  return (
+    <div className="mt-auto pt-3">
+      <hr className="mb-2 border-border" aria-hidden="true" />
+      <div className="space-y-0.5">
+        <StatRow
+          icon={<Users2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+          label={t("sidebar.statTeam")}
+          value="—"
+        />
+        <StatRow
+          icon={<Network className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+          label={t("sidebar.statProxy")}
+          value={counts.proxies}
+        />
+        <StatRow
+          icon={<Building2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+          label={t("sidebar.statIspProxies")}
+          value="0"
+        />
+        <StatRow
+          icon={<Smartphone className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+          label={t("sidebar.statMinutes")}
+          value="—"
+        />
+        <StatRow
+          icon={<LayoutGrid className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+          label={t("sidebar.profilesStat")}
+          value={counts.all}
+        />
+      </div>
+    </div>
   );
 }
 

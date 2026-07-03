@@ -18,7 +18,7 @@ import {
   Upload,
   Zap,
 } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Folder } from "../lib/api";
 import { FolderPanel, MenuItem, Popover, TagPanel } from "./Popover";
@@ -85,6 +85,7 @@ function ToolButton({
 export function ProfilesToolbar(props: ProfilesToolbarProps) {
   const { t } = useTranslation();
   const [menu, setMenu] = useState<MenuKey>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const toggle = (key: Exclude<MenuKey, null>) =>
     setMenu((m) => (m === key ? null : key));
   const close = () => setMenu(null);
@@ -110,7 +111,7 @@ export function ProfilesToolbar(props: ProfilesToolbarProps) {
   };
 
   return (
-    <div className="card flex flex-wrap items-center gap-1.5 px-3 py-2">
+    <div className="flex min-h-[60px] flex-wrap items-center gap-3 p-3">
       {/* Split "+ Create" */}
       <div className="inline-flex">
         <button
@@ -159,23 +160,6 @@ export function ProfilesToolbar(props: ProfilesToolbarProps) {
         </Popover>
       </div>
 
-      {/* Import .bxprofile (W19a) — label wraps a hidden file input */}
-      <label className="btn-secondary h-9 cursor-pointer py-1.5">
-        <Upload className="h-4 w-4" aria-hidden="true" />
-        <span>{t("exchange.importButton")}</span>
-        <input
-          type="file"
-          accept=".bxprofile,.json,application/json"
-          className="sr-only"
-          aria-label={t("exchange.importButton")}
-          onChange={(e) => {
-            const file = e.currentTarget.files?.[0];
-            e.currentTarget.value = "";
-            if (file) props.onImport(file);
-          }}
-        />
-      </label>
-
       <button
         type="button"
         onClick={props.onQuickProfile}
@@ -185,200 +169,229 @@ export function ProfilesToolbar(props: ProfilesToolbarProps) {
         <span>{t("toolbar.quick")}</span>
       </button>
 
-      <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+      {/* Action icons only appear while rows are selected (ML parity, 1.2) */}
+      {selectedCount > 0 && (
+        <>
+          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
 
-      {/* Selection-driven action icons */}
-      <ToolButton
-        label={t("toolbar.launchSelected")}
-        disabled={none}
-        onClick={props.onLaunchSelected}
-      >
-        <Play className="h-4 w-4" aria-hidden="true" />
-      </ToolButton>
-      <ToolButton
-        label={t("toolbar.stopSelected")}
-        disabled={!hasRunningSelected}
-        onClick={props.onStopSelected}
-      >
-        <Square className="h-4 w-4" aria-hidden="true" />
-      </ToolButton>
-      <ToolButton label={t("toolbar.refresh")} onClick={props.onRefresh}>
-        <RefreshCw className="h-4 w-4" aria-hidden="true" />
-      </ToolButton>
-      <ToolButton
-        label={t("toolbar.editSelected")}
-        disabled={notSingle}
-        onClick={props.onEditSelected}
-      >
-        <Pencil className="h-4 w-4" aria-hidden="true" />
-      </ToolButton>
-
-      <Popover
-        open={menu === "tags"}
-        onClose={close}
-        label={t("toolbar.addTags")}
-        trigger={
           <ToolButton
+            label={t("toolbar.launchSelected")}
+            disabled={none}
+            onClick={props.onLaunchSelected}
+          >
+            <Play className="h-4 w-4" aria-hidden="true" />
+          </ToolButton>
+          <ToolButton
+            label={t("toolbar.stopSelected")}
+            disabled={!hasRunningSelected}
+            onClick={props.onStopSelected}
+          >
+            <Square className="h-4 w-4" aria-hidden="true" />
+          </ToolButton>
+          <ToolButton label={t("toolbar.refresh")} onClick={props.onRefresh}>
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
+          </ToolButton>
+          <ToolButton
+            label={t("toolbar.editSelected")}
+            disabled={notSingle}
+            onClick={props.onEditSelected}
+          >
+            <Pencil className="h-4 w-4" aria-hidden="true" />
+          </ToolButton>
+
+          <Popover
+            open={menu === "tags"}
+            onClose={close}
             label={t("toolbar.addTags")}
-            disabled={none}
-            expanded={menu === "tags"}
-            onClick={() => toggle("tags")}
+            trigger={
+              <ToolButton
+                label={t("toolbar.addTags")}
+                disabled={none}
+                expanded={menu === "tags"}
+                onClick={() => toggle("tags")}
+              >
+                <Tag className="h-4 w-4" aria-hidden="true" />
+              </ToolButton>
+            }
           >
-            <Tag className="h-4 w-4" aria-hidden="true" />
-          </ToolButton>
-        }
-      >
-        <TagPanel
-          onApply={(tags) => {
-            close();
-            props.onAddTags(tags);
-          }}
-        />
-      </Popover>
+            <TagPanel
+              onApply={(tags) => {
+                close();
+                props.onAddTags(tags);
+              }}
+            />
+          </Popover>
 
-      <Popover
-        open={menu === "move"}
-        onClose={close}
-        label={t("toolbar.moveToFolder")}
-        trigger={
-          <ToolButton
+          <Popover
+            open={menu === "move"}
+            onClose={close}
             label={t("toolbar.moveToFolder")}
-            disabled={none}
-            expanded={menu === "move"}
-            onClick={() => toggle("move")}
+            trigger={
+              <ToolButton
+                label={t("toolbar.moveToFolder")}
+                disabled={none}
+                expanded={menu === "move"}
+                onClick={() => toggle("move")}
+              >
+                <FolderInput className="h-4 w-4" aria-hidden="true" />
+              </ToolButton>
+            }
           >
-            <FolderInput className="h-4 w-4" aria-hidden="true" />
-          </ToolButton>
-        }
-      >
-        <FolderPanel
-          folders={props.folders}
-          onPick={(folderId) => {
-            close();
-            props.onMoveToFolder(folderId);
-          }}
-        />
-      </Popover>
+            <FolderPanel
+              folders={props.folders}
+              onPick={(folderId) => {
+                close();
+                props.onMoveToFolder(folderId);
+              }}
+            />
+          </Popover>
 
-      <Popover
-        open={menu === "sort"}
-        onClose={close}
-        label={t("toolbar.sort")}
-        trigger={
-          <ToolButton
+          <Popover
+            open={menu === "sort"}
+            onClose={close}
             label={t("toolbar.sort")}
-            expanded={menu === "sort"}
-            onClick={() => toggle("sort")}
+            trigger={
+              <ToolButton
+                label={t("toolbar.sort")}
+                expanded={menu === "sort"}
+                onClick={() => toggle("sort")}
+              >
+                <ArrowUpDown className="h-4 w-4" aria-hidden="true" />
+              </ToolButton>
+            }
           >
-            <ArrowUpDown className="h-4 w-4" aria-hidden="true" />
+            <MenuItem
+              onClick={() => pickSort({ key: "name", dir: "asc" })}
+              icon={sortDot(sort.key === "name" && sort.dir === "asc")}
+            >
+              {t("toolbar.sortNameAsc")}
+            </MenuItem>
+            <MenuItem
+              onClick={() => pickSort({ key: "name", dir: "desc" })}
+              icon={sortDot(sort.key === "name" && sort.dir === "desc")}
+            >
+              {t("toolbar.sortNameDesc")}
+            </MenuItem>
+            <MenuItem
+              onClick={() => pickSort({ key: "updated", dir: "desc" })}
+              icon={sortDot(sort.key === "updated")}
+            >
+              {t("toolbar.sortUpdated")}
+            </MenuItem>
+          </Popover>
+
+          <ToolButton label={t("toolbar.import")} title={t("toolbar.comingSoon")} disabled>
+            <Upload className="h-4 w-4" aria-hidden="true" />
           </ToolButton>
-        }
-      >
-        <MenuItem
-          onClick={() => pickSort({ key: "name", dir: "asc" })}
-          icon={sortDot(sort.key === "name" && sort.dir === "asc")}
-        >
-          {t("toolbar.sortNameAsc")}
-        </MenuItem>
-        <MenuItem
-          onClick={() => pickSort({ key: "name", dir: "desc" })}
-          icon={sortDot(sort.key === "name" && sort.dir === "desc")}
-        >
-          {t("toolbar.sortNameDesc")}
-        </MenuItem>
-        <MenuItem
-          onClick={() => pickSort({ key: "updated", dir: "desc" })}
-          icon={sortDot(sort.key === "updated")}
-        >
-          {t("toolbar.sortUpdated")}
-        </MenuItem>
-      </Popover>
+          <ToolButton label={t("toolbar.export")} title={t("toolbar.comingSoon")} disabled>
+            <Download className="h-4 w-4" aria-hidden="true" />
+          </ToolButton>
 
-      <ToolButton label={t("toolbar.import")} title={t("toolbar.comingSoon")} disabled>
-        <Upload className="h-4 w-4" aria-hidden="true" />
-      </ToolButton>
-      <ToolButton label={t("toolbar.export")} title={t("toolbar.comingSoon")} disabled>
-        <Download className="h-4 w-4" aria-hidden="true" />
-      </ToolButton>
-
-      <ToolButton
-        label={t("toolbar.clone")}
-        disabled={notSingle}
-        onClick={props.onCloneSelected}
-      >
-        <Copy className="h-4 w-4" aria-hidden="true" />
-      </ToolButton>
-      <ToolButton
-        label={t("toolbar.clearCacheSelected")}
-        title={
-          hasRunningSelected
-            ? t("table.clearCacheRunning")
-            : t("toolbar.clearCacheSelected")
-        }
-        disabled={none || hasRunningSelected}
-        onClick={props.onClearCacheSelected}
-      >
-        <Eraser className="h-4 w-4" aria-hidden="true" />
-      </ToolButton>
-      <ToolButton
-        label={t("toolbar.trash")}
-        disabled={none}
-        onClick={props.onTrashSelected}
-      >
-        <Trash2 className="h-4 w-4" aria-hidden="true" />
-      </ToolButton>
-
-      <Popover
-        open={menu === "more"}
-        onClose={close}
-        label={t("toolbar.more")}
-        align="end"
-        trigger={
           <ToolButton
-            label={t("toolbar.more")}
-            expanded={menu === "more"}
-            onClick={() => toggle("more")}
+            label={t("toolbar.clone")}
+            disabled={notSingle}
+            onClick={props.onCloneSelected}
           >
-            <EllipsisVertical className="h-4 w-4" aria-hidden="true" />
+            <Copy className="h-4 w-4" aria-hidden="true" />
           </ToolButton>
-        }
-      >
-        <MenuItem
-          disabled={none}
-          onClick={() => {
-            close();
-            props.onClearSelection();
-          }}
-        >
-          {t("toolbar.clearSelection")}
-        </MenuItem>
-        <MenuItem disabled>{t("toolbar.comingSoon")}</MenuItem>
-      </Popover>
+          <ToolButton
+            label={t("toolbar.clearCacheSelected")}
+            title={
+              hasRunningSelected
+                ? t("table.clearCacheRunning")
+                : t("toolbar.clearCacheSelected")
+            }
+            disabled={none || hasRunningSelected}
+            onClick={props.onClearCacheSelected}
+          >
+            <Eraser className="h-4 w-4" aria-hidden="true" />
+          </ToolButton>
+          <ToolButton
+            label={t("toolbar.trash")}
+            disabled={none}
+            onClick={props.onTrashSelected}
+          >
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
+          </ToolButton>
+        </>
+      )}
 
-      {/* Search (right) */}
-      <div className="relative ml-auto w-64 min-w-[180px]">
-        <Search
-          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted"
-          aria-hidden="true"
-        />
-        <input
-          type="search"
-          value={props.search}
-          onChange={(e) => props.onSearchChange(e.target.value)}
-          placeholder={t("toolbar.searchPlaceholder")}
-          aria-label={t("toolbar.searchPlaceholder")}
-          className="h-9 w-full rounded-md border border-border bg-surface-2 pl-9 pr-9 text-sm text-fg placeholder:text-fg-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/50"
-        />
-        <button
-          type="button"
-          disabled
-          aria-label={t("toolbar.filters")}
-          title={t("toolbar.comingSoon")}
-          className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-full text-fg-muted disabled:cursor-not-allowed disabled:opacity-50"
+      {/* Right: kebab + search */}
+      <div className="ml-auto flex items-center gap-3">
+        <Popover
+          open={menu === "more"}
+          onClose={close}
+          label={t("toolbar.more")}
+          align="end"
+          trigger={
+            <ToolButton
+              label={t("toolbar.more")}
+              expanded={menu === "more"}
+              onClick={() => toggle("more")}
+            >
+              <EllipsisVertical className="h-4 w-4" aria-hidden="true" />
+            </ToolButton>
+          }
         >
-          <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
-        </button>
+          {/* Import .bxprofile (W19a) — triggers the hidden file input */}
+          <MenuItem
+            icon={<Upload className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+            onClick={() => {
+              close();
+              fileRef.current?.click();
+            }}
+          >
+            {t("exchange.importButton")}
+          </MenuItem>
+          <MenuItem
+            disabled={none}
+            onClick={() => {
+              close();
+              props.onClearSelection();
+            }}
+          >
+            {t("toolbar.clearSelection")}
+          </MenuItem>
+        </Popover>
+
+        <div className="relative w-[225px]">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted"
+            aria-hidden="true"
+          />
+          <input
+            type="search"
+            value={props.search}
+            onChange={(e) => props.onSearchChange(e.target.value)}
+            placeholder={t("toolbar.searchPlaceholder")}
+            aria-label={t("toolbar.searchPlaceholder")}
+            className="h-9 w-full rounded-md border border-border bg-surface-2 pl-9 pr-9 text-sm text-fg placeholder:text-fg-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/50"
+          />
+          <button
+            type="button"
+            disabled
+            aria-label={t("toolbar.filters")}
+            title={t("toolbar.comingSoon")}
+            className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-full text-fg-muted disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        </div>
       </div>
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".bxprofile,.json,application/json"
+        className="hidden"
+        tabIndex={-1}
+        aria-label={t("exchange.importButton")}
+        onChange={(e) => {
+          const file = e.currentTarget.files?.[0];
+          e.currentTarget.value = "";
+          if (file) props.onImport(file);
+        }}
+      />
     </div>
   );
 }

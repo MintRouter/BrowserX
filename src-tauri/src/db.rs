@@ -1672,6 +1672,39 @@ impl Db {
         Ok(rows)
     }
 
+    /// Cập nhật template (F2b): đổi tên + tuỳ chọn thay config. `config` None →
+    /// giữ config cũ (rename thuần). Tên trim, không rỗng; `NotFound` nếu id lạ.
+    pub fn update_template(
+        &self,
+        id: &str,
+        name: &str,
+        config: Option<&serde_json::Value>,
+    ) -> Result<ProfileTemplate> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(AppError::InvalidInput(
+                "template name must not be empty".into(),
+            ));
+        }
+        {
+            let conn = self.lock();
+            let n = match config {
+                Some(cfg) => conn.execute(
+                    "UPDATE profile_templates SET name = ?2, config = ?3 WHERE id = ?1",
+                    params![id, name, serde_json::to_string(cfg)?],
+                )?,
+                None => conn.execute(
+                    "UPDATE profile_templates SET name = ?2 WHERE id = ?1",
+                    params![id, name],
+                )?,
+            };
+            if n == 0 {
+                return Err(AppError::NotFound(format!("template {id}")));
+            }
+        }
+        self.get_template(id)
+    }
+
     /// Xoá template. Trả `true` nếu có xoá (không đụng profile đã tạo từ template).
     pub fn delete_template(&self, id: &str) -> Result<bool> {
         let conn = self.lock();
@@ -2113,6 +2146,28 @@ mod tests {
         assert_eq!(p2.name, "Shop #2");
         assert_ne!(p2.id, p.id);
         assert_ne!(p2.user_data_dir, p.user_data_dir);
+
+        // Update (F2b): rename thuần giữ config; đổi config khi truyền Some.
+        let renamed = db.update_template(&tpl.id, "VN Shop 2", None).unwrap();
+        assert_eq!(renamed.name, "VN Shop 2");
+        assert_eq!(renamed.config["platform"], "macos");
+        let updated = db
+            .update_template(
+                &tpl.id,
+                "VN Shop 3",
+                Some(&serde_json::json!({ "platform": "linux" })),
+            )
+            .unwrap();
+        assert_eq!(updated.name, "VN Shop 3");
+        assert_eq!(updated.config["platform"], "linux");
+        assert!(matches!(
+            db.update_template(&tpl.id, "  ", None),
+            Err(AppError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            db.update_template("missing-id", "X", None),
+            Err(AppError::NotFound(_))
+        ));
 
         // Delete + NotFound.
         assert!(db.delete_template(&tpl.id).unwrap());

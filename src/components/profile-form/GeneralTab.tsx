@@ -1,8 +1,19 @@
-import { Bold, Code, Italic, Search, Strikethrough, Underline, X } from "lucide-react";
+import {
+  Bold,
+  Code,
+  Italic,
+  Redo2,
+  RemoveFormatting,
+  Search,
+  Strikethrough,
+  Underline,
+  Undo2,
+  X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Folder, ProfileTemplate } from "../../lib/api";
-import { Segmented } from "./controls";
+import { Segmented, Toggle } from "./controls";
 import { isValidStartupUrl } from "./types";
 import type { FormState, SetField } from "./types";
 
@@ -20,9 +31,9 @@ interface GeneralTabProps {
   selectedTemplateId?: string;
   /** Undefined in edit mode → dropdown disabled. */
   onApplyTemplate?: (id: string) => void;
-  /** Save the current form as a template. */
-  onSaveTemplate?: () => void;
-  templateStatus?: "idle" | "saved" | "error";
+  /** (R6 2.2) Toggle state: save the form as a template on submit. */
+  saveAsTemplate?: boolean;
+  onSaveAsTemplateChange?: (next: boolean) => void;
 }
 
 export function GeneralTab({
@@ -34,8 +45,8 @@ export function GeneralTab({
   templates,
   selectedTemplateId,
   onApplyTemplate,
-  onSaveTemplate,
-  templateStatus,
+  saveAsTemplate,
+  onSaveAsTemplateChange,
 }: GeneralTabProps) {
   const { t } = useTranslation();
   const nameRef = useRef<HTMLInputElement>(null);
@@ -82,25 +93,16 @@ export function GeneralTab({
 
   return (
     <div className="space-y-5">
-      {/* Save as template (W20b): snapshot the current form as a template */}
+      {/* (R6 2.2) Save as template: 44×20 toggle switch, label left / switch right */}
       <div className="flex items-center justify-between gap-3">
         <span className="text-xs font-medium text-[#1D192B] dark:text-fg">{t("pform.saveTemplate")}</span>
-        <div className="flex items-center gap-2">
-          {templateStatus === "saved" && (
-            <span className="text-xs text-success" role="status">{t("ptpl.saved")}</span>
-          )}
-          {templateStatus === "error" && (
-            <span className="text-xs text-danger" role="alert">{t("ptpl.saveError")}</span>
-          )}
-          <button
-            type="button"
-            onClick={onSaveTemplate}
-            disabled={!onSaveTemplate}
-            className="btn-secondary px-2.5"
-          >
-            {t("ptpl.save")}
-          </button>
-        </div>
+        <Toggle
+          id="pf-save-template"
+          checked={saveAsTemplate ?? false}
+          onChange={onSaveAsTemplateChange}
+          disabled={!onSaveAsTemplateChange}
+          label={t("pform.saveTemplate")}
+        />
       </div>
 
       {/* Profile name */}
@@ -229,19 +231,23 @@ export function GeneralTab({
             role="toolbar"
             aria-label={t("pform.noteToolbar")}
           >
+            {/* (R6 2.3) 8 buttons like ML: B/I/U/S/code/clear/undo/redo */}
             {[
-              { Icon: Bold, key: "bold" },
-              { Icon: Italic, key: "italic" },
-              { Icon: Underline, key: "underline" },
-              { Icon: Strikethrough, key: "strikethrough" },
-              { Icon: Code, key: "code" },
-            ].map(({ Icon, key }) => (
+              { Icon: Bold, key: "bold", fallback: "Bold" },
+              { Icon: Italic, key: "italic", fallback: "Italic" },
+              { Icon: Underline, key: "underline", fallback: "Underline" },
+              { Icon: Strikethrough, key: "strikethrough", fallback: "Strikethrough" },
+              { Icon: Code, key: "code", fallback: "Code" },
+              { Icon: RemoveFormatting, key: "clear", fallback: "Clear formatting" },
+              { Icon: Undo2, key: "undo", fallback: "Undo" },
+              { Icon: Redo2, key: "redo", fallback: "Redo" },
+            ].map(({ Icon, key, fallback }) => (
               <span key={key} title={comingSoon}>
                 <button
                   type="button"
                   disabled
                   title={comingSoon}
-                  aria-label={`${t(`pform.fmt.${key}`)} — ${comingSoon}`}
+                  aria-label={`${t(`pform.fmt.${key}`, fallback)} — ${comingSoon}`}
                   className="rounded p-1.5 text-fg-muted opacity-50 cursor-not-allowed"
                 >
                   <Icon className="h-3.5 w-3.5" aria-hidden="true" />

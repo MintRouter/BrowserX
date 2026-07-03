@@ -489,7 +489,7 @@ export function ProfileTable({
   const th = "h-10 px-3 text-left align-middle text-xs font-medium text-fg";
 
   return (
-    <table className="w-full text-xs">
+    <table className="w-full text-sm">
       <thead className="sticky top-0 z-10 border-b border-border bg-surface-2">
         <tr className="h-10 border-b border-border">
           <th scope="col" className="w-10 px-3 align-middle">
@@ -613,7 +613,7 @@ export function ProfileTable({
                   aria-label={`${p.favorite ? t("table.unfavorite") : t("table.favorite")}: ${p.name}`}
                   aria-pressed={p.favorite}
                   onClick={() => onToggleFavorite(p)}
-                  className="grid h-10 w-10 place-items-center rounded-full bg-transparent text-fg-muted transition-colors hover:bg-surface-2 hover:text-[#F5A623] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                  className="grid h-8 w-8 place-items-center rounded-full bg-transparent text-fg-muted transition-colors hover:bg-surface-2 hover:text-[#F5A623] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
                 >
                   <Star
                     className={`h-4 w-4 ${p.favorite ? "fill-[#F5A623] text-[#F5A623]" : ""}`}
@@ -629,7 +629,7 @@ export function ProfileTable({
                   onStop={() => onStop(p.id)}
                 />
               </td>
-              <td className="px-3 py-2">
+              <td className="max-w-0 px-3 py-2">
                 {renamingId === p.id ? (
                   <RenameInput
                     initial={p.name}
@@ -638,10 +638,10 @@ export function ProfileTable({
                   />
                 ) : (
                   <span
-                    className="inline-flex items-center gap-1.5 font-medium text-fg"
+                    className="inline-flex max-w-full items-center gap-1.5 text-fg"
                     onDoubleClick={() => onRenameStart(p.id)}
                   >
-                    {p.name}
+                    <span className="truncate" title={p.name}>{p.name}</span>
                     {running && (
                       <>
                         <span
@@ -672,7 +672,12 @@ export function ProfileTable({
                 </td>
               )}
               {columns.folder && (
-                <td className="px-3 py-2 text-fg-muted">{folderName(p.folder_id)}</td>
+                <td
+                  className="max-w-[14rem] truncate px-3 py-2 text-fg-muted"
+                  title={folderName(p.folder_id)}
+                >
+                  {folderName(p.folder_id)}
+                </td>
               )}
               {columns.notes && (
                 <td className="max-w-[14rem] truncate px-3 py-2 text-fg-muted" title={p.notes ?? undefined}>
@@ -681,11 +686,14 @@ export function ProfileTable({
               )}
               {columns.tags && (
                 <td className="px-3 py-2">
-                  <span className="flex max-w-[14rem] flex-wrap gap-1">
+                  <span
+                    className="flex max-w-[14rem] items-center gap-1 overflow-hidden"
+                    title={p.tags.join(", ") || undefined}
+                  >
                     {p.tags.map((tag) => (
                       <span
                         key={tag}
-                        className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-fg-muted"
+                        className="whitespace-nowrap rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-fg-muted"
                       >
                         {tag}
                       </span>

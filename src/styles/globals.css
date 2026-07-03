@@ -37,6 +37,25 @@
   --color-warning: 251 191 36; /* #fbbf24 */
 }
 
+/* Thin custom scrollbar (Multilogin-style rail) */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background-color: rgb(var(--color-surface-4));
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(var(--color-border-hover));
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 @layer base {
   html,
   body,

@@ -2,6 +2,7 @@ import {
   Bot,
   ChevronDown,
   HelpCircle,
+  Laptop,
   LayoutGrid,
   Network,
   Puzzle,
@@ -34,7 +35,8 @@ export function TopBar(props: TopBarProps) {
   const { t } = useTranslation();
   const [accountOpen, setAccountOpen] = useState(false);
   const initial = t("app.name").charAt(0).toUpperCase();
-  const profilesActive = view !== "proxies" && view !== "settings";
+  const profilesActive =
+    view !== "proxies" && view !== "templates" && view !== "settings";
 
   const navItems: {
     key: string;
@@ -56,6 +58,13 @@ export function TopBar(props: TopBarProps) {
       icon: <Network className="h-5 w-5" strokeWidth={2} aria-hidden="true" />,
       active: view === "proxies",
       onClick: () => onNavigate?.("proxies"),
+    },
+    {
+      key: "templates",
+      label: t("topbar.templates"),
+      icon: <Laptop className="h-5 w-5" strokeWidth={2} aria-hidden="true" />,
+      active: view === "templates",
+      onClick: () => onNavigate?.("templates"),
     },
     {
       key: "automation",
@@ -86,19 +95,21 @@ export function TopBar(props: TopBarProps) {
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 bg-surface-0 px-2">
-      <div className="flex h-10 items-center gap-4 rounded-lg bg-surface-1 px-2.5">
-        <div className="flex items-center gap-2.5 pl-0.5">
-          <span
-            className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-accent text-xs font-bold text-white"
-            aria-hidden="true"
-          >
-            {initial}
-          </span>
-          <span className="text-sm font-bold uppercase tracking-wider text-fg">
-            {t("app.name")}
-          </span>
-        </div>
+      {/* Workspace/logo card — separate from the nav cluster (ML parity, 1.11) */}
+      <div className="flex h-10 items-center gap-2.5 rounded-lg bg-surface-1 px-2.5">
+        <span
+          className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-accent text-xs font-bold text-white"
+          aria-hidden="true"
+        >
+          {initial}
+        </span>
+        <span className="text-sm font-bold uppercase tracking-wider text-fg">
+          {t("app.name")}
+        </span>
+        <ChevronDown className="h-4 w-4 text-fg/80" aria-hidden="true" />
+      </div>
 
+      <div className="flex h-10 items-center rounded-lg bg-surface-1 px-1.5">
         <nav className="flex items-center gap-1" aria-label={t("topbar.mainNav")}>
           {navItems.map((item) => (
             <button

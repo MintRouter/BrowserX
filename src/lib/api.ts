@@ -233,6 +233,9 @@ export interface ClearCacheResult {
 /** Settings key: auto-clear a profile's cache when its session stops ("true"/"false"). */
 export const AUTO_CLEAR_CACHE_SETTING = "auto_clear_cache_on_stop";
 
+/** (F2b) Settings key: template id pre-selected as the default one. */
+export const DEFAULT_TEMPLATE_SETTING = "default_template_id";
+
 // --- Commands ---
 
 export const api = {
@@ -323,6 +326,12 @@ export const api = {
   listTemplates: () => invoke<ProfileTemplate[]>("list_templates"),
   saveAsTemplate: (name: string, config: ProfileInput) =>
     invoke<ProfileTemplate>("save_as_template", { name, config }),
+  updateTemplate: (id: string, name: string, config?: ProfileInput | null) =>
+    invoke<ProfileTemplate>("update_template", {
+      id,
+      name,
+      config: config ?? null,
+    }),
   deleteTemplate: (id: string) => invoke<boolean>("delete_template", { id }),
   createProfileFromTemplate: (templateId: string, name?: string | null) =>
     invoke<Profile>("create_profile_from_template", {
