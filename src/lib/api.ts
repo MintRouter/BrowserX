@@ -136,6 +136,22 @@ export interface ProfileInput {
   folder_id?: string | null;
 }
 
+/** (P3-1a) Extension in the central store, assigned N-N to profiles. */
+export interface Extension {
+  id: string;
+  /** Display name (read from manifest.json when added). */
+  name: string;
+  /** "folder" (local unpacked) | "store" (downloaded from Chrome Web Store). */
+  source_type: "folder" | "store";
+  /** Source folder path, or the 32-char Web Store extension id. */
+  source_ref: string;
+  /** Unpacked dir passed to --load-extension at launch (only when enabled). */
+  unpacked_path: string;
+  /** Disabled = kept in store/assignments but not loaded at launch. */
+  enabled: boolean;
+  created_at: string;
+}
+
 /** (W20b) Saved profile template — `config` is a ProfileInput-shaped snapshot. */
 export interface ProfileTemplate {
   id: string;
@@ -395,6 +411,23 @@ export const api = {
     invoke<RestoreResult>("restore_backup", { backupPath, passphrase }),
   /** Restart the app — required after restoreBackup to load the new data dir. */
   restartApp: () => invoke<void>("restart_app"),
+
+  // Extensions (P3-1a) — central store + N-N assignment to profiles.
+  listExtensions: () => invoke<Extension[]>("list_extensions"),
+  /** Add a local unpacked extension folder (must contain manifest.json). */
+  addExtensionFromFolder: (path: string) =>
+    invoke<Extension>("add_extension_from_folder", { path }),
+  /** Download from a Chrome Web Store URL, unpack into ~/.browserx/extensions/<id>/. */
+  addExtensionFromStoreUrl: (url: string) =>
+    invoke<Extension>("add_extension_from_store_url", { url }),
+  removeExtension: (id: string) => invoke<void>("remove_extension", { id }),
+  setExtensionEnabled: (id: string, enabled: boolean) =>
+    invoke<void>("set_extension_enabled", { id, enabled }),
+  /** Replace the profile's FULL assignment list with extIds. */
+  assignExtensions: (profileId: string, extIds: string[]) =>
+    invoke<void>("assign_extensions", { profileId, extIds }),
+  getProfileExtensions: (profileId: string) =>
+    invoke<Extension[]>("get_profile_extensions", { profileId }),
 };
 
 // --- Events ---

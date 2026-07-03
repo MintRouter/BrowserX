@@ -151,7 +151,7 @@ async fn soak_ten_concurrent_sessions() {
             })
             .unwrap();
         let port = pm.allocate_cdp_port().unwrap();
-        let args = build_args(&profile, None, port);
+        let args = build_args(&profile, None, port, &[]);
         match pm.spawn(&profile.id, &bin, args, port).await {
             Ok(sess) => {
                 match cdp::attach(port).await {

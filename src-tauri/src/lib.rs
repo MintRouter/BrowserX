@@ -23,6 +23,7 @@ pub mod crypto;
 pub mod db;
 pub mod error;
 pub mod export;
+pub mod extensions;
 pub mod launcher;
 pub mod logging;
 pub mod models;
@@ -132,6 +133,13 @@ pub fn run() {
             commands::create_backup,
             commands::restore_backup,
             commands::restart_app,
+            commands::list_extensions,
+            commands::add_extension_from_folder,
+            commands::add_extension_from_store_url,
+            commands::remove_extension,
+            commands::set_extension_enabled,
+            commands::assign_extensions,
+            commands::get_profile_extensions,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

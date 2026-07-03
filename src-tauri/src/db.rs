@@ -17,7 +17,7 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, Result};
-use crate::models::{Folder, Profile, ProfileTemplate};
+use crate::models::{Extension, Folder, Profile, ProfileTemplate};
 
 // ---------------------------------------------------------------------------
 // Type nội bộ của DB layer (W3a map sang models::Proxy sau khi giải mã)
@@ -192,7 +192,7 @@ pub struct AuditEntry {
 // ---------------------------------------------------------------------------
 
 /// Schema version hiện tại (PRAGMA user_version).
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 
 const SCHEMA_V1: &str = "
 CREATE TABLE IF NOT EXISTS profiles (
@@ -348,6 +348,29 @@ CREATE INDEX IF NOT EXISTS idx_profile_templates_name ON profile_templates(name)
 /// ALTER TABLE không có IF NOT EXISTS — idempotency đảm bảo bởi guard `user_version < 8`.
 const SCHEMA_V8: &str = "
 ALTER TABLE profiles ADD COLUMN extensions TEXT NOT NULL DEFAULT '[]';
+";
+
+/// Migration v8→v9 (P3-1a): kho extension trung tâm — bảng `extensions`
+/// (folder unpacked local hoặc tải từ Chrome Web Store) + `profile_extensions`
+/// N-N (giống pattern profile_tags, CASCADE cả 2 chiều).
+const SCHEMA_V9: &str = "
+CREATE TABLE IF NOT EXISTS extensions (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    source_type TEXT NOT NULL DEFAULT 'folder',
+    source_ref TEXT NOT NULL,
+    unpacked_path TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS profile_extensions (
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    extension_id TEXT NOT NULL REFERENCES extensions(id) ON DELETE CASCADE,
+    PRIMARY KEY (profile_id, extension_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_profile_extensions_ext ON profile_extensions(extension_id);
 ";
 
 /// Kết nối SQLite của app. `Mutex<Connection>` để dùng được trong `tauri::State`
@@ -522,6 +545,10 @@ fn migrate_inner(conn: &Connection, checkpoint: impl Fn(i64) -> Result<()>) -> R
         if version < 8 {
             conn.execute_batch(SCHEMA_V8)?;
             checkpoint(8)?;
+        }
+        if version < 9 {
+            conn.execute_batch(SCHEMA_V9)?;
+            checkpoint(9)?;
         }
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         Ok(())
@@ -1769,6 +1796,199 @@ impl Db {
 }
 
 // ---------------------------------------------------------------------------
+// Extensions (P3-1a): kho trung tâm + gán N-N với profile
+// ---------------------------------------------------------------------------
+
+fn row_to_extension(row: &Row) -> rusqlite::Result<Extension> {
+    Ok(Extension {
+        id: row.get("id")?,
+        name: row.get("name")?,
+        source_type: row.get("source_type")?,
+        source_ref: row.get("source_ref")?,
+        unpacked_path: row.get("unpacked_path")?,
+        enabled: row.get::<_, i64>("enabled")? != 0,
+        created_at: row.get("created_at")?,
+    })
+}
+
+impl Db {
+    /// Thêm extension vào kho. Từ chối khi `unpacked_path` đã có trong kho
+    /// (tránh 2 hàng trỏ cùng thư mục — remove hàng này phá hàng kia).
+    pub fn create_extension(
+        &self,
+        name: &str,
+        source_type: &str,
+        source_ref: &str,
+        unpacked_path: &str,
+    ) -> Result<Extension> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(AppError::InvalidInput(
+                "extension name must not be empty".into(),
+            ));
+        }
+        if !matches!(source_type, "folder" | "store") {
+            return Err(AppError::InvalidInput(format!(
+                "unsupported extension source_type: {source_type}"
+            )));
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        {
+            let conn = self.lock();
+            let dup = conn
+                .query_row(
+                    "SELECT 1 FROM extensions WHERE unpacked_path = ?1",
+                    params![unpacked_path],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_some();
+            if dup {
+                return Err(AppError::InvalidInput(format!(
+                    "extension already added: {unpacked_path}"
+                )));
+            }
+            conn.execute(
+                "INSERT INTO extensions (id, name, source_type, source_ref, unpacked_path, enabled, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6)",
+                params![id, name, source_type, source_ref, unpacked_path, now()],
+            )?;
+        }
+        self.get_extension(&id)
+    }
+
+    /// Đọc 1 extension. `NotFound` nếu không tồn tại.
+    pub fn get_extension(&self, id: &str) -> Result<Extension> {
+        let conn = self.lock();
+        conn.query_row(
+            "SELECT * FROM extensions WHERE id = ?1",
+            params![id],
+            row_to_extension,
+        )
+        .optional()?
+        .ok_or_else(|| AppError::NotFound(format!("extension {id}")))
+    }
+
+    /// Danh sách extension trong kho, thứ tự thêm trước → sau.
+    pub fn list_extensions(&self) -> Result<Vec<Extension>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare("SELECT * FROM extensions ORDER BY created_at, name")?;
+        let rows = stmt
+            .query_map([], row_to_extension)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Bật/tắt 1 extension (tắt = giữ trong kho, không nạp khi launch).
+    pub fn set_extension_enabled(&self, id: &str, enabled: bool) -> Result<()> {
+        let conn = self.lock();
+        let n = conn.execute(
+            "UPDATE extensions SET enabled = ?2 WHERE id = ?1",
+            params![id, enabled as i64],
+        )?;
+        if n == 0 {
+            return Err(AppError::NotFound(format!("extension {id}")));
+        }
+        Ok(())
+    }
+
+    /// Xoá extension khỏi kho (gán trong `profile_extensions` CASCADE theo).
+    /// Trả `true` nếu có xoá. KHÔNG xoá thư mục trên đĩa — caller quyết định.
+    pub fn delete_extension(&self, id: &str) -> Result<bool> {
+        let conn = self.lock();
+        let n = conn.execute("DELETE FROM extensions WHERE id = ?1", params![id])?;
+        Ok(n > 0)
+    }
+
+    /// Thay TOÀN BỘ extension gán cho profile (giống set_profile_tags).
+    /// `NotFound` nếu profile hoặc bất kỳ extension id nào không tồn tại.
+    pub fn assign_extensions(&self, profile_id: &str, ext_ids: &[String]) -> Result<()> {
+        let conn = self.lock();
+        let exists = conn
+            .query_row(
+                "SELECT 1 FROM profiles WHERE id = ?1",
+                params![profile_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if !exists {
+            return Err(AppError::NotFound(format!("profile {profile_id}")));
+        }
+        for eid in ext_ids {
+            let found = conn
+                .query_row(
+                    "SELECT 1 FROM extensions WHERE id = ?1",
+                    params![eid],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_some();
+            if !found {
+                return Err(AppError::NotFound(format!("extension {eid}")));
+            }
+        }
+        conn.execute_batch("BEGIN")?;
+        let result = (|| -> Result<()> {
+            conn.execute(
+                "DELETE FROM profile_extensions WHERE profile_id = ?1",
+                params![profile_id],
+            )?;
+            for eid in ext_ids {
+                conn.execute(
+                    "INSERT OR IGNORE INTO profile_extensions (profile_id, extension_id) VALUES (?1, ?2)",
+                    params![profile_id, eid],
+                )?;
+            }
+            Ok(())
+        })();
+        match result {
+            Ok(()) => {
+                conn.execute_batch("COMMIT")?;
+                Ok(())
+            }
+            Err(e) => {
+                let _ = conn.execute_batch("ROLLBACK");
+                Err(e)
+            }
+        }
+    }
+
+    /// Danh sách extension đã gán cho profile (cả disabled — UI hiển thị đủ),
+    /// thứ tự thêm vào kho.
+    pub fn get_profile_extensions(&self, profile_id: &str) -> Result<Vec<Extension>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            "SELECT e.* FROM extensions e
+             JOIN profile_extensions pe ON pe.extension_id = e.id
+             WHERE pe.profile_id = ?1
+             ORDER BY e.created_at, e.name",
+        )?;
+        let rows = stmt
+            .query_map(params![profile_id], row_to_extension)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Đường dẫn unpacked của extension ĐANG BẬT gán cho profile — nạp vào
+    /// `--load-extension` lúc launch (xem launcher::build_args).
+    pub fn profile_extension_paths(&self, profile_id: &str) -> Result<Vec<String>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            "SELECT e.unpacked_path FROM extensions e
+             JOIN profile_extensions pe ON pe.extension_id = e.id
+             WHERE pe.profile_id = ?1 AND e.enabled = 1
+             ORDER BY e.created_at, e.name",
+        )?;
+        let rows = stmt
+            .query_map(params![profile_id], |r| r.get(0))?
+            .collect::<rusqlite::Result<Vec<String>>>()?;
+        Ok(rows)
+    }
+}
+
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -2629,5 +2849,100 @@ mod tests {
         assert!(list_ms < 5000, "list_profiles too slow: {list_ms}ms");
         assert!(search_ms < 5000, "search_profiles too slow: {search_ms}ms");
         assert!(tag_ms < 5000, "tag search too slow: {tag_ms}ms");
+    }
+
+    #[test]
+    fn extensions_crud_assign_and_resolve_paths() {
+        let (db, _guard) = temp_db();
+        let p = db
+            .create_profile(ProfileInput {
+                name: "ext-p".into(),
+                ..Default::default()
+            })
+            .unwrap();
+
+        let a = db
+            .create_extension("uBlock", "folder", "/src/ublock", "/data/ext/ublock")
+            .unwrap();
+        let b = db
+            .create_extension(
+                "Dark Reader",
+                "store",
+                "eimadpbcbfnmbkopoojfekhnkhdbieeh",
+                "/data/ext/dark",
+            )
+            .unwrap();
+        assert!(a.enabled && b.enabled);
+        assert_eq!(db.list_extensions().unwrap().len(), 2);
+
+        // Trùng unpacked_path → InvalidInput; source_type lạ → InvalidInput.
+        assert!(matches!(
+            db.create_extension("dup", "folder", "/x", "/data/ext/ublock"),
+            Err(AppError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            db.create_extension("bad", "zip", "/x", "/data/ext/zip"),
+            Err(AppError::InvalidInput(_))
+        ));
+
+        // Assign cả 2 → get trả đủ, resolve trả đúng path theo thứ tự thêm.
+        db.assign_extensions(&p.id, &[a.id.clone(), b.id.clone()])
+            .unwrap();
+        let assigned = db.get_profile_extensions(&p.id).unwrap();
+        assert_eq!(assigned.len(), 2);
+        assert_eq!(
+            db.profile_extension_paths(&p.id).unwrap(),
+            vec!["/data/ext/ublock".to_string(), "/data/ext/dark".to_string()]
+        );
+
+        // Disable → vẫn trong danh sách gán, nhưng KHÔNG vào paths lúc launch.
+        db.set_extension_enabled(&a.id, false).unwrap();
+        assert_eq!(db.get_profile_extensions(&p.id).unwrap().len(), 2);
+        assert_eq!(
+            db.profile_extension_paths(&p.id).unwrap(),
+            vec!["/data/ext/dark".to_string()]
+        );
+
+        // Re-assign thay TOÀN BỘ (chỉ còn b).
+        db.assign_extensions(&p.id, std::slice::from_ref(&b.id))
+            .unwrap();
+        assert_eq!(db.get_profile_extensions(&p.id).unwrap().len(), 1);
+
+        // Id lạ → NotFound (profile lẫn extension).
+        assert!(matches!(
+            db.assign_extensions("missing", &[]),
+            Err(AppError::NotFound(_))
+        ));
+        assert!(matches!(
+            db.assign_extensions(&p.id, &["missing".into()]),
+            Err(AppError::NotFound(_))
+        ));
+
+        // Xoá extension → hàng gán CASCADE theo.
+        assert!(db.delete_extension(&b.id).unwrap());
+        assert!(!db.delete_extension(&b.id).unwrap());
+        assert!(db.get_profile_extensions(&p.id).unwrap().is_empty());
+        assert!(db.profile_extension_paths(&p.id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn extensions_cascade_when_profile_purged() {
+        let (db, _guard) = temp_db();
+        let p = db
+            .create_profile(ProfileInput {
+                name: "purge-ext".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let e = db
+            .create_extension("E", "folder", "/src/e", "/data/ext/e")
+            .unwrap();
+        db.assign_extensions(&p.id, std::slice::from_ref(&e.id))
+            .unwrap();
+        db.trash_profiles(std::slice::from_ref(&p.id)).unwrap();
+        db.purge_profiles(std::slice::from_ref(&p.id)).unwrap();
+        // Extension còn trong kho; hàng gán bị CASCADE xoá.
+        assert_eq!(db.list_extensions().unwrap().len(), 1);
+        assert!(db.get_profile_extensions(&p.id).unwrap().is_empty());
     }
 }

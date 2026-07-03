@@ -28,10 +28,10 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::db::{self, Db, ProfileInput, ProfileUpdate, TagInfo};
 use crate::error::{AppError, Result};
-use crate::models::{Folder, Profile, ProfileTemplate, Proxy, RunningSession};
+use crate::models::{Extension, Folder, Profile, ProfileTemplate, Proxy, RunningSession};
 use crate::process::ProcessManager;
 use crate::proxy_check::{self, ProxyCheckResult};
-use crate::{binary, cdp, cookies, crypto, launcher, storage};
+use crate::{binary, cdp, cookies, crypto, extensions, launcher, storage};
 
 /// State toàn app — khởi tạo trong `tauri::Builder::setup` (lib.rs) rồi `.manage()`.
 pub struct AppState {
@@ -498,7 +498,10 @@ pub async fn launch_profile(
     let binary_path = binary::ensure_binary(None, Some(&progress)).await?;
 
     let cdp_port = state.procs.allocate_cdp_port()?;
-    let args = launcher::build_args(&profile, proxy_url.as_deref(), cdp_port);
+    // (P3-1a) Extension gán từ kho trung tâm (chỉ enabled) — merge với legacy
+    // profile.extensions bên trong build_args.
+    let assigned_exts = state.db.profile_extension_paths(&profile_id)?;
+    let args = launcher::build_args(&profile, proxy_url.as_deref(), cdp_port, &assigned_exts);
     let program = binary_path.to_string_lossy().into_owned();
 
     let session = state
@@ -664,7 +667,8 @@ async fn open_cookie_session(
     p.headless = true;
     p.startup_behavior = "custom".into(); // không --restore-last-session
     p.startup_urls = json!([]); // không mở URL nào
-    let mut args = launcher::build_args(&p, None, cdp_port);
+    // Phiên tạm thao tác cookie: không cần extension → truyền &[].
+    let mut args = launcher::build_args(&p, None, cdp_port, &[]);
     args.insert(0, "--headless=new".into());
 
     let child = tokio::process::Command::new(binary_path.as_os_str())
@@ -1375,6 +1379,104 @@ pub async fn restore_backup(
 pub fn restart_app(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     state.quitting.store(true, Ordering::SeqCst);
     app.restart()
+}
+
+// ---------------------------------------------------------------------------
+// Extensions (P3-1a) — kho trung tâm + gán N-N với profile. Xem module `extensions`.
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn list_extensions(state: State<'_, AppState>) -> Result<Vec<Extension>> {
+    state.db.list_extensions()
+}
+
+/// Thêm extension từ folder unpacked local: validate manifest.json rồi lưu
+/// nguyên path folder (không copy — user quản lý file gốc).
+#[tauri::command]
+pub fn add_extension_from_folder(state: State<'_, AppState>, path: String) -> Result<Extension> {
+    let dir = PathBuf::from(path.trim());
+    let name = extensions::validate_unpacked_dir(&dir)?;
+    let dir_str = dir.to_string_lossy();
+    let ext = state.db.create_extension(&name, "folder", &dir_str, &dir_str)?;
+    state
+        .db
+        .insert_audit("extension.add", Some(&ext.id), Some(&json!({ "source": "folder" })))?;
+    Ok(ext)
+}
+
+/// Thêm extension từ URL Chrome Web Store: tải CRX → unpack vào
+/// `<data_dir>/extensions/<ext_id>/` → validate manifest → lưu vào kho.
+#[tauri::command]
+pub async fn add_extension_from_store_url(
+    state: State<'_, AppState>,
+    url: String,
+) -> Result<Extension> {
+    let data_dir = state.db.data_dir().to_path_buf();
+    let installed = extensions::install_from_store_url(&url, &data_dir).await?;
+    let ext = state.db.create_extension(
+        &installed.name,
+        "store",
+        &installed.ext_id,
+        &installed.unpacked_path.to_string_lossy(),
+    )?;
+    state
+        .db
+        .insert_audit("extension.add", Some(&ext.id), Some(&json!({ "source": "store" })))?;
+    Ok(ext)
+}
+
+/// Xoá extension khỏi kho (hàng gán profile CASCADE theo). Bản tải từ store
+/// nằm trong `<data_dir>/extensions/` → xoá luôn folder unpacked (best-effort);
+/// nguồn "folder" là file của user — không đụng.
+#[tauri::command]
+pub fn remove_extension(state: State<'_, AppState>, id: String) -> Result<()> {
+    let ext = state.db.get_extension(&id)?;
+    if !state.db.delete_extension(&id)? {
+        return Err(AppError::NotFound(format!("extension {id}")));
+    }
+    if ext.source_type == "store" {
+        let dir = PathBuf::from(&ext.unpacked_path);
+        if dir.starts_with(extensions::extensions_dir(state.db.data_dir())) {
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+    state.db.insert_audit("extension.remove", Some(&id), None)?;
+    Ok(())
+}
+
+/// Bật/tắt extension trong kho — tắt = giữ gán nhưng không nạp khi launch.
+#[tauri::command]
+pub fn set_extension_enabled(
+    state: State<'_, AppState>,
+    id: String,
+    enabled: bool,
+) -> Result<()> {
+    state.db.set_extension_enabled(&id, enabled)
+}
+
+/// Gán TOÀN BỘ danh sách extension cho profile (thay thế danh sách cũ).
+#[tauri::command]
+pub fn assign_extensions(
+    state: State<'_, AppState>,
+    profile_id: String,
+    ext_ids: Vec<String>,
+) -> Result<()> {
+    state.db.assign_extensions(&profile_id, &ext_ids)?;
+    state.db.insert_audit(
+        "extension.assign",
+        Some(&profile_id),
+        Some(&json!({ "count": ext_ids.len() })),
+    )?;
+    Ok(())
+}
+
+/// Danh sách extension đã gán cho profile (kể cả bản đang tắt).
+#[tauri::command]
+pub fn get_profile_extensions(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<Vec<Extension>> {
+    state.db.get_profile_extensions(&profile_id)
 }
 
 #[cfg(test)]

@@ -82,6 +82,26 @@ pub struct Profile {
     pub extensions: serde_json::Value,
 }
 
+/// (P3-1a) Extension trong kho trung tâm (bảng `extensions`), gán N-N với
+/// profile qua `profile_extensions`. `unpacked_path` là thư mục unpacked đưa
+/// vào `--load-extension` khi launch (chỉ khi `enabled`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Extension {
+    /// UUID v4.
+    pub id: String,
+    /// Tên hiển thị (đọc từ manifest.json khi thêm).
+    pub name: String,
+    /// Nguồn: "folder" (unpacked local) | "store" (tải CRX từ Chrome Web Store).
+    pub source_type: String,
+    /// Tham chiếu nguồn: đường dẫn folder gốc, hoặc extension id 32 ký tự của store.
+    pub source_ref: String,
+    /// Thư mục unpacked thực tế nạp vào Chromium.
+    pub unpacked_path: String,
+    /// Tắt = giữ trong kho nhưng không nạp khi launch.
+    pub enabled: bool,
+    pub created_at: String,
+}
+
 /// (W20b) Template cấu hình profile (bảng `profile_templates`). `config` là JSON
 /// shape `ProfileInput` (db.rs) — field lạ bị bỏ qua khi tạo profile từ template.
 #[derive(Debug, Clone, Serialize, Deserialize)]

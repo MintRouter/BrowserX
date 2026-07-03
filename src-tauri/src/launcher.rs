@@ -57,7 +57,14 @@ fn host_default_platform() -> &'static str {
 ///
 /// `proxy_url` là URL proxy ĐÃ GIẢI MÃ (không đọc keychain ở đây) — nếu Some sẽ thành
 /// `--proxy-server=<url>`. `cdp_port` là cổng remote-debugging đã cấp bởi process manager.
-pub fn build_args(profile: &Profile, proxy_url: Option<&str>, cdp_port: u16) -> Vec<String> {
+/// `assigned_extensions` (P3-1a) là paths unpacked từ kho trung tâm
+/// (`db.profile_extension_paths`) — merge + dedup với legacy `profile.extensions`.
+pub fn build_args(
+    profile: &Profile,
+    proxy_url: Option<&str>,
+    cdp_port: u16,
+    assigned_extensions: &[String],
+) -> Vec<String> {
     let mut args = OrderedArgs::new();
 
     // 1) Stealth defaults (ưu tiên thấp nhất).
@@ -155,21 +162,33 @@ pub fn build_args(profile: &Profile, proxy_url: Option<&str>, cdp_port: u16) -> 
         }
     }
 
-    // (W24b) Unpacked extensions local: comma-join đường dẫn (trim, bỏ rỗng) →
-    // --load-extension + --disable-extensions-except (chặn extension ngoài danh sách,
+    // (W24b + P3-1a) Unpacked extensions: gộp paths gán từ kho trung tâm
+    // (assigned_extensions, đứng trước) với legacy profile.extensions (JSON),
+    // trim + bỏ rỗng + dedup giữ thứ tự → comma-join thành --load-extension +
+    // --disable-extensions-except (chặn extension ngoài danh sách,
     // semantics giống extension_paths trong browser.py#L1078-L1086).
-    if let Some(list) = profile.extensions.as_array() {
-        let paths: Vec<&str> = list
-            .iter()
-            .filter_map(|v| v.as_str())
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .collect();
-        if !paths.is_empty() {
-            let joined = paths.join(",");
-            args.set(format!("--load-extension={}", joined));
-            args.set(format!("--disable-extensions-except={}", joined));
+    let legacy = profile.extensions.as_array();
+    let mut ext_paths: Vec<&str> = Vec::new();
+    for s in assigned_extensions
+        .iter()
+        .map(|s| s.trim())
+        .chain(
+            legacy
+                .into_iter()
+                .flatten()
+                .filter_map(|v| v.as_str())
+                .map(str::trim),
+        )
+        .filter(|s| !s.is_empty())
+    {
+        if !ext_paths.contains(&s) {
+            ext_paths.push(s);
         }
+    }
+    if !ext_paths.is_empty() {
+        let joined = ext_paths.join(",");
+        args.set(format!("--load-extension={}", joined));
+        args.set(format!("--disable-extensions-except={}", joined));
     }
 
     // Cờ vận hành bắt buộc — luôn từ tham số của ta.
@@ -259,6 +278,12 @@ mod tests {
             store_sw_cache: true,
             extensions: serde_json::json!([]),
         }
+    }
+
+    /// Shadow glob-import: đa số test không quan tâm extension gán từ kho
+    /// trung tâm → gọi bản 3 tham số, truyền `&[]` cho assigned_extensions.
+    fn build_args(profile: &Profile, proxy_url: Option<&str>, cdp_port: u16) -> Vec<String> {
+        super::build_args(profile, proxy_url, cdp_port, &[])
     }
 
     fn value_of<'a>(args: &'a [String], key: &str) -> Option<&'a str> {
@@ -385,6 +410,30 @@ mod tests {
         assert_eq!(
             value_of(&args, "--disable-extensions-except"),
             Some("/data/ext/ublock,/data/ext/dark")
+        );
+    }
+
+    #[test]
+    fn assigned_extensions_merge_and_dedup_with_legacy() {
+        let mut p = base_profile();
+        // Chỉ assigned (kho trung tâm) — legacy rỗng.
+        let assigned = vec!["/data/ext/store-a".to_string(), " /data/ext/store-b ".into()];
+        let args = super::build_args(&p, None, 1, &assigned);
+        assert_eq!(
+            value_of(&args, "--load-extension"),
+            Some("/data/ext/store-a,/data/ext/store-b")
+        );
+
+        // Merge: assigned đứng trước legacy; trùng path (sau trim) chỉ giữ 1.
+        p.extensions = serde_json::json!(["/data/ext/legacy", "/data/ext/store-a", ""]);
+        let args = super::build_args(&p, None, 1, &assigned);
+        assert_eq!(
+            value_of(&args, "--load-extension"),
+            Some("/data/ext/store-a,/data/ext/store-b,/data/ext/legacy")
+        );
+        assert_eq!(
+            value_of(&args, "--disable-extensions-except"),
+            Some("/data/ext/store-a,/data/ext/store-b,/data/ext/legacy")
         );
     }
 
