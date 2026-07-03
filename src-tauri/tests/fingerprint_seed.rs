@@ -79,16 +79,16 @@ struct Fp {
     webgl: String,
 }
 
-/// Định vị binary (cache có sẵn); timeout 120s. None → SKIP.
+/// Định vị binary (cache có sẵn); timeout 120s. None → SKIPPED (không phải PASSED).
 async fn ensure_bin() -> Option<PathBuf> {
     match tokio::time::timeout(Duration::from_secs(120), binary::ensure_binary(None, None)).await {
         Ok(Ok(p)) => Some(p),
         Ok(Err(e)) => {
-            println!("[fp] SKIP — giới hạn môi trường: chưa có binary ({e})");
+            eprintln!("[fp] SKIPPED: no binary cache — chưa có binary ({e})");
             None
         }
         Err(_) => {
-            println!("[fp] SKIP — giới hạn môi trường: ensure_binary timeout 120s");
+            eprintln!("[fp] SKIPPED: no binary cache — ensure_binary timeout 120s");
             None
         }
     }
@@ -151,7 +151,11 @@ async fn measure(bin: &str, seed: &str, tag: &str) -> Fp {
 async fn canvas_webgl_seed_determinism() {
     let bin = match ensure_bin().await {
         Some(p) => p.to_string_lossy().into_owned(),
-        None => return,
+        None => {
+            // Skip thật: test KHÔNG chạy — đừng đọc "ok" của libtest là bằng chứng PASSED.
+            eprintln!("[fp] TEST SKIPPED (not passed): thiếu binary cache, không đo gì cả");
+            return;
+        }
     };
 
     let a = measure(&bin, "111111", "seedA").await;

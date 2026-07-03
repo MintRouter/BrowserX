@@ -340,6 +340,8 @@
     "password": "Mật khẩu",
     "optional": "tuỳ chọn",
     "passwordKeep": "Để trống để giữ mật khẩu hiện tại.",
+    "usernameKeep": "Để trống để giữ tên đăng nhập hiện tại.",
+    "clearCredentials": "Xoá thông tin đăng nhập đã lưu",
     "save": "Lưu proxy",
     "delete": "Xoá",
     "searchPlaceholder": "Tìm proxy",

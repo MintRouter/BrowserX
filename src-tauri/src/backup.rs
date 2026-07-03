@@ -13,6 +13,9 @@
 //! KHÔNG đụng gì tới dữ liệu hiện có. Restore giải nén vào thư mục tạm CẠNH
 //! `data_dir` (cùng filesystem) rồi swap bằng 2 lần `rename` atomic; dữ liệu
 //! cũ giữ nguyên tại `<data_dir>.pre-restore-<timestamp>` để còn đường lùi.
+//! (W25b) Marker `<data_dir>.restore-in-progress` ghi trước rename 1, xoá sau
+//! rename 2 — app bị kill giữa 2 rename thì `recover_interrupted_restore`
+//! (chạy lúc startup, trước khi mở DB) hoàn tất hoặc rollback swap.
 //!
 //! Caller (commands.rs) chịu trách nhiệm: WAL checkpoint TRƯỚC khi backup
 //! (pattern W23a — file `-wal`/`-shm` bị bỏ qua khi nén) và bảo đảm mọi
@@ -222,13 +225,37 @@ pub fn restore_backup(
     }
 
     report(progress, "swap", 90);
-    let previous = if data_dir.exists() {
+    // (W25b) Marker ghi TRƯỚC rename 1, xoá SAU rename 2: nếu app bị kill đúng
+    // giữa 2 rename (data_dir tạm thời không tồn tại), startup recovery đọc
+    // marker để biết tmp/bak nào thuộc swap dở mà hoàn tất/rollback.
+    let marker = restore_marker_path(data_dir);
+    let bak = data_dir.exists().then(|| {
         let ts = chrono::Utc::now().format("%Y%m%d-%H%M%S");
-        let bak = parent.join(format!("{dir_name}.pre-restore-{ts}"));
-        fs::rename(data_dir, &bak)?;
-        Some(bak)
-    } else {
-        None
+        parent.join(format!("{dir_name}.pre-restore-{ts}"))
+    });
+    let marker_body = format!(
+        "{}\n{}\n",
+        tmp.file_name().and_then(|n| n.to_str()).unwrap_or(""),
+        bak.as_deref()
+            .and_then(|b| b.file_name())
+            .and_then(|n| n.to_str())
+            .unwrap_or(""),
+    );
+    if let Err(e) = fs::write(&marker, marker_body) {
+        let _ = fs::remove_dir_all(&tmp);
+        return Err(e.into());
+    }
+
+    let previous = match &bak {
+        Some(bak) => {
+            if let Err(e) = fs::rename(data_dir, bak) {
+                let _ = fs::remove_dir_all(&tmp);
+                let _ = fs::remove_file(&marker);
+                return Err(e.into());
+            }
+            Some(bak.clone())
+        }
+        None => None,
     };
     if let Err(e) = fs::rename(&tmp, data_dir) {
         // Rollback: trả dữ liệu cũ về chỗ cũ, dọn thư mục tạm.
@@ -236,13 +263,117 @@ pub fn restore_backup(
             let _ = fs::rename(prev, data_dir);
         }
         let _ = fs::remove_dir_all(&tmp);
+        let _ = fs::remove_file(&marker);
         return Err(e.into());
     }
+    // Best-effort: marker sót lại vô hại — recovery lúc startup thấy data_dir
+    // còn nguyên sẽ chỉ dọn marker (không đụng dữ liệu).
+    let _ = fs::remove_file(&marker);
 
     report(progress, "done", 100);
     Ok(RestoreOutcome {
         previous_data_dir: previous,
     })
+}
+
+// ---------------------------------------------------------------------------
+// (W25b) Startup recovery cho swap restore bị kill dở
+// ---------------------------------------------------------------------------
+
+/// Đường dẫn marker `<data_dir>.restore-in-progress` (cạnh `data_dir`).
+fn restore_marker_path(data_dir: &Path) -> PathBuf {
+    let parent = data_dir.parent().unwrap_or_else(|| Path::new("."));
+    let dir_name = data_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(".browserx");
+    parent.join(format!("{dir_name}.restore-in-progress"))
+}
+
+/// Kết quả recovery swap dở (W25b).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestoreRecovery {
+    /// Hoàn tất swap: tmp (đã sanity-check) → `data_dir` = dữ liệu MỚI.
+    Completed,
+    /// Rollback: `<data_dir>.pre-restore-<ts>` → `data_dir` = dữ liệu CŨ.
+    RolledBack,
+}
+
+/// Hoàn tất/rollback swap restore bị kill giữa 2 rename — gọi lúc STARTUP,
+/// TRƯỚC khi mở DB (`Db::open_default` sẽ tạo dir trống nếu thiếu → nhìn như
+/// mất sạch dữ liệu). Kết quả luôn là một trong hai trạng thái toàn vẹn:
+/// - marker + `data_dir` mất + tmp hợp lệ (có `browserx.db`) → hoàn tất swap;
+/// - marker + `data_dir` mất + tmp hỏng nhưng bak hợp lệ → rollback về dữ liệu cũ;
+/// - marker + `data_dir` còn (kill trước rename 1 / sau rename 2) → chỉ dọn
+///   marker + tmp sót, KHÔNG đụng dữ liệu;
+/// - không marker (bản app cũ) + `data_dir` mất + ĐÚNG 1 dir pre-restore hợp
+///   lệ → rollback; mơ hồ hơn thì không tự đoán.
+pub fn recover_interrupted_restore(data_dir: &Path) -> Result<Option<RestoreRecovery>> {
+    let Some(parent) = data_dir.parent() else {
+        return Ok(None);
+    };
+    let dir_name = data_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(".browserx");
+    let marker = restore_marker_path(data_dir);
+
+    if marker.is_file() {
+        let content = fs::read_to_string(&marker)?;
+        let mut lines = content.lines().map(str::trim);
+        let tmp = lines.next().filter(|s| !s.is_empty()).map(|n| parent.join(n));
+        let bak = lines.next().filter(|s| !s.is_empty()).map(|n| parent.join(n));
+
+        if data_dir.is_dir() {
+            // Kill trước rename 1 (dữ liệu cũ nguyên chỗ) hoặc sau rename 2
+            // (dữ liệu mới đã vào chỗ): chỉ dọn tmp sót + marker.
+            if let Some(tmp) = &tmp {
+                if tmp.is_dir() {
+                    let _ = fs::remove_dir_all(tmp);
+                }
+            }
+            fs::remove_file(&marker)?;
+            return Ok(None);
+        }
+        // data_dir mất = kill đúng giữa 2 rename. Ưu tiên hoàn tất swap
+        // (tmp đã qua sanity-check trước khi marker được ghi).
+        if let Some(tmp) = &tmp {
+            if tmp.join("browserx.db").is_file() {
+                fs::rename(tmp, data_dir)?;
+                fs::remove_file(&marker)?;
+                return Ok(Some(RestoreRecovery::Completed));
+            }
+        }
+        if let Some(bak) = &bak {
+            if bak.join("browserx.db").is_file() {
+                fs::rename(bak, data_dir)?;
+                fs::remove_file(&marker)?;
+                return Ok(Some(RestoreRecovery::RolledBack));
+            }
+        }
+        // Không còn gì cứu được — dọn marker để không lặp vô hạn.
+        fs::remove_file(&marker)?;
+        return Ok(None);
+    }
+
+    // Fallback không marker: chỉ rollback khi chắc chắn (đúng 1 ứng viên).
+    if !data_dir.exists() && parent.is_dir() {
+        let prefix = format!("{dir_name}.pre-restore-");
+        let mut candidates = Vec::new();
+        for entry in fs::read_dir(parent)? {
+            let entry = entry?;
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else { continue };
+            if name.starts_with(&prefix) && entry.path().join("browserx.db").is_file() {
+                candidates.push(entry.path());
+            }
+        }
+        if let [only] = candidates.as_slice() {
+            fs::rename(only, data_dir)?;
+            return Ok(Some(RestoreRecovery::RolledBack));
+        }
+    }
+    Ok(None)
 }
 
 // ---------------------------------------------------------------------------
@@ -315,6 +446,110 @@ mod tests {
         assert_eq!(fs::read(prev.join("sentinel.txt")).unwrap(), b"old-data");
         assert!(!target.join("sentinel.txt").exists());
         assert_eq!(fs::read(target.join("browserx.db")).unwrap(), b"sqlite-bytes");
+        // (W25b) Restore thành công không được để sót marker.
+        assert!(!restore_marker_path(&target).exists());
+    }
+
+    /// (W25b) Kill đúng giữa 2 rename (mô phỏng: dựng tay trạng thái swap dở —
+    /// data_dir đã đổi tên đi, tmp hoàn chỉnh chưa vào chỗ, marker còn trên
+    /// đĩa) → recovery HOÀN TẤT swap: data_dir = dữ liệu MỚI, marker biến mất.
+    #[test]
+    fn recovery_completes_interrupted_swap() {
+        let (root, _guard) = temp_root();
+        let data = root.join(".browserx");
+        let bak = root.join(".browserx.pre-restore-20260101-000000");
+        fs::create_dir_all(&bak).unwrap();
+        fs::write(bak.join("browserx.db"), b"old-db").unwrap();
+        let tmp = root.join(".browserx-restore-tmp1");
+        fs::create_dir_all(&tmp).unwrap();
+        fs::write(tmp.join("browserx.db"), b"new-db").unwrap();
+        let marker = restore_marker_path(&data);
+        fs::write(
+            &marker,
+            ".browserx-restore-tmp1\n.browserx.pre-restore-20260101-000000\n",
+        )
+        .unwrap();
+
+        let action = recover_interrupted_restore(&data).unwrap();
+        assert_eq!(action, Some(RestoreRecovery::Completed));
+        assert_eq!(fs::read(data.join("browserx.db")).unwrap(), b"new-db");
+        // Dữ liệu cũ vẫn giữ ở pre-restore (đường lùi), marker đã dọn.
+        assert_eq!(fs::read(bak.join("browserx.db")).unwrap(), b"old-db");
+        assert!(!marker.exists());
+        assert!(!tmp.exists());
+    }
+
+    /// (W25b) Swap dở nhưng tmp hỏng/mất (không có browserx.db) → recovery
+    /// ROLLBACK về dữ liệu cũ từ pre-restore: data_dir = dữ liệu CŨ.
+    #[test]
+    fn recovery_rolls_back_when_tmp_invalid() {
+        let (root, _guard) = temp_root();
+        let data = root.join(".browserx");
+        let bak = root.join(".browserx.pre-restore-20260101-000000");
+        fs::create_dir_all(&bak).unwrap();
+        fs::write(bak.join("browserx.db"), b"old-db").unwrap();
+        // tmp tồn tại nhưng KHÔNG có browserx.db (unpack dở) → không tin được.
+        let tmp = root.join(".browserx-restore-tmp2");
+        fs::create_dir_all(&tmp).unwrap();
+        let marker = restore_marker_path(&data);
+        fs::write(
+            &marker,
+            ".browserx-restore-tmp2\n.browserx.pre-restore-20260101-000000\n",
+        )
+        .unwrap();
+
+        let action = recover_interrupted_restore(&data).unwrap();
+        assert_eq!(action, Some(RestoreRecovery::RolledBack));
+        assert_eq!(fs::read(data.join("browserx.db")).unwrap(), b"old-db");
+        assert!(!marker.exists());
+    }
+
+    /// (W25b) Marker sót nhưng data_dir còn nguyên (kill trước rename 1 hoặc
+    /// sau rename 2) → KHÔNG đụng dữ liệu, chỉ dọn marker + tmp sót.
+    #[test]
+    fn recovery_noop_when_data_dir_intact() {
+        let (root, _guard) = temp_root();
+        let data = make_data_dir(&root);
+        let tmp = root.join(".browserx-restore-tmp3");
+        fs::create_dir_all(&tmp).unwrap();
+        fs::write(tmp.join("browserx.db"), b"new-db").unwrap();
+        let marker = restore_marker_path(&data);
+        fs::write(&marker, ".browserx-restore-tmp3\n\n").unwrap();
+
+        let action = recover_interrupted_restore(&data).unwrap();
+        assert_eq!(action, None);
+        assert_eq!(fs::read(data.join("browserx.db")).unwrap(), b"sqlite-bytes");
+        assert!(!marker.exists());
+        assert!(!tmp.exists());
+
+        // Không marker + data_dir còn → hoàn toàn no-op.
+        assert_eq!(recover_interrupted_restore(&data).unwrap(), None);
+        assert_eq!(fs::read(data.join("browserx.db")).unwrap(), b"sqlite-bytes");
+    }
+
+    /// (W25b) Fallback không marker (bản app cũ): data_dir mất + ĐÚNG 1 dir
+    /// pre-restore hợp lệ → rollback; nhiều ứng viên (mơ hồ) → không tự đoán.
+    #[test]
+    fn recovery_fallback_without_marker() {
+        let (root, _guard) = temp_root();
+        let data = root.join(".browserx");
+        let bak = root.join(".browserx.pre-restore-20260101-000000");
+        fs::create_dir_all(&bak).unwrap();
+        fs::write(bak.join("browserx.db"), b"old-db").unwrap();
+
+        let action = recover_interrupted_restore(&data).unwrap();
+        assert_eq!(action, Some(RestoreRecovery::RolledBack));
+        assert_eq!(fs::read(data.join("browserx.db")).unwrap(), b"old-db");
+
+        // 2 ứng viên → mơ hồ → không đụng gì.
+        fs::remove_dir_all(&data).unwrap();
+        for ts in ["20260101-000000", "20260102-000000"] {
+            let d = root.join(format!(".browserx.pre-restore-{ts}"));
+            fs::create_dir_all(&d).unwrap();
+            fs::write(d.join("browserx.db"), b"x").unwrap();
+        }
+        assert_eq!(recover_interrupted_restore(&data).unwrap(), None);
+        assert!(!data.exists());
     }
 
     #[test]

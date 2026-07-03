@@ -115,7 +115,10 @@ pub struct Proxy {
     pub protocol: String,
     pub host: String,
     pub port: u16,
-    pub username: Option<String>,
+    /// (W5c) Username KHÔNG trả plaintext qua IPC — chỉ bản đã che
+    /// (ký tự đầu + "***") để hiển thị; đổi thì nhập lại trong form
+    /// (để trống = giữ nguyên).
+    pub masked_username: Option<String>,
     /// Password KHÔNG bao giờ trả plaintext qua IPC — chỉ báo đã lưu hay chưa.
     /// Bản mã hoá at-rest (XChaCha20-Poly1305, khoá trong OS keychain) chỉ được
     /// giải mã trong backend lúc launch — xem `crypto`.

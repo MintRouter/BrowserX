@@ -363,7 +363,13 @@ impl Db {
     pub fn open_default() -> Result<Self> {
         let home = dirs::home_dir()
             .ok_or_else(|| AppError::InvalidInput("cannot resolve home directory".into()))?;
-        Self::open_at_dir(home.join(".browserx"))
+        let dir = home.join(".browserx");
+        // (W25b) TRƯỚC khi mở DB (open_at_dir tạo dir trống nếu thiếu → nhìn
+        // như mất sạch dữ liệu): hoàn tất/rollback swap restore bị kill dở.
+        if let Some(action) = crate::backup::recover_interrupted_restore(&dir)? {
+            tracing::warn!("recovered interrupted restore swap at startup: {action:?}");
+        }
+        Self::open_at_dir(dir)
     }
 
     /// Mở DB tại `<dir>/browserx.db` — dùng cho test hoặc data-dir tuỳ biến.

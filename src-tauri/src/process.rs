@@ -11,11 +11,13 @@
 //!
 //! Public cho W3a: `ProcessManager::new`, `recommended_max_concurrent`,
 //! `allocate_cdp_port`, `spawn`, `stop`, `list_running`, `is_running`, `start_watchdog`.
+//! W25b thêm `begin_maintenance` (cờ chặn spawn trong lúc backup/restore).
 //!
 //! Wave 2c; W6 fix zombie reaping + cap theo RAM.
 
 use std::collections::HashMap;
 use std::net::TcpListener;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -99,12 +101,30 @@ impl Session {
     }
 }
 
+/// Thông báo lỗi khi spawn bị cờ maintenance chặn (W25b).
+const MAINTENANCE_MSG: &str = "backup/restore đang chạy — đợi hoàn tất rồi mở lại profile";
+
+/// (W25b) RAII guard của chế độ bảo trì backup/restore: drop là clear cờ,
+/// nên mọi error path/early-return đều không kẹt cờ chặn launch mãi mãi.
+pub struct MaintenanceGuard {
+    flag: Arc<AtomicBool>,
+}
+
+impl Drop for MaintenanceGuard {
+    fn drop(&mut self) {
+        self.flag.store(false, Ordering::SeqCst);
+    }
+}
+
 /// Quản lý toàn bộ phiên browser đang chạy.
 #[derive(Clone)]
 pub struct ProcessManager {
     sessions: Arc<Mutex<HashMap<String, Session>>>,
     semaphore: Arc<Semaphore>,
     max_concurrent: usize,
+    /// (W25b) true khi backup/restore đang đụng filesystem → spawn bị chặn.
+    /// Set/check DƯỚI lock `sessions` để đóng race với check "không phiên chạy".
+    maintenance: Arc<AtomicBool>,
 }
 
 impl ProcessManager {
@@ -114,7 +134,34 @@ impl ProcessManager {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             semaphore: Arc::new(Semaphore::new(max)),
             max_concurrent: max,
+            maintenance: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// (W25b) Bật chế độ bảo trì cho backup/restore: verify "không phiên chạy"
+    /// VÀ set cờ dưới CÙNG lock registry — đóng race TOCTOU giữa check
+    /// `list_running()` của commands và thao tác FS. Fail nếu còn phiên chạy
+    /// hoặc một backup/restore khác đang giữ cờ.
+    pub async fn begin_maintenance(&self) -> Result<MaintenanceGuard> {
+        let mut map = self.sessions.lock().await;
+        Self::reap_locked(&mut map);
+        if !map.is_empty() {
+            return Err(AppError::InvalidInput(
+                "stop all running profiles before backup/restore".into(),
+            ));
+        }
+        if self
+            .maintenance
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return Err(AppError::InvalidInput(
+                "another backup/restore is already in progress".into(),
+            ));
+        }
+        Ok(MaintenanceGuard {
+            flag: Arc::clone(&self.maintenance),
+        })
     }
 
     pub fn max_concurrent(&self) -> usize {
@@ -143,14 +190,19 @@ impl ProcessManager {
         args: Vec<String>,
         cdp_port: u16,
     ) -> Result<RunningSession> {
-        {
-            // Reap trước khi kiểm tra: phiên đã chết không được chặn relaunch
-            // hay giữ slot semaphore.
-            let mut map = self.sessions.lock().await;
-            Self::reap_locked(&mut map);
-            if map.contains_key(profile_id) {
-                return Err(AppError::Launch(format!("profile {profile_id} đang chạy")));
-            }
+        // (W25c) Giữ lock registry XUYÊN SUỐT check → spawn → insert:
+        // begin_maintenance set cờ dưới CÙNG lock này, nên hoặc spawn thấy cờ
+        // TRƯỚC khi spawn (từ chối sạch), hoặc backup thấy session đã đăng ký
+        // (begin fail) — không còn cửa sổ "spawn rồi kill" giữa hai lần check.
+        let mut map = self.sessions.lock().await;
+        // Reap trước khi kiểm tra: phiên đã chết không được chặn relaunch
+        // hay giữ slot semaphore.
+        Self::reap_locked(&mut map);
+        if self.maintenance.load(Ordering::SeqCst) {
+            return Err(AppError::Launch(MAINTENANCE_MSG.into()));
+        }
+        if map.contains_key(profile_id) {
+            return Err(AppError::Launch(format!("profile {profile_id} đang chạy")));
         }
 
         let permit = Arc::clone(&self.semaphore)
@@ -181,10 +233,7 @@ impl ProcessManager {
             _permit: permit,
         };
         let running = session.to_running(profile_id);
-        self.sessions
-            .lock()
-            .await
-            .insert(profile_id.to_string(), session);
+        map.insert(profile_id.to_string(), session);
         Ok(running)
     }
 
@@ -399,6 +448,32 @@ mod tests {
         assert!(pm.spawn("next", prog, args, 41).await.is_ok());
         let _ = pm.stop("next").await;
         handle.abort();
+    }
+
+    /// (W25b) Cờ maintenance chặn spawn trong lúc backup/restore; guard drop
+    /// là launch lại bình thường. Double-begin hoặc còn phiên chạy → begin fail.
+    #[tokio::test]
+    async fn maintenance_blocks_spawn_until_guard_dropped() {
+        let pm = ProcessManager::new(2);
+        let (prog, args) = long_running();
+
+        let guard = pm.begin_maintenance().await.unwrap();
+        // Đang giữ cờ: begin lần 2 bị từ chối, spawn bị chặn với lỗi rõ ràng.
+        assert!(pm.begin_maintenance().await.is_err());
+        let err = pm.spawn("m", prog, args.clone(), 50).await.unwrap_err();
+        assert!(
+            err.to_string().contains("backup/restore"),
+            "unexpected error: {err}"
+        );
+        assert!(pm.list_running().await.is_empty());
+        drop(guard);
+
+        // Guard drop (kể cả error path nhờ RAII) → spawn lại bình thường;
+        // begin khi còn phiên chạy phải fail.
+        assert!(pm.spawn("m", prog, args, 51).await.is_ok());
+        assert!(pm.begin_maintenance().await.is_err());
+        let _ = pm.stop("m").await;
+        assert!(pm.begin_maintenance().await.is_ok());
     }
 
     /// Cap theo RAM luôn nằm trong [1, 64] (RAM đọc được) hoặc = fallback.

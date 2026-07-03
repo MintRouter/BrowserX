@@ -303,7 +303,7 @@ export function ProxiesView(props: ProxiesViewProps) {
                       </td>
                       <td className="px-3 py-2 text-fg-muted">{t("proxy.typeCustom")}</td>
                       <td className="max-w-0 truncate px-3 py-2 text-fg-muted">
-                        {p.username ? `${p.username}@` : ""}
+                        {p.masked_username ? `${p.masked_username}@` : ""}
                         {p.host}:{p.port}
                       </td>
                       <td className="px-3 py-2 text-fg-muted">{PROTOCOL_LABELS[p.protocol]}</td>
@@ -401,21 +401,26 @@ function ProxyDialog({ proxy, onClose, onCreate, onUpdate }: ProxyDialogProps) {
   );
   const [host, setHost] = useState(proxy?.host ?? "");
   const [port, setPort] = useState(proxy?.port ?? 8080);
-  const [username, setUsername] = useState(proxy?.username ?? "");
+  // (W5c) Plaintext credentials never cross IPC — the form starts blank and
+  // blank means "keep the stored value" (same semantics as the password field).
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [clearCreds, setClearCreds] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [checkResult, setCheckResult] = useState<ProxyCheckResult | null>(null);
 
+  const hasStoredCreds = Boolean(proxy && (proxy.masked_username || proxy.has_password));
+
   const handleCheck = async () => {
     setChecking(true);
     setCheckResult(null);
     try {
-      // Editing with an untouched password → check the stored proxy (keeps
+      // Editing with untouched credentials → check the stored proxy (keeps
       // encrypted credentials server-side); otherwise check the draft inline.
       const input =
-        proxy && !password
+        proxy && !password && !username.trim()
           ? { proxy_id: proxy.id }
           : {
               protocol,
@@ -445,16 +450,15 @@ function ProxyDialog({ proxy, onClose, onCreate, onUpdate }: ProxyDialogProps) {
     setError(null);
     try {
       if (proxy) {
-        // Blank password = keep the stored one; typing a password re-encrypts
+        // Blank fields = keep the stored credentials; typed values re-encrypt
         // (covers the W23b re-enter-credentials flow for invalid proxies).
         const patch: ProxyPatch = { name: name.trim(), protocol, host: host.trim(), port };
-        const nextUsername = username.trim() || null;
-        if (password) {
-          patch.username = nextUsername;
-          patch.password = password;
-        } else if (nextUsername !== proxy.username) {
-          patch.username = nextUsername;
-          if (!nextUsername) patch.clear_credentials = true;
+        if (clearCreds) {
+          patch.clear_credentials = true;
+        } else {
+          const nextUsername = username.trim();
+          if (nextUsername) patch.username = nextUsername;
+          if (password) patch.password = password;
         }
         await onUpdate(proxy.id, patch);
       } else {
@@ -557,8 +561,13 @@ function ProxyDialog({ proxy, onClose, onCreate, onUpdate }: ProxyDialogProps) {
               className="input"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
+              placeholder={proxy?.masked_username ?? undefined}
+              disabled={clearCreds}
               autoComplete="off"
             />
+            {proxy?.masked_username && !proxy.credentials_invalid && (
+              <p className="mt-1 text-xs text-fg-muted">{t("proxy.usernameKeep")}</p>
+            )}
           </div>
           <div>
             <label className="label" htmlFor="px-pass">
@@ -571,12 +580,24 @@ function ProxyDialog({ proxy, onClose, onCreate, onUpdate }: ProxyDialogProps) {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder={proxy?.has_password ? "•••" : undefined}
+              disabled={clearCreds}
               autoComplete="new-password"
             />
             {proxy?.has_password && !proxy.credentials_invalid && (
               <p className="mt-1 text-xs text-fg-muted">{t("proxy.passwordKeep")}</p>
             )}
           </div>
+          {hasStoredCreds && (
+            <label className="col-span-2 flex items-center gap-2 text-xs text-fg-muted">
+              <input
+                type="checkbox"
+                checked={clearCreds}
+                onChange={(e) => setClearCreds(e.target.checked)}
+                className="h-4 w-4 rounded border-border accent-accent"
+              />
+              {t("proxy.clearCredentials")}
+            </label>
+          )}
         </div>
 
         <div className="mt-3 flex items-center gap-2">

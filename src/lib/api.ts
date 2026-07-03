@@ -150,7 +150,8 @@ export interface Proxy {
   protocol: "http" | "https" | "socks5";
   host: string;
   port: number;
-  username: string | null;
+  /** (W5c) Username never crosses IPC in plaintext — masked (first char + "***"). */
+  masked_username: string | null;
   /** Password never crosses IPC in plaintext — backend only reports presence. */
   has_password: boolean;
   /** (W23b) Credentials can't be decrypted (master key changed) — re-enter password. */

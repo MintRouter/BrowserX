@@ -100,14 +100,16 @@ pub(crate) fn emit_exit_requested(app: &AppHandle, count: usize) {
 // ---------------------------------------------------------------------------
 
 /// ProxyRecord (credential mã hoá) → models::Proxy trả về FE.
-/// Password KHÔNG giải mã — chỉ trả `has_password`; giải mã duy nhất lúc launch
-/// (`proxy_url_from`). Decrypt fail (master key đổi) KHÔNG trả Err — degrade:
-/// `credentials_invalid = true`, username rỗng, để `list_proxies` không bao giờ
-/// sập vì 1 credential hỏng; FE hiện banner yêu cầu nhập lại password.
+/// (W5c) KHÔNG credential plaintext nào qua IPC: password chỉ trả `has_password`,
+/// username chỉ trả bản đã che (`mask_username`); giải mã plaintext duy nhất lúc
+/// launch (`proxy_url_from`) / check (`check_proxy`). Decrypt fail (master key
+/// đổi) KHÔNG trả Err — degrade: `credentials_invalid = true`, username rỗng,
+/// để `list_proxies` không bao giờ sập vì 1 credential hỏng; FE hiện banner
+/// yêu cầu nhập lại password.
 fn proxy_to_model(rec: db::ProxyRecord) -> Proxy {
     let mut credentials_invalid = false;
-    let username = match rec.username_enc.as_deref().map(crypto::decrypt_secret) {
-        Some(Ok(u)) => Some(u),
+    let masked_username = match rec.username_enc.as_deref().map(crypto::decrypt_secret) {
+        Some(Ok(u)) => Some(mask_username(&u)),
         Some(Err(_)) => {
             credentials_invalid = true;
             None
@@ -131,11 +133,20 @@ fn proxy_to_model(rec: db::ProxyRecord) -> Proxy {
         protocol: rec.protocol,
         host: rec.host,
         port: rec.port,
-        username,
+        masked_username,
         has_password: rec.password_enc.is_some(),
         credentials_invalid,
         created_at: rec.created_at,
         updated_at: rec.updated_at,
+    }
+}
+
+/// (W5c) Che username trước khi trả qua IPC: ký tự đầu + "***" (không lộ độ
+/// dài) — đủ để user nhận diện proxy trong danh sách, không đủ để rò plaintext.
+fn mask_username(username: &str) -> String {
+    match username.chars().next() {
+        Some(c) => format!("{c}***"),
+        None => "***".into(),
     }
 }
 
@@ -1268,6 +1279,10 @@ pub async fn create_backup(
             "stop all running profiles before creating a backup".into(),
         ));
     }
+    // (W25b) Đóng race TOCTOU sau check trên: từ đây đến hết lệnh, launch bị
+    // chặn (spawn check cờ dưới cùng lock) — browser không thể ghi vào dữ
+    // liệu đang được nén. Guard tự clear khi hàm return (kể cả error path).
+    let _maintenance = state.procs.begin_maintenance().await?;
     state.db.wal_checkpoint_truncate()?;
     let data_dir = state.db.data_dir().to_path_buf();
 
@@ -1326,6 +1341,9 @@ pub async fn restore_backup(
             "stop all running profiles before restoring a backup".into(),
         ));
     }
+    // (W25b) Đóng race TOCTOU sau check trên: chặn launch trong suốt quá
+    // trình restore đụng filesystem. Guard tự clear khi hàm return.
+    let _maintenance = state.procs.begin_maintenance().await?;
     // Checkpoint để bản dữ liệu cũ (giữ lại làm pre-restore) cũng nhất quán.
     state.db.wal_checkpoint_truncate()?;
     let data_dir = state.db.data_dir().to_path_buf();
@@ -1410,7 +1428,7 @@ mod tests {
             Some(undecryptable_blob("pass")),
         ));
         assert!(p.credentials_invalid);
-        assert_eq!(p.username, None);
+        assert_eq!(p.masked_username, None);
         assert!(p.has_password);
     }
 
@@ -1422,7 +1440,7 @@ mod tests {
             Some(undecryptable_blob("pass")),
         ));
         assert!(p.credentials_invalid);
-        assert_eq!(p.username.as_deref(), Some("user"));
+        assert_eq!(p.masked_username.as_deref(), Some("u***"));
     }
 
     #[test]
@@ -1433,8 +1451,31 @@ mod tests {
             Some(crypto::encrypt_secret("pass").unwrap()),
         ));
         assert!(!p.credentials_invalid);
-        assert_eq!(p.username.as_deref(), Some("user"));
+        assert_eq!(p.masked_username.as_deref(), Some("u***"));
         assert!(p.has_password);
+    }
+
+    /// (W5c) Username KHÔNG bao giờ qua IPC ở dạng plaintext — chỉ bản đã che
+    /// (ký tự đầu + "***", không lộ độ dài).
+    #[test]
+    fn proxy_to_model_never_returns_plaintext_username() {
+        crypto::install_test_master_key();
+        let p = proxy_to_model(proxy_record(
+            Some(crypto::encrypt_secret("alice-secret-user").unwrap()),
+            None,
+        ));
+        let masked = p.masked_username.as_deref().unwrap();
+        assert_eq!(masked, "a***");
+        assert!(!masked.contains("alice"));
+        assert!(!p.has_password);
+    }
+
+    #[test]
+    fn mask_username_hides_all_but_first_char() {
+        assert_eq!(mask_username("alice"), "a***");
+        assert_eq!(mask_username("x"), "x***");
+        assert_eq!(mask_username("ơi-unicode"), "ơ***");
+        assert_eq!(mask_username(""), "***");
     }
 
     /// (W23b) launch với proxy hỏng → lỗi rõ ràng yêu cầu nhập lại password.

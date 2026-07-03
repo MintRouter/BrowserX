@@ -56,16 +56,16 @@ fn temp_dir(tag: &str) -> PathBuf {
     d
 }
 
-/// Định vị binary (cache có sẵn); timeout 120s. None → SKIP.
+/// Định vị binary (cache có sẵn); timeout 120s. None → SKIPPED (không phải PASSED).
 async fn ensure_bin() -> Option<PathBuf> {
     match tokio::time::timeout(Duration::from_secs(120), binary::ensure_binary(None, None)).await {
         Ok(Ok(p)) => Some(p),
         Ok(Err(e)) => {
-            println!("[soak] SKIP — giới hạn môi trường: chưa có binary ({e})");
+            eprintln!("[soak] SKIPPED: no binary cache — chưa có binary ({e})");
             None
         }
         Err(_) => {
-            println!("[soak] SKIP — giới hạn môi trường: ensure_binary timeout 120s");
+            eprintln!("[soak] SKIPPED: no binary cache — ensure_binary timeout 120s");
             None
         }
     }
@@ -125,7 +125,11 @@ async fn soak_ten_concurrent_sessions() {
 
     let bin = match ensure_bin().await {
         Some(p) => p.to_string_lossy().into_owned(),
-        None => return,
+        None => {
+            // Skip thật: test KHÔNG chạy — đừng đọc "ok" của libtest là bằng chứng PASSED.
+            eprintln!("[soak] TEST SKIPPED (not passed): thiếu binary cache, không đo gì cả");
+            return;
+        }
     };
 
     let pm = ProcessManager::new(n);
