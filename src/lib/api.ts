@@ -222,6 +222,26 @@ export interface BinaryProgressEvent {
   totalBytes: number;
 }
 
+/** (W25a) Payload of `backup://progress` during create/restore backup. */
+export interface BackupProgressEvent {
+  /** create: compress | encrypt | write | done — restore: decrypt | unpack | swap | done */
+  phase: string;
+  pct: number;
+}
+
+/** (W25a) Result of create_backup. */
+export interface BackupResult {
+  /** Full path of the written .browserx-backup file. */
+  path: string;
+  bytes: number;
+}
+
+/** (W25a) Result of restore_backup — the app must be restarted afterwards. */
+export interface RestoreResult {
+  /** Where the previous data dir was kept (null when none existed). */
+  previousDataDir: string | null;
+}
+
 export interface ProfileStorageSize {
   profile_id: string;
   bytes: number;
@@ -365,6 +385,15 @@ export const api = {
 
   // Logs (W21b) — open ~/.browserx/logs in the OS file manager
   openLogsFolder: () => invoke<void>("open_logs_folder"),
+
+  // Backup/Restore (W25a) — AES-256-GCM + Argon2id over the whole ~/.browserx.
+  // Both refuse while sessions are running; progress on `backup://progress`.
+  createBackup: (passphrase: string, destDir?: string | null) =>
+    invoke<BackupResult>("create_backup", { passphrase, destDir: destDir ?? null }),
+  restoreBackup: (backupPath: string, passphrase: string) =>
+    invoke<RestoreResult>("restore_backup", { backupPath, passphrase }),
+  /** Restart the app — required after restoreBackup to load the new data dir. */
+  restartApp: () => invoke<void>("restart_app"),
 };
 
 // --- Events ---
@@ -379,6 +408,15 @@ export function onBinaryProgress(
   cb: (e: BinaryProgressEvent) => void,
 ): Promise<UnlistenFn> {
   return listen<BinaryProgressEvent>("binary://progress", (ev) =>
+    cb(ev.payload),
+  );
+}
+
+/** (W25a) Progress of create/restore backup. */
+export function onBackupProgress(
+  cb: (e: BackupProgressEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<BackupProgressEvent>("backup://progress", (ev) =>
     cb(ev.payload),
   );
 }

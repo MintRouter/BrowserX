@@ -43,6 +43,8 @@ interface ProfilesToolbarProps {
   onAddTags: (tags: string[]) => void;
   onMoveToFolder: (folderId: string | null) => void;
   onCloneSelected: () => void;
+  /** (W25a) Bulk export the selected profiles to .bxprofile files. */
+  onExportSelected: () => void;
   /** (W24a) Bulk cookie export for the selected profiles. */
   onExportCookiesSelected: () => void;
   onClearCacheSelected: () => void;
@@ -286,7 +288,12 @@ export function ProfilesToolbar(props: ProfilesToolbarProps) {
           <ToolButton label={t("toolbar.import")} title={t("toolbar.comingSoon")} disabled>
             <Upload className="h-4 w-4" aria-hidden="true" />
           </ToolButton>
-          <ToolButton label={t("toolbar.export")} title={t("toolbar.comingSoon")} disabled>
+          {/* (W25a) Bulk export selection → one .bxprofile file per profile */}
+          <ToolButton
+            label={t("toolbar.export")}
+            disabled={none}
+            onClick={props.onExportSelected}
+          >
             <Download className="h-4 w-4" aria-hidden="true" />
           </ToolButton>
 

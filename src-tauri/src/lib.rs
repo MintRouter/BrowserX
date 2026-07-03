@@ -13,6 +13,7 @@
 //! - `commands` — Tauri commands (invoke handlers) (Wave 3a)
 //! - `storage`  — đo dung lượng + dọn cache profile (W16)
 
+pub mod backup;
 pub mod binary;
 pub mod cdp;
 pub mod commands;
@@ -128,6 +129,9 @@ pub fn run() {
             commands::import_cookies,
             commands::open_logs_folder,
             commands::stop_all_and_quit,
+            commands::create_backup,
+            commands::restore_backup,
+            commands::restart_app,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

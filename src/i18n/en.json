@@ -439,6 +439,42 @@
     "logsHint": "Log files are stored locally in ~/.browserx/logs and never leave your machine.",
     "openLogsFolder": "Open logs folder"
   },
+  "backup": {
+    "sectionTitle": "Backup & restore",
+    "createLabel": "Encrypted backup",
+    "createHint": "Save all profiles, cookies and settings (~/.browserx) into one passphrase-encrypted file.",
+    "createButton": "Create backup",
+    "restoreLabel": "Restore from backup",
+    "restoreHint": "Replace the current data with a backup file. The app restarts when done.",
+    "restoreButton": "Restore",
+    "createTitle": "Create encrypted backup",
+    "createWarning": "The backup is encrypted with your passphrase (Argon2id + AES-256-GCM). Without the passphrase the file cannot be opened — there is no recovery. All profiles must be stopped.",
+    "restoreTitle": "Restore from backup",
+    "restoreWarning": "Your current data will be replaced (a copy is kept next to it as a fallback). All profiles must be stopped, and the app restarts when done.",
+    "filePath": "Backup file path",
+    "filePathPlaceholder": "/Users/you/Downloads/browserx-….browserx-backup",
+    "filePathHint": "Full path to the .browserx-backup file.",
+    "passphrase": "Passphrase",
+    "passphrasePlaceholder": "Enter passphrase…",
+    "confirmPassphrase": "Confirm passphrase",
+    "passphraseMismatch": "Passphrases do not match",
+    "phase": {
+      "start": "Starting…",
+      "compress": "Compressing",
+      "encrypt": "Encrypting",
+      "write": "Writing file",
+      "decrypt": "Decrypting",
+      "unpack": "Unpacking",
+      "swap": "Swapping data",
+      "done": "Done"
+    },
+    "createDone": "Backup created:",
+    "restoreDone": "Restore complete — restart the app to load the restored data.",
+    "restoredKept": "Previous data kept at {{path}}",
+    "restartNow": "Restart now",
+    "cancel": "Cancel",
+    "close": "Close"
+  },
   "engine": {
     "downloading": "Setting up browser engine",
     "phase": {
@@ -469,7 +505,8 @@
     "exportSuccess": "Exported \"{{name}}\" — proxy password is not included",
     "exportFailed": "Export failed: {{error}}",
     "importSuccess": "Imported \"{{name}}\"",
-    "importFailed": "Import failed: {{error}}"
+    "importFailed": "Import failed: {{error}}",
+    "bulkExported": "Exported {{ok}}/{{total}} profiles — proxy passwords are not included"
   },
   "listUtils": {
     "rename": "Rename",

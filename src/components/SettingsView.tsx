@@ -4,6 +4,7 @@ import { SUPPORTED_LOCALES, setLocale } from "../i18n";
 import { AUTO_CLEAR_CACHE_SETTING, api, isTauri } from "../lib/api";
 import { useTheme } from "../lib/theme";
 import { Toggle } from "./profile-form/controls";
+import { BackupDialog } from "./settings/BackupDialog";
 import { ThemeCards } from "./settings/ThemeCards";
 
 /** Fallback persistence when running outside Tauri (plain browser dev). */
@@ -53,6 +54,10 @@ export function SettingsView() {
   const { mode, setMode } = useTheme();
   const [autoClear, setAutoClear] = useState(false);
   const [saveError, setSaveError] = useState(false);
+  // (W25a) Encrypted backup/restore dialog of the whole ~/.browserx.
+  const [backupDialog, setBackupDialog] = useState<"create" | "restore" | null>(
+    null,
+  );
 
   useEffect(() => {
     if (isTauri()) {
@@ -149,6 +154,35 @@ export function SettingsView() {
             </SettingRow>
           </Section>
 
+          <Section title={t("backup.sectionTitle")}>
+            <SettingRow
+              label={t("backup.createLabel")}
+              hint={t("backup.createHint")}
+            >
+              <button
+                type="button"
+                disabled={!isTauri()}
+                onClick={() => setBackupDialog("create")}
+                className="btn-secondary h-9 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t("backup.createButton")}
+              </button>
+            </SettingRow>
+            <SettingRow
+              label={t("backup.restoreLabel")}
+              hint={t("backup.restoreHint")}
+            >
+              <button
+                type="button"
+                disabled={!isTauri()}
+                onClick={() => setBackupDialog("restore")}
+                className="btn-secondary h-9 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t("backup.restoreButton")}
+              </button>
+            </SettingRow>
+          </Section>
+
           <Section title={t("settings.support")}>
             <SettingRow label={t("settings.logs")} hint={t("settings.logsHint")}>
               <button
@@ -171,6 +205,13 @@ export function SettingsView() {
           )}
         </div>
       </div>
+
+      {backupDialog && (
+        <BackupDialog
+          mode={backupDialog}
+          onClose={() => setBackupDialog(null)}
+        />
+      )}
     </div>
   );
 }

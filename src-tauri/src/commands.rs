@@ -1215,6 +1215,150 @@ pub fn open_logs_folder() -> Result<()> {
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Backup / Restore mã hoá ~/.browserx (W25a) — xem module `backup`.
+// ---------------------------------------------------------------------------
+
+/// Payload event `backup://progress` (camelCase cho FE).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackupProgressEvent {
+    phase: String,
+    pct: u8,
+}
+
+fn emit_backup_progress(app: &AppHandle, phase: &str, pct: u8) {
+    let _ = app.emit(
+        "backup://progress",
+        BackupProgressEvent {
+            phase: phase.to_string(),
+            pct,
+        },
+    );
+}
+
+/// Thư mục đích mặc định cho file backup: ~/Downloads → home → ".".
+fn default_backup_dir() -> PathBuf {
+    dirs::download_dir()
+        .or_else(dirs::home_dir)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Kết quả `create_backup` (camelCase cho FE).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupResult {
+    pub path: String,
+    pub bytes: u64,
+}
+
+/// Nén + mã hoá toàn bộ `~/.browserx` → file `.browserx-backup` trong
+/// `dest_dir` (mặc định ~/Downloads). REFUSE khi còn phiên chạy (user data dir
+/// đang bị Chromium ghi → snapshot hỏng). WAL checkpoint TRƯỚC khi nén (W23a)
+/// để DB nhất quán trong file chính. Progress emit `backup://progress`.
+#[tauri::command]
+pub async fn create_backup(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    passphrase: String,
+    dest_dir: Option<String>,
+) -> Result<BackupResult> {
+    if !state.procs.list_running().await.is_empty() {
+        return Err(AppError::InvalidInput(
+            "stop all running profiles before creating a backup".into(),
+        ));
+    }
+    state.db.wal_checkpoint_truncate()?;
+    let data_dir = state.db.data_dir().to_path_buf();
+
+    let dir = dest_dir
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(default_backup_dir);
+    std::fs::create_dir_all(&dir)?;
+    let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    let dest = dir.join(format!("browserx-{ts}.browserx-backup"));
+
+    let app2 = app.clone();
+    let dest2 = dest.clone();
+    let bytes = tokio::task::spawn_blocking(move || {
+        let cb = |phase: &str, pct: u8| emit_backup_progress(&app2, phase, pct);
+        crate::backup::create_backup(&data_dir, &dest2, &passphrase, Some(&cb))
+    })
+    .await
+    .map_err(|e| AppError::Other(anyhow::anyhow!("backup task panic: {e}")))??;
+
+    state.db.insert_audit(
+        "backup.create",
+        None,
+        Some(&json!({ "path": dest.to_string_lossy(), "bytes": bytes })),
+    )?;
+    Ok(BackupResult {
+        path: dest.to_string_lossy().into_owned(),
+        bytes,
+    })
+}
+
+/// Kết quả `restore_backup` (camelCase cho FE). Sau khi restore PHẢI restart
+/// app (`restart_app`) — DB connection đang mở vẫn trỏ file cũ đã đổi tên.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreResult {
+    /// Dữ liệu cũ được giữ tại đây (`<data_dir>.pre-restore-<ts>`), None nếu
+    /// trước đó chưa có data dir.
+    pub previous_data_dir: Option<String>,
+}
+
+/// Giải mã + khôi phục file backup vào `~/.browserx`. REFUSE khi còn phiên
+/// chạy. Passphrase sai → fail sớm, dữ liệu hiện tại KHÔNG bị đụng tới
+/// (xem `backup::restore_backup`). Progress emit `backup://progress`.
+#[tauri::command]
+pub async fn restore_backup(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    backup_path: String,
+    passphrase: String,
+) -> Result<RestoreResult> {
+    if !state.procs.list_running().await.is_empty() {
+        return Err(AppError::InvalidInput(
+            "stop all running profiles before restoring a backup".into(),
+        ));
+    }
+    // Checkpoint để bản dữ liệu cũ (giữ lại làm pre-restore) cũng nhất quán.
+    state.db.wal_checkpoint_truncate()?;
+    let data_dir = state.db.data_dir().to_path_buf();
+
+    let app2 = app.clone();
+    let outcome = tokio::task::spawn_blocking(move || {
+        let cb = |phase: &str, pct: u8| emit_backup_progress(&app2, phase, pct);
+        crate::backup::restore_backup(Path::new(&backup_path), &data_dir, &passphrase, Some(&cb))
+    })
+    .await
+    .map_err(|e| AppError::Other(anyhow::anyhow!("restore task panic: {e}")))??;
+
+    // KHÔNG insert_audit: connection đang mở trỏ vào DB cũ (đã đổi tên) —
+    // ghi audit vào đó là vô nghĩa. Log local là đủ.
+    tracing::info!(
+        "restore_backup: restored; previous data kept at {:?}",
+        outcome.previous_data_dir
+    );
+    Ok(RestoreResult {
+        previous_data_dir: outcome
+            .previous_data_dir
+            .map(|p| p.to_string_lossy().into_owned()),
+    })
+}
+
+/// (W25a) Restart app sau khi restore — nạp DB/data dir mới. Cờ `quitting`
+/// để ExitRequested (lib.rs) không chặn lần thoát này.
+#[tauri::command]
+pub fn restart_app(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
+    state.quitting.store(true, Ordering::SeqCst);
+    app.restart()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

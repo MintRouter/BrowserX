@@ -14,7 +14,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+aes-gcm = "0.10"
 anyhow = "1.0.103"
+argon2 = "0.5"
 base64 = "0.22.1"
 chacha20poly1305 = "0.11.0"
 chromiumoxide = "0.9.1"

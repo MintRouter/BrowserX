@@ -435,6 +435,42 @@
     "logsHint": "File log lưu cục bộ tại ~/.browserx/logs và không bao giờ rời khỏi máy của bạn.",
     "openLogsFolder": "Mở thư mục log"
   },
+  "backup": {
+    "sectionTitle": "Sao lưu & khôi phục",
+    "createLabel": "Sao lưu mã hoá",
+    "createHint": "Lưu toàn bộ profile, cookie và cài đặt (~/.browserx) vào một file mã hoá bằng passphrase.",
+    "createButton": "Tạo bản sao lưu",
+    "restoreLabel": "Khôi phục từ bản sao lưu",
+    "restoreHint": "Thay thế dữ liệu hiện tại bằng file sao lưu. Ứng dụng sẽ khởi động lại khi xong.",
+    "restoreButton": "Khôi phục",
+    "createTitle": "Tạo bản sao lưu mã hoá",
+    "createWarning": "Bản sao lưu được mã hoá bằng passphrase của bạn (Argon2id + AES-256-GCM). Mất passphrase là KHÔNG thể mở file — không có cách khôi phục. Mọi profile phải được dừng trước.",
+    "restoreTitle": "Khôi phục từ bản sao lưu",
+    "restoreWarning": "Dữ liệu hiện tại sẽ bị thay thế (một bản sao được giữ bên cạnh để phòng hờ). Mọi profile phải được dừng, và ứng dụng sẽ khởi động lại khi xong.",
+    "filePath": "Đường dẫn file sao lưu",
+    "filePathPlaceholder": "/Users/you/Downloads/browserx-….browserx-backup",
+    "filePathHint": "Đường dẫn đầy đủ tới file .browserx-backup.",
+    "passphrase": "Passphrase",
+    "passphrasePlaceholder": "Nhập passphrase…",
+    "confirmPassphrase": "Nhập lại passphrase",
+    "passphraseMismatch": "Passphrase không khớp",
+    "phase": {
+      "start": "Đang bắt đầu…",
+      "compress": "Đang nén",
+      "encrypt": "Đang mã hoá",
+      "write": "Đang ghi file",
+      "decrypt": "Đang giải mã",
+      "unpack": "Đang giải nén",
+      "swap": "Đang tráo dữ liệu",
+      "done": "Hoàn tất"
+    },
+    "createDone": "Đã tạo bản sao lưu:",
+    "restoreDone": "Khôi phục xong — khởi động lại ứng dụng để nạp dữ liệu mới.",
+    "restoredKept": "Dữ liệu cũ được giữ tại {{path}}",
+    "restartNow": "Khởi động lại ngay",
+    "cancel": "Huỷ",
+    "close": "Đóng"
+  },
   "engine": {
     "downloading": "Đang chuẩn bị engine trình duyệt",
     "phase": {
@@ -465,7 +501,8 @@
     "exportSuccess": "Đã xuất \"{{name}}\" — không kèm mật khẩu proxy",
     "exportFailed": "Xuất profile thất bại: {{error}}",
     "importSuccess": "Đã nhập \"{{name}}\"",
-    "importFailed": "Nhập profile thất bại: {{error}}"
+    "importFailed": "Nhập profile thất bại: {{error}}",
+    "bulkExported": "Đã xuất {{ok}}/{{total}} profile — không kèm mật khẩu proxy"
   },
   "listUtils": {
     "rename": "Đổi tên",

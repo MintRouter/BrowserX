@@ -161,22 +161,50 @@ export function ProfileList(props: ProfileListProps) {
   };
 
   // Export/import .bxprofile (W19a). Proxy password is never in the file.
+  const downloadBxprofile = (p: Profile, json: string) => {
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${p.name.replace(/[\\/:*?"<>|]+/g, "_")}.bxprofile`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   const handleExport = async (p: Profile) => {
     try {
       const json = await api.exportProfile(p.id);
-      const blob = new Blob([json], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${p.name.replace(/[\\/:*?"<>|]+/g, "_")}.bxprofile`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      downloadBxprofile(p, json);
       setToast(t("exchange.exportSuccess", { name: p.name }));
     } catch (err) {
       setToast(t("exchange.exportFailed", { error: String(err) }));
     }
+  };
+
+  // (W25a) Bulk export the selection — one .bxprofile download per profile,
+  // reusing the W19a export command (extensions V8 + cookie behavior included).
+  const handleExportSelected = async () => {
+    const targets = profiles.filter((p) => selected.has(p.id));
+    const first = targets[0];
+    if (!first) return;
+    if (targets.length === 1) return handleExport(first);
+    let ok = 0;
+    let lastError = "";
+    for (const p of targets) {
+      try {
+        downloadBxprofile(p, await api.exportProfile(p.id));
+        ok++;
+      } catch (err) {
+        lastError = String(err);
+      }
+    }
+    setToast(
+      ok === 0
+        ? t("exchange.exportFailed", { error: lastError })
+        : t("exchange.bulkExported", { ok, total: targets.length }),
+    );
   };
 
   const handleImport = async (file: File) => {
@@ -331,6 +359,7 @@ export function ProfileList(props: ProfileListProps) {
           onAddTags={(tags) => void props.onAddTags(selectedIds, tags)}
           onMoveToFolder={(folderId) => void props.onMove(selectedIds, folderId)}
           onCloneSelected={() => singleSelected && void props.onClone(singleSelected)}
+          onExportSelected={() => void handleExportSelected()}
           onExportCookiesSelected={handleExportCookiesSelected}
           onClearCacheSelected={() => void handleClearCache(selectedIds)}
           onTrashSelected={() => void props.onTrash(selectedIds)}
