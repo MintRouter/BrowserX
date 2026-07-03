@@ -72,6 +72,9 @@ pub struct ExportedProfile {
     pub startup_behavior: String,
     #[serde(default)]
     pub startup_urls: Vec<String>,
+    /// (W24b) Đường dẫn unpacked extension local — file cũ không có field → rỗng.
+    #[serde(default)]
+    pub extensions: Vec<String>,
     #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
@@ -163,6 +166,7 @@ pub fn export_profile_json(db: &Db, id: &str) -> Result<String> {
             notes: profile.notes,
             startup_behavior: profile.startup_behavior,
             startup_urls: json_strings(&profile.startup_urls),
+            extensions: json_strings(&profile.extensions),
             tags: profile.tags,
             folder_name,
             store_history: profile.store_history,
@@ -259,6 +263,7 @@ pub fn import_profile_json(db: &Db, json: &str) -> Result<Profile> {
         notes: p.notes,
         startup_behavior: Some(p.startup_behavior),
         startup_urls: Some(json!(p.startup_urls)),
+        extensions: Some(json!(p.extensions)),
         proxy_id,
         tags: Some(p.tags),
         is_quick: None,
@@ -314,6 +319,7 @@ mod tests {
             notes: Some("ghi chú".into()),
             startup_behavior: Some("custom".into()),
             startup_urls: Some(json!(["https://example.com"])),
+            extensions: Some(json!(["/data/ext/ublock"])),
             tags: Some(vec!["shop".into(), "vn".into()]),
             ..Default::default()
         }
@@ -346,6 +352,7 @@ mod tests {
         assert_eq!(imported.notes, src.notes);
         assert_eq!(imported.startup_behavior, src.startup_behavior);
         assert_eq!(imported.startup_urls, src.startup_urls);
+        assert_eq!(imported.extensions, src.extensions);
         assert_eq!(imported.tags, src.tags);
     }
 

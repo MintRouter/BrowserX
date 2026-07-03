@@ -227,3 +227,45 @@ trực tiếp, **KHÔNG** dùng VNC/noVNC của Manager tham chiếu — xem piv
 (chỉ desktop — `config.py#L91-L98`) và engine Firefox/Stealthfox (chỉ Chromium —
 `config.py#L18-L26`). Do **KHOÁ CỨNG CloakBrowser**, các mục này phụ thuộc roadmap của
 CloakHQ, BrowserX không tự vá được (binary đóng — xem docs/04).
+
+---
+
+## 10. Automation với BrowserX — Copy CDP URL (W24c)
+
+Mỗi profile **đang chạy** expose một endpoint CDP local. Trong bảng Profiles, mở menu
+⋮ của profile đang chạy → **Copy CDP URL** để copy `webSocketDebuggerUrl` dạng
+`ws://127.0.0.1:{port}/devtools/browser/{id}` vào clipboard (backend lấy port từ
+process manager rồi đọc `GET /json/version` — command `get_cdp_ws_url`,
+`src-tauri/src/commands.rs`; helper `cdp::ws_url`, `src-tauri/src/cdp.rs`).
+
+Dán URL vào script automation:
+
+**Playwright** (`connectOverCDP` nhận cả URL `ws://` lẫn `http://127.0.0.1:{port}`):
+
+```ts
+import { chromium } from "playwright";
+
+const browser = await chromium.connectOverCDP(
+  "ws://127.0.0.1:PORT/devtools/browser/XXXX", // Copy CDP URL
+);
+const page = browser.contexts()[0].pages()[0];
+await page.goto("https://example.com");
+await browser.close(); // chỉ ngắt kết nối, KHÔNG đóng browser
+```
+
+**Puppeteer** (`puppeteer.connect` với `browserWSEndpoint`):
+
+```ts
+import puppeteer from "puppeteer-core";
+
+const browser = await puppeteer.connect({
+  browserWSEndpoint: "ws://127.0.0.1:PORT/devtools/browser/XXXX", // Copy CDP URL
+});
+const [page] = await browser.pages();
+await page.goto("https://example.com");
+await browser.disconnect();
+```
+
+Lưu ý: endpoint chỉ bind `127.0.0.1` (localhost) và **đổi port mỗi lần launch**
+(port cấp động — `ProcessManager::allocate_cdp_port`, `src-tauri/src/process.rs`),
+nên copy lại URL sau mỗi lần khởi chạy profile.

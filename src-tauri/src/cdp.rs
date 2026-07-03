@@ -4,6 +4,8 @@
 //!   `webSocketDebuggerUrl`, trả `http://127.0.0.1:<port>`.
 //! - `goto(port, url)` — connect ws, navigate tab đầu tiên (tạo tab nếu chưa có).
 //! - `eval(port, js)`  — connect ws, `Runtime.evaluate` trên tab đầu tiên, trả JSON.
+//! - (W24a) `get_all_cookies`/`set_cookies` — Storage.getCookies/setCookies ở
+//!   browser-level; `close_browser` — Browser.close (shutdown mềm, flush profile).
 //!
 //! Connect qua `Browser::connect(ws_url)`: browser KHÔNG do chromiumoxide spawn
 //! (`child = None`) nên drop `Browser` chỉ ngắt kết nối, không kill tiến trình.
@@ -11,9 +13,13 @@
 
 use std::time::Duration;
 
+use chromiumoxide::cdp::browser_protocol::browser::CloseParams;
+use chromiumoxide::cdp::browser_protocol::network::{CookieParam, CookieSameSite, TimeSinceEpoch};
+use chromiumoxide::cdp::browser_protocol::storage::{GetCookiesParams, SetCookiesParams};
 use chromiumoxide::{Browser, Page};
 use futures::StreamExt;
 
+use crate::cookies::CookieItem;
 use crate::error::{AppError, Result};
 
 const ATTACH_RETRIES: u32 = 40;
@@ -63,6 +69,16 @@ pub async fn attach(port: u16) -> Result<String> {
     )))
 }
 
+/// (W24c) Lấy `webSocketDebuggerUrl` (`ws://127.0.0.1:<port>/devtools/browser/…`)
+/// từ `/json/version` của phiên trên `port` — dùng cho "Copy CDP URL" và connect ws.
+pub async fn ws_url(port: u16) -> Result<String> {
+    let url = format!("http://127.0.0.1:{port}/json/version");
+    let body: serde_json::Value = http_client()?.get(&url).send().await?.json().await?;
+    parse_ws_url(&body)
+        .map(str::to_string)
+        .ok_or_else(|| AppError::Cdp(format!("thiếu webSocketDebuggerUrl tại {url}")))
+}
+
 /// Phiên CDP đã connect: giữ `Browser` + task poll handler-loop.
 struct CdpSession {
     browser: Browser,
@@ -71,11 +87,7 @@ struct CdpSession {
 
 impl CdpSession {
     async fn connect(port: u16) -> Result<Self> {
-        let url = format!("http://127.0.0.1:{port}/json/version");
-        let body: serde_json::Value = http_client()?.get(&url).send().await?.json().await?;
-        let ws = parse_ws_url(&body)
-            .ok_or_else(|| AppError::Cdp(format!("thiếu webSocketDebuggerUrl tại {url}")))?
-            .to_string();
+        let ws = ws_url(port).await?;
 
         let (browser, mut handler) = Browser::connect(ws)
             .await
@@ -175,6 +187,113 @@ pub async fn bring_to_front(port: u16) -> Result<()> {
     result
 }
 
+/// Chuyển CDP Cookie → CookieItem trung lập. `expires` -1 nghĩa là session cookie.
+fn cookie_to_item(c: &chromiumoxide::cdp::browser_protocol::network::Cookie) -> CookieItem {
+    CookieItem {
+        name: c.name.clone(),
+        value: c.value.clone(),
+        domain: c.domain.clone(),
+        path: c.path.clone(),
+        expires: (c.expires > 0.0).then_some(c.expires),
+        http_only: c.http_only,
+        secure: c.secure,
+        same_site: c.same_site.as_ref().map(|s| s.as_ref().to_string()),
+    }
+}
+
+/// Chuyển CookieItem → CDP CookieParam (dùng cho Storage.setCookies).
+fn item_to_param(c: &CookieItem) -> Result<CookieParam> {
+    let mut b = CookieParam::builder()
+        .name(&c.name)
+        .value(&c.value)
+        .domain(&c.domain)
+        .path(&c.path)
+        .secure(c.secure)
+        .http_only(c.http_only);
+    if let Some(e) = c.expires {
+        b = b.expires(TimeSinceEpoch::new(e));
+    }
+    match c.same_site.as_deref() {
+        Some("Strict") => b = b.same_site(CookieSameSite::Strict),
+        Some("Lax") => b = b.same_site(CookieSameSite::Lax),
+        Some("None") => b = b.same_site(CookieSameSite::None),
+        _ => {}
+    }
+    b.build()
+        .map_err(|e| AppError::InvalidInput(format!("invalid cookie {:?}: {e}", c.name)))
+}
+
+/// (W24a) Lấy TOÀN BỘ cookie của phiên trên `port` qua `Storage.getCookies`
+/// (browser-level, gồm mọi domain — khác Network.getCookies vốn theo page).
+pub async fn get_all_cookies(port: u16) -> Result<Vec<CookieItem>> {
+    let session = CdpSession::connect(port).await?;
+    let result = tokio::time::timeout(OP_TIMEOUT, async {
+        let resp = session
+            .browser
+            .execute(GetCookiesParams::default())
+            .await
+            .map_err(|e| AppError::Cdp(format!("Storage.getCookies thất bại: {e}")))?;
+        Ok(resp.result.cookies.iter().map(cookie_to_item).collect())
+    })
+    .await
+    .unwrap_or_else(|_| {
+        Err(AppError::Cdp(format!(
+            "getCookies timeout sau {OP_TIMEOUT:?}"
+        )))
+    });
+    session.disconnect();
+    result
+}
+
+/// (W24a) Ghi danh sách cookie vào phiên trên `port` qua `Storage.setCookies`.
+/// Trả về số cookie đã gửi. Cookie trùng (domain,path,name) bị ghi đè.
+pub async fn set_cookies(port: u16, items: &[CookieItem]) -> Result<usize> {
+    let cookies: Vec<CookieParam> = items.iter().map(item_to_param).collect::<Result<_>>()?;
+    let count = cookies.len();
+    let session = CdpSession::connect(port).await?;
+    let result = tokio::time::timeout(OP_TIMEOUT, async {
+        session
+            .browser
+            .execute(SetCookiesParams {
+                cookies,
+                browser_context_id: None,
+            })
+            .await
+            .map_err(|e| AppError::Cdp(format!("Storage.setCookies thất bại: {e}")))?;
+        Ok(count)
+    })
+    .await
+    .unwrap_or_else(|_| {
+        Err(AppError::Cdp(format!(
+            "setCookies timeout sau {OP_TIMEOUT:?}"
+        )))
+    });
+    session.disconnect();
+    result
+}
+
+/// (W24a) `Browser.close` — shutdown MỀM: Chromium flush cookie/profile xuống đĩa
+/// rồi tự thoát (khác kill SIGKILL vốn có thể mất cookie chưa commit).
+pub async fn close_browser(port: u16) -> Result<()> {
+    let session = CdpSession::connect(port).await?;
+    let result = tokio::time::timeout(OP_TIMEOUT, async {
+        session
+            .browser
+            .execute(CloseParams::default())
+            .await
+            .map_err(|e| AppError::Cdp(format!("Browser.close thất bại: {e}")))?;
+        Ok(())
+    })
+    .await
+    .unwrap_or_else(|_| {
+        Err(AppError::Cdp(format!(
+            "Browser.close timeout sau {OP_TIMEOUT:?}"
+        )))
+    });
+    session.disconnect();
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -185,6 +304,13 @@ mod tests {
     #[tokio::test]
     async fn bring_to_front_fails_without_endpoint() {
         let err = bring_to_front(1).await.unwrap_err();
+        assert!(matches!(err, AppError::Cdp(_) | AppError::Http(_)));
+    }
+
+    /// (W24c) Không có endpoint CDP tại port → ws_url trả lỗi (không panic).
+    #[tokio::test]
+    async fn ws_url_fails_without_endpoint() {
+        let err = ws_url(1).await.unwrap_err();
         assert!(matches!(err, AppError::Cdp(_) | AppError::Http(_)));
     }
 

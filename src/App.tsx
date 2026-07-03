@@ -439,6 +439,7 @@ export default function App() {
         store_history: p.store_history,
         store_passwords: p.store_passwords,
         store_sw_cache: p.store_sw_cache,
+        extensions: p.extensions,
       });
       await refetch(refetchProfiles());
     } catch (err) {

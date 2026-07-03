@@ -38,6 +38,8 @@ export interface FormState {
   store_history: boolean;
   store_passwords: boolean;
   store_sw_cache: boolean;
+  /** (W24b) Local unpacked extension paths — passed as --load-extension on launch. */
+  extensions: string[];
 }
 
 /** True when `raw` parses as an http(s) URL (startup URL validation). */

@@ -1,7 +1,8 @@
 //! Tauri commands (invoke handlers) — theo Hợp đồng command trong spec:
 //! - Profiles: list_profiles, get_profile, create_profile, update_profile, delete_profile, search_profiles
 //! - Proxies: list_proxies, create_proxy, update_proxy, delete_proxy, assign_proxy, check_proxy
-//! - Session: launch_profile, stop_profile, list_running, bring_to_front (W20a)
+//! - Session: launch_profile, stop_profile, list_running, bring_to_front (W20a),
+//!   get_cdp_ws_url (W24c)
 //! - Binary: ensure_binary (emit `binary://progress`)
 //! - Settings/tags: get_settings, set_setting, list_tags, set_profile_tags
 //! - Folders/favorites: list_folders, create_folder, rename_folder, delete_folder,
@@ -30,7 +31,7 @@ use crate::error::{AppError, Result};
 use crate::models::{Folder, Profile, ProfileTemplate, Proxy, RunningSession};
 use crate::process::ProcessManager;
 use crate::proxy_check::{self, ProxyCheckResult};
-use crate::{binary, cdp, crypto, launcher, storage};
+use crate::{binary, cdp, cookies, crypto, launcher, storage};
 
 /// State toàn app — khởi tạo trong `tauri::Builder::setup` (lib.rs) rồi `.manage()`.
 pub struct AppState {
@@ -590,6 +591,150 @@ pub async fn bring_to_front(state: State<'_, AppState>, profile_id: String) -> R
             }
         }
     }
+}
+
+/// (W24c) Trả `webSocketDebuggerUrl` (`ws://127.0.0.1:<port>/devtools/browser/…`)
+/// của phiên ĐANG chạy — để copy vào Playwright/Puppeteer (connectOverCDP).
+/// Trả `NotFound` nếu profile không chạy.
+#[tauri::command]
+pub async fn get_cdp_ws_url(state: State<'_, AppState>, profile_id: String) -> Result<String> {
+    let session = state
+        .procs
+        .list_running()
+        .await
+        .into_iter()
+        .find(|s| s.profile_id == profile_id)
+        .ok_or_else(|| AppError::NotFound(format!("profile {profile_id} không chạy")))?;
+    cdp::ws_url(session.cdp_port).await
+}
+
+// ---------------------------------------------------------------------------
+// Cookies (W24a) — import/export qua CDP Storage.getCookies/setCookies
+// ---------------------------------------------------------------------------
+
+/// Kết quả export cookie: nội dung đã serialize + số cookie.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CookieExportResult {
+    pub data: String,
+    pub count: usize,
+}
+
+/// Phiên headless TẠM cho thao tác cookie khi profile KHÔNG chạy: spawn trực
+/// tiếp (không qua ProcessManager → không hiện "running" trên UI, không chiếm
+/// slot semaphore), đóng bằng `Browser.close` khi xong để Chromium flush
+/// cookie xuống đĩa (kill cứng có thể mất cookie chưa commit).
+struct TempCookieSession {
+    child: tokio::process::Child,
+    cdp_port: u16,
+}
+
+/// Lấy cổng CDP cho thao tác cookie: dùng phiên ĐANG chạy nếu có; nếu không,
+/// spawn headless tạm (`--headless=new`, không restore session/URL startup,
+/// không proxy — thao tác cookie không cần mạng ra ngoài).
+async fn open_cookie_session(
+    state: &AppState,
+    profile: &Profile,
+) -> Result<(u16, Option<TempCookieSession>)> {
+    if let Some(s) = state
+        .procs
+        .list_running()
+        .await
+        .into_iter()
+        .find(|s| s.profile_id == profile.id)
+    {
+        return Ok((s.cdp_port, None));
+    }
+
+    let binary_path = binary::ensure_binary(None, None).await?;
+    let cdp_port = state.procs.allocate_cdp_port()?;
+
+    let mut p = profile.clone();
+    p.headless = true;
+    p.startup_behavior = "custom".into(); // không --restore-last-session
+    p.startup_urls = json!([]); // không mở URL nào
+    let mut args = launcher::build_args(&p, None, cdp_port);
+    args.insert(0, "--headless=new".into());
+
+    let child = tokio::process::Command::new(binary_path.as_os_str())
+        .args(&args)
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| AppError::Launch(format!("spawn headless thất bại: {e}")))?;
+    let temp = TempCookieSession { child, cdp_port };
+
+    if let Err(e) = cdp::attach(cdp_port).await {
+        close_cookie_session(temp).await;
+        return Err(e);
+    }
+    Ok((cdp_port, Some(temp)))
+}
+
+/// Đóng phiên tạm: ưu tiên `Browser.close` (shutdown mềm — flush profile),
+/// chờ tối đa 10s cho tiến trình thoát; nếu vẫn còn thì kill. Best-effort.
+async fn close_cookie_session(mut temp: TempCookieSession) {
+    if cdp::close_browser(temp.cdp_port).await.is_ok() {
+        let _ =
+            tokio::time::timeout(std::time::Duration::from_secs(10), temp.child.wait()).await;
+    }
+    let _ = temp.child.start_kill();
+    let _ = temp.child.wait().await;
+}
+
+/// Export toàn bộ cookie của profile theo `format` ("json" | "netscape").
+/// Profile không chạy → mở phiên headless tạm rồi đóng mềm sau khi đọc.
+#[tauri::command]
+pub async fn export_cookies(
+    state: State<'_, AppState>,
+    profile_id: String,
+    format: String,
+) -> Result<CookieExportResult> {
+    let format = cookies::Format::parse(&format)?;
+    let profile = state.db.get_profile(&profile_id)?;
+
+    let (port, temp) = open_cookie_session(&state, &profile).await?;
+    let fetched = cdp::get_all_cookies(port).await;
+    if let Some(t) = temp {
+        close_cookie_session(t).await;
+    }
+    let items = fetched?;
+
+    let data = cookies::serialize(&items, format)?;
+    state.db.insert_audit(
+        "cookies.export",
+        Some(&profile_id),
+        Some(&json!({ "count": items.len(), "format": format.as_str() })),
+    )?;
+    Ok(CookieExportResult {
+        data,
+        count: items.len(),
+    })
+}
+
+/// Import cookie (JSON hoặc Netscape — auto-detect) vào profile qua
+/// `Storage.setCookies`. Trả về số cookie đã ghi.
+#[tauri::command]
+pub async fn import_cookies(
+    state: State<'_, AppState>,
+    profile_id: String,
+    data: String,
+) -> Result<usize> {
+    let items = cookies::parse(&data)?;
+    let profile = state.db.get_profile(&profile_id)?;
+
+    let (port, temp) = open_cookie_session(&state, &profile).await?;
+    let set = cdp::set_cookies(port, &items).await;
+    if let Some(t) = temp {
+        close_cookie_session(t).await;
+    }
+    let count = set?;
+
+    state.db.insert_audit(
+        "cookies.import",
+        Some(&profile_id),
+        Some(&json!({ "count": count })),
+    )?;
+    Ok(count)
 }
 
 /// AppleScript kích hoạt cửa sổ theo PID (tách riêng để unit-test không cần

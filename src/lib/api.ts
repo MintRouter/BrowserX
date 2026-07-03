@@ -72,6 +72,8 @@ export interface Profile {
   store_passwords: boolean;
   /** (W20b) Keep service worker cache. false = Service Worker dir wiped on session stop. */
   store_sw_cache: boolean;
+  /** (W24b) Local unpacked extension paths — passed as --load-extension on launch. */
+  extensions: string[];
 }
 
 export interface Folder {
@@ -124,6 +126,8 @@ export interface ProfileInput {
   store_passwords?: boolean;
   /** (W20b) Keep service worker cache. Default: true. */
   store_sw_cache?: boolean;
+  /** (W24b) Local unpacked extension paths. Default: []. */
+  extensions?: string[];
   /**
    * Target folder. NOTE: the Rust ProfileInput/ProfileUpdate structs do not
    * (yet) read this field — serde ignores it. Callers must follow up with
@@ -230,6 +234,15 @@ export interface ClearCacheResult {
   error?: string;
 }
 
+/** (W24a) Result of a cookie export: serialized content + cookie count. */
+export interface CookieExportResult {
+  data: string;
+  count: number;
+}
+
+/** (W24a) Cookie export formats supported by the backend. */
+export type CookieFormat = "json" | "netscape";
+
 /** Settings key: auto-clear a profile's cache when its session stops ("true"/"false"). */
 export const AUTO_CLEAR_CACHE_SETTING = "auto_clear_cache_on_stop";
 
@@ -267,6 +280,10 @@ export const api = {
   launchProfile: (id: string) => invoke<LaunchResult>("launch_profile", { id }),
   stopProfile: (id: string) => invoke<void>("stop_profile", { id }),
   listRunning: () => invoke<RunningSession[]>("list_running"),
+  // (W24c) CDP websocket endpoint (ws://127.0.0.1:{port}/devtools/browser/…)
+  // of a running session — for Playwright/Puppeteer connectOverCDP.
+  getCdpWsUrl: (profileId: string) =>
+    invoke<string>("get_cdp_ws_url", { profileId }),
   // (W23a) Stop every running session (full cleanup) then exit the app.
   stopAllAndQuit: () => invoke<void>("stop_all_and_quit"),
 
@@ -316,6 +333,13 @@ export const api = {
   // Export / import profile (W19a) — .bxprofile JSON; proxy password is never included
   exportProfile: (id: string) => invoke<string>("export_profile", { id }),
   importProfile: (json: string) => invoke<Profile>("import_profile", { json }),
+
+  // Cookies (W24a) — CDP Storage.getCookies/setCookies; profiles that aren't
+  // running are opened headlessly in the background, then closed softly.
+  exportCookies: (profileId: string, format: CookieFormat) =>
+    invoke<CookieExportResult>("export_cookies", { profileId, format }),
+  importCookies: (profileId: string, data: string) =>
+    invoke<number>("import_cookies", { profileId, data }),
 
   // Bring to front (W20a) — CDP Page.bringToFront on a running session (macOS
   // falls back to OS-level window activation when CDP fails)

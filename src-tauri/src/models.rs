@@ -77,6 +77,9 @@ pub struct Profile {
     pub store_passwords: bool,
     /// (W20b) Giữ service-worker cache. `false` → xoá Default/Service Worker khi phiên dừng.
     pub store_sw_cache: bool,
+    /// (W24b) Đường dẫn unpacked extension local (JSON array chuỗi) — emit
+    /// `--load-extension` + `--disable-extensions-except` khi launch.
+    pub extensions: serde_json::Value,
 }
 
 /// (W20b) Template cấu hình profile (bảng `profile_templates`). `config` là JSON

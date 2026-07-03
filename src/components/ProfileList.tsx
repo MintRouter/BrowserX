@@ -2,6 +2,7 @@ import { Plus, SearchX } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, type Folder, type Profile } from "../lib/api";
+import { CookieDialog } from "./CookieDialog";
 import { ProfilesToolbar } from "./ProfilesToolbar";
 import {
   DEFAULT_COLUMNS,
@@ -61,6 +62,11 @@ export function ProfileList(props: ProfileListProps) {
   // (W20a) Inline rename target + signal that opens the toolbar move popover.
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [moveSignal, setMoveSignal] = useState(0);
+  // (W24a) Cookie import/export dialog target (export supports bulk).
+  const [cookieDialog, setCookieDialog] = useState<{
+    mode: "export" | "import";
+    profiles: Profile[];
+  } | null>(null);
 
   const folderName = (id: string | null) =>
     id ? (folders.find((f) => f.id === id)?.name ?? "") : "";
@@ -207,6 +213,24 @@ export function ProfileList(props: ProfileListProps) {
     }
   };
 
+  // (W24c) Copy the live CDP websocket endpoint (ws://127.0.0.1:{port}/devtools/…)
+  // of a running session for Playwright/Puppeteer connectOverCDP.
+  const handleCopyCdpUrl = async (id: string) => {
+    try {
+      const url = await api.getCdpWsUrl(id);
+      await navigator.clipboard.writeText(url);
+      setToast(t("listUtils.cdpUrlCopied"));
+    } catch (err) {
+      setToast(t("listUtils.copyCdpUrlFailed", { error: String(err) }));
+    }
+  };
+
+  // (W24a) Bulk cookie export for the current selection.
+  const handleExportCookiesSelected = () => {
+    const targets = profiles.filter((p) => selected.has(p.id));
+    if (targets.length > 0) setCookieDialog({ mode: "export", profiles: targets });
+  };
+
   const handleBringToFront = async (id: string) => {
     try {
       await api.bringToFront(id);
@@ -307,6 +331,7 @@ export function ProfileList(props: ProfileListProps) {
           onAddTags={(tags) => void props.onAddTags(selectedIds, tags)}
           onMoveToFolder={(folderId) => void props.onMove(selectedIds, folderId)}
           onCloneSelected={() => singleSelected && void props.onClone(singleSelected)}
+          onExportCookiesSelected={handleExportCookiesSelected}
           onClearCacheSelected={() => void handleClearCache(selectedIds)}
           onTrashSelected={() => void props.onTrash(selectedIds)}
           onClearSelection={() => onSelectedChange(new Set())}
@@ -362,6 +387,8 @@ export function ProfileList(props: ProfileListProps) {
               onEdit={props.onEdit}
               onClone={(p) => void props.onClone(p)}
               onExport={(p) => void handleExport(p)}
+              onExportCookies={(p) => setCookieDialog({ mode: "export", profiles: [p] })}
+              onImportCookies={(p) => setCookieDialog({ mode: "import", profiles: [p] })}
               onMove={(ids, folderId) => void props.onMove(ids, folderId)}
               onAddTags={(ids, tags) => void props.onAddTags(ids, tags)}
               onClearCache={(ids) => void handleClearCache(ids)}
@@ -371,6 +398,7 @@ export function ProfileList(props: ProfileListProps) {
               onRenameSubmit={(id, name) => void handleRenameSubmit(id, name)}
               onRenameCancel={() => setRenamingId(null)}
               onCopyId={(id) => void handleCopyId(id)}
+              onCopyCdpUrl={(id) => void handleCopyCdpUrl(id)}
               onBringToFront={(id) => void handleBringToFront(id)}
             />
           </div>
@@ -385,6 +413,15 @@ export function ProfileList(props: ProfileListProps) {
           settings={props.settings}
         />
       </div>
+
+      {cookieDialog && (
+        <CookieDialog
+          mode={cookieDialog.mode}
+          profiles={cookieDialog.profiles}
+          onClose={() => setCookieDialog(null)}
+          onDone={setToast}
+        />
+      )}
 
       {toast && (
         <div

@@ -1,6 +1,7 @@
 import {
   ArrowUpDown,
   ChevronDown,
+  Cookie,
   Copy,
   Download,
   EllipsisVertical,
@@ -42,6 +43,8 @@ interface ProfilesToolbarProps {
   onAddTags: (tags: string[]) => void;
   onMoveToFolder: (folderId: string | null) => void;
   onCloneSelected: () => void;
+  /** (W24a) Bulk cookie export for the selected profiles. */
+  onExportCookiesSelected: () => void;
   onClearCacheSelected: () => void;
   onTrashSelected: () => void;
   onClearSelection: () => void;
@@ -293,6 +296,13 @@ export function ProfilesToolbar(props: ProfilesToolbarProps) {
             onClick={props.onCloneSelected}
           >
             <Copy className="h-4 w-4" aria-hidden="true" />
+          </ToolButton>
+          <ToolButton
+            label={t("cookies.bulkExport")}
+            disabled={none}
+            onClick={props.onExportCookiesSelected}
+          >
+            <Cookie className="h-4 w-4" aria-hidden="true" />
           </ToolButton>
           <ToolButton
             label={t("toolbar.clearCacheSelected")}

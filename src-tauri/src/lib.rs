@@ -17,6 +17,7 @@ pub mod binary;
 pub mod cdp;
 pub mod commands;
 pub mod config;
+pub mod cookies;
 pub mod crypto;
 pub mod db;
 pub mod error;
@@ -96,6 +97,7 @@ pub fn run() {
             commands::stop_profile,
             commands::list_running,
             commands::bring_to_front,
+            commands::get_cdp_ws_url,
             commands::ensure_binary,
             commands::get_settings,
             commands::set_setting,
@@ -122,6 +124,8 @@ pub fn run() {
             commands::create_profile_from_template,
             commands::export_profile,
             commands::import_profile,
+            commands::export_cookies,
+            commands::import_cookies,
             commands::open_logs_folder,
             commands::stop_all_and_quit,
         ])

@@ -6,12 +6,14 @@ import {
   ArrowUpDown,
   ClipboardCopy,
   Columns3,
+  Cookie,
   Copy,
   Download,
   EllipsisVertical,
   Eraser,
   FolderInput,
   HardDrive,
+  Link2,
   Loader2,
   MonitorUp,
   Pencil,
@@ -110,6 +112,9 @@ interface ProfileTableProps {
   onEdit: (profile: Profile) => void;
   onClone: (profile: Profile) => void;
   onExport: (profile: Profile) => void;
+  /** (W24a) Open the cookie export/import dialog for one profile. */
+  onExportCookies: (profile: Profile) => void;
+  onImportCookies: (profile: Profile) => void;
   onMove: (ids: string[], folderId: string | null) => void;
   onAddTags: (ids: string[], tags: string[]) => void;
   onClearCache: (ids: string[]) => void;
@@ -120,6 +125,8 @@ interface ProfileTableProps {
   onRenameSubmit: (id: string, name: string) => void;
   onRenameCancel: () => void;
   onCopyId: (id: string) => void;
+  /** (W24c) Copy the CDP websocket URL of a running session. */
+  onCopyCdpUrl: (id: string) => void;
   onBringToFront: (id: string) => void;
 }
 
@@ -260,9 +267,12 @@ function RowMenu({
   onEdit,
   onRename,
   onCopyId,
+  onCopyCdpUrl,
   onBringToFront,
   onClone,
   onExport,
+  onExportCookies,
+  onImportCookies,
   onMove,
   onAddTags,
   onClearCache,
@@ -274,9 +284,12 @@ function RowMenu({
   onEdit: () => void;
   onRename: () => void;
   onCopyId: () => void;
+  onCopyCdpUrl: () => void;
   onBringToFront: () => void;
   onClone: () => void;
   onExport: () => void;
+  onExportCookies: () => void;
+  onImportCookies: () => void;
   onMove: (folderId: string | null) => void;
   onAddTags: (tags: string[]) => void;
   onClearCache: () => void;
@@ -343,6 +356,21 @@ function RowMenu({
           </MenuItem>
           <span
             className="block"
+            title={!running ? t("listUtils.copyCdpUrlNotRunning") : undefined}
+          >
+            <MenuItem
+              disabled={!running}
+              icon={<Link2 className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+              onClick={() => {
+                close();
+                onCopyCdpUrl();
+              }}
+            >
+              {t("listUtils.copyCdpUrl")}
+            </MenuItem>
+          </span>
+          <span
+            className="block"
             title={!running ? t("listUtils.bringToFrontNotRunning") : undefined}
           >
             <MenuItem
@@ -380,6 +408,24 @@ function RowMenu({
               {t("exchange.export")}
             </MenuItem>
           </span>
+          <MenuItem
+            icon={<Cookie className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+            onClick={() => {
+              close();
+              onExportCookies();
+            }}
+          >
+            {t("cookies.menuExport")}
+          </MenuItem>
+          <MenuItem
+            icon={<Cookie className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+            onClick={() => {
+              close();
+              onImportCookies();
+            }}
+          >
+            {t("cookies.menuImport")}
+          </MenuItem>
           <MenuItem
             icon={<FolderInput className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
             onClick={() => setMode("move")}
@@ -457,6 +503,8 @@ export function ProfileTable({
   onEdit,
   onClone,
   onExport,
+  onExportCookies,
+  onImportCookies,
   onMove,
   onAddTags,
   onClearCache,
@@ -466,6 +514,7 @@ export function ProfileTable({
   onRenameSubmit,
   onRenameCancel,
   onCopyId,
+  onCopyCdpUrl,
   onBringToFront,
 }: ProfileTableProps) {
   const { t, i18n } = useTranslation();
@@ -740,9 +789,12 @@ export function ProfileTable({
                   onEdit={() => onEdit(p)}
                   onRename={() => onRenameStart(p.id)}
                   onCopyId={() => onCopyId(p.id)}
+                  onCopyCdpUrl={() => onCopyCdpUrl(p.id)}
                   onBringToFront={() => onBringToFront(p.id)}
                   onClone={() => onClone(p)}
                   onExport={() => onExport(p)}
+                  onExportCookies={() => onExportCookies(p)}
+                  onImportCookies={() => onImportCookies(p)}
                   onMove={(folderId) => onMove([p.id], folderId)}
                   onAddTags={(tags) => onAddTags([p.id], tags)}
                   onClearCache={() => onClearCache([p.id])}

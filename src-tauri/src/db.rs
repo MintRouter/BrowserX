@@ -54,6 +54,8 @@ pub struct ProfileInput {
     pub startup_behavior: Option<String>,
     /// Mảng JSON URL mở khi khởi động (dùng khi startup_behavior = "custom").
     pub startup_urls: Option<serde_json::Value>,
+    /// (W24b) Mảng JSON đường dẫn unpacked extension local.
+    pub extensions: Option<serde_json::Value>,
     /// Gán proxy ngay khi tạo (FK → proxies.id).
     pub proxy_id: Option<String>,
     pub tags: Option<Vec<String>>,
@@ -104,6 +106,8 @@ pub struct ProfileUpdate {
     pub startup_behavior: Option<String>,
     /// Mảng JSON URL mở khi khởi động (dùng khi startup_behavior = "custom").
     pub startup_urls: Option<serde_json::Value>,
+    /// (W24b) Mảng JSON đường dẫn unpacked extension local.
+    pub extensions: Option<serde_json::Value>,
     pub tags: Option<Vec<String>>,
     /// (W19c) Noise injection master switch.
     pub fp_noise: Option<bool>,
@@ -188,7 +192,7 @@ pub struct AuditEntry {
 // ---------------------------------------------------------------------------
 
 /// Schema version hiện tại (PRAGMA user_version).
-const SCHEMA_VERSION: i64 = 7;
+const SCHEMA_VERSION: i64 = 8;
 
 const SCHEMA_V1: &str = "
 CREATE TABLE IF NOT EXISTS profiles (
@@ -337,6 +341,13 @@ ALTER TABLE profiles ADD COLUMN store_passwords INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE profiles ADD COLUMN store_sw_cache INTEGER NOT NULL DEFAULT 1;
 
 CREATE INDEX IF NOT EXISTS idx_profile_templates_name ON profile_templates(name);
+";
+
+/// Migration v7→v8 (W24b): `extensions` — mảng JSON đường dẫn unpacked extension
+/// local per-profile (giống pattern launch_args/startup_urls lưu JSON TEXT).
+/// ALTER TABLE không có IF NOT EXISTS — idempotency đảm bảo bởi guard `user_version < 8`.
+const SCHEMA_V8: &str = "
+ALTER TABLE profiles ADD COLUMN extensions TEXT NOT NULL DEFAULT '[]';
 ";
 
 /// Kết nối SQLite của app. `Mutex<Connection>` để dùng được trong `tauri::State`
@@ -502,6 +513,10 @@ fn migrate_inner(conn: &Connection, checkpoint: impl Fn(i64) -> Result<()>) -> R
             conn.execute_batch(SCHEMA_V7)?;
             checkpoint(7)?;
         }
+        if version < 8 {
+            conn.execute_batch(SCHEMA_V8)?;
+            checkpoint(8)?;
+        }
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         Ok(())
     })();
@@ -591,6 +606,9 @@ fn row_to_profile(row: &Row) -> rusqlite::Result<Profile> {
     let startup_urls_raw: String = row.get("startup_urls")?;
     let startup_urls: serde_json::Value = serde_json::from_str(&startup_urls_raw)
         .unwrap_or_else(|_| serde_json::Value::Array(vec![]));
+    let extensions_raw: String = row.get("extensions")?;
+    let extensions: serde_json::Value = serde_json::from_str(&extensions_raw)
+        .unwrap_or_else(|_| serde_json::Value::Array(vec![]));
     Ok(Profile {
         id: row.get("id")?,
         name: row.get("name")?,
@@ -630,6 +648,7 @@ fn row_to_profile(row: &Row) -> rusqlite::Result<Profile> {
         store_history: row.get("store_history")?,
         store_passwords: row.get("store_passwords")?,
         store_sw_cache: row.get("store_sw_cache")?,
+        extensions,
     })
 }
 
@@ -734,6 +753,9 @@ impl Db {
         let startup_urls = input
             .startup_urls
             .unwrap_or_else(|| serde_json::Value::Array(vec![]));
+        let extensions = input
+            .extensions
+            .unwrap_or_else(|| serde_json::Value::Array(vec![]));
         let ts = now();
 
         {
@@ -747,8 +769,8 @@ impl Db {
                     color_scheme, launch_args, user_data_dir, notes, created_at, updated_at,
                     is_quick, startup_behavior, startup_urls,
                     fp_noise, webrtc_mode, webrtc_ip, geolocation_mode, geo_latitude, geo_longitude,
-                    store_history, store_passwords, store_sw_cache
-                ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33)",
+                    store_history, store_passwords, store_sw_cache, extensions
+                ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34)",
                 params![
                     id,
                     input.name,
@@ -783,6 +805,7 @@ impl Db {
                     input.store_history.unwrap_or(true),
                     input.store_passwords.unwrap_or(true),
                     input.store_sw_cache.unwrap_or(true),
+                    serde_json::to_string(&extensions)?,
                 ],
             )?;
             if let Some(tags) = &input.tags {
@@ -949,6 +972,10 @@ impl Db {
         }
         if let Some(v) = input.startup_urls {
             cols.push("startup_urls");
+            values.push(sql_text(serde_json::to_string(&v)?));
+        }
+        if let Some(v) = input.extensions {
+            cols.push("extensions");
             values.push(sql_text(serde_json::to_string(&v)?));
         }
         if let Some(v) = input.fp_noise {
@@ -1831,6 +1858,7 @@ mod tests {
         assert!(!profiles[0].is_quick);
         assert_eq!(profiles[0].startup_behavior, "restore");
         assert_eq!(profiles[0].startup_urls, serde_json::json!([]));
+        assert_eq!(profiles[0].extensions, serde_json::json!([]));
         assert!(db.list_trash().unwrap().is_empty());
         // Folder mặc định được seed.
         let folders = db.list_folders().unwrap();

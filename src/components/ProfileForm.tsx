@@ -68,6 +68,7 @@ function initialState(profile: Profile | null, defaultName: string): FormState {
       store_history: profile.store_history ?? true,
       store_passwords: profile.store_passwords ?? true,
       store_sw_cache: profile.store_sw_cache ?? true,
+      extensions: profile.extensions ?? [],
     };
   }
   return {
@@ -101,6 +102,7 @@ function initialState(profile: Profile | null, defaultName: string): FormState {
     store_history: true,
     store_passwords: true,
     store_sw_cache: true,
+    extensions: [],
   };
 }
 
@@ -264,6 +266,7 @@ export function ProfileForm({
     store_history: form.store_history,
     store_passwords: form.store_passwords,
     store_sw_cache: form.store_sw_cache,
+    extensions: form.extensions,
   });
 
   // (W20b) Fill the form from a template (create mode). Name is kept as typed;
@@ -304,6 +307,7 @@ export function ProfileForm({
       store_history: c.store_history ?? true,
       store_passwords: c.store_passwords ?? true,
       store_sw_cache: c.store_sw_cache ?? true,
+      extensions: c.extensions ?? [],
     }));
     setArgsText(
       c.launch_args && c.launch_args.length > 0

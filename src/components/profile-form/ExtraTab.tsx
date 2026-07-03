@@ -1,3 +1,5 @@
+import { X } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Toggle } from "./controls";
 import type { FormState, SetField } from "./types";
@@ -12,6 +14,16 @@ interface ExtraTabProps {
 
 export function ExtraTab({ form, set, argsText, onArgsChange, argsError }: ExtraTabProps) {
   const { t } = useTranslation();
+  const [extInput, setExtInput] = useState("");
+
+  const addExtension = () => {
+    const path = extInput.trim();
+    if (!path) return;
+    if (!form.extensions.includes(path)) {
+      set("extensions", [...form.extensions, path]);
+    }
+    setExtInput("");
+  };
 
   return (
     <div className="space-y-5">
@@ -63,6 +75,55 @@ export function ExtraTab({ form, set, argsText, onArgsChange, argsError }: Extra
               />
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Extensions (W24b): local unpacked extension dirs, passed as --load-extension */}
+      <div>
+        <span className="label" id="pf-ext-label">{t("pform.extTitle")}</span>
+        <p className="mb-2 text-xs text-fg-muted">{t("pform.extHint")}</p>
+        {form.extensions.length > 0 && (
+          <ul aria-label={t("pform.extTitle")} className="mb-2 space-y-1.5">
+            {form.extensions.map((path, i) => (
+              <li
+                key={path}
+                className="flex items-center gap-2 rounded-md bg-surface-2 px-2.5 py-1.5 text-sm text-fg"
+              >
+                <span className="min-w-0 flex-1 truncate font-mono text-xs">{path}</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    set("extensions", form.extensions.filter((_, j) => j !== i))
+                  }
+                  className="rounded-full text-fg-muted hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                  aria-label={t("pform.extRemove", { path })}
+                >
+                  <X className="h-3 w-3" aria-hidden="true" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="flex gap-2">
+          <input
+            id="pf-ext-path"
+            className="input flex-1 font-mono text-xs"
+            type="text"
+            value={extInput}
+            onChange={(e) => setExtInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addExtension();
+              }
+            }}
+            placeholder={t("pform.extPlaceholder")}
+            aria-labelledby="pf-ext-label"
+            spellCheck={false}
+          />
+          <button type="button" onClick={addExtension} className="btn-secondary px-2.5">
+            {t("pform.extAdd")}
+          </button>
         </div>
       </div>
 

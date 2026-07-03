@@ -155,6 +155,23 @@ pub fn build_args(profile: &Profile, proxy_url: Option<&str>, cdp_port: u16) -> 
         }
     }
 
+    // (W24b) Unpacked extensions local: comma-join đường dẫn (trim, bỏ rỗng) →
+    // --load-extension + --disable-extensions-except (chặn extension ngoài danh sách,
+    // semantics giống extension_paths trong browser.py#L1078-L1086).
+    if let Some(list) = profile.extensions.as_array() {
+        let paths: Vec<&str> = list
+            .iter()
+            .filter_map(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
+        if !paths.is_empty() {
+            let joined = paths.join(",");
+            args.set(format!("--load-extension={}", joined));
+            args.set(format!("--disable-extensions-except={}", joined));
+        }
+    }
+
     // Cờ vận hành bắt buộc — luôn từ tham số của ta.
     args.set(format!("--user-data-dir={}", profile.user_data_dir));
     args.set(format!("--remote-debugging-port={}", cdp_port));
@@ -240,6 +257,7 @@ mod tests {
             store_history: true,
             store_passwords: true,
             store_sw_cache: true,
+            extensions: serde_json::json!([]),
         }
     }
 
@@ -348,6 +366,26 @@ mod tests {
         assert_eq!(count_key(&args, "--lang"), 1);
         // flag không đụng key vẫn giữ.
         assert_eq!(value_of(&args, "--window-size"), Some("800,600"));
+    }
+
+    #[test]
+    fn extensions_emit_load_and_disable_except_flags() {
+        let mut p = base_profile();
+        // Rỗng → không có flag nào.
+        let args = build_args(&p, None, 1);
+        assert_eq!(count_key(&args, "--load-extension"), 0);
+        assert_eq!(count_key(&args, "--disable-extensions-except"), 0);
+        // Trim + bỏ rỗng, comma-join theo semantics browser.py.
+        p.extensions = serde_json::json!(["/data/ext/ublock", " /data/ext/dark ", ""]);
+        let args = build_args(&p, None, 1);
+        assert_eq!(
+            value_of(&args, "--load-extension"),
+            Some("/data/ext/ublock,/data/ext/dark")
+        );
+        assert_eq!(
+            value_of(&args, "--disable-extensions-except"),
+            Some("/data/ext/ublock,/data/ext/dark")
+        );
     }
 
     #[test]
