@@ -272,6 +272,83 @@ pub async fn set_cookies(port: u16, items: &[CookieItem]) -> Result<usize> {
     result
 }
 
+/// JS đọc toàn bộ localStorage của document hiện tại — trả JSON string
+/// `[[key,value],…]`; lỗi (vd origin opaque) → chuỗi `error:<message>`.
+const LS_GET_JS: &str = r#"(() => {
+  try { return JSON.stringify(Object.entries(localStorage)); }
+  catch (e) { return 'error:' + e.message; }
+})()"#;
+
+/// Eval `js` trên tab đầu tiên SAU KHI navigate tới `origin` — dùng cho thao
+/// tác localStorage (phải đứng trên đúng origin mới đọc/ghi được storage của
+/// origin đó). Chờ document load xong (best-effort, capped 5s) trước khi eval.
+async fn eval_at_origin(port: u16, origin: &str, js: &str) -> Result<serde_json::Value> {
+    let session = CdpSession::connect(port).await?;
+    let result = tokio::time::timeout(OP_TIMEOUT, async {
+        let page = session.first_page().await?;
+        page.goto(origin)
+            .await
+            .map_err(|e| AppError::Cdp(format!("goto {origin} thất bại: {e}")))?;
+        let _ = tokio::time::timeout(Duration::from_secs(5), page.wait_for_navigation()).await;
+        let res = page
+            .evaluate(js)
+            .await
+            .map_err(|e| AppError::Cdp(format!("eval tại {origin} thất bại: {e}")))?;
+        Ok(res.value().cloned().unwrap_or(serde_json::Value::Null))
+    })
+    .await
+    .unwrap_or_else(|_| {
+        Err(AppError::Cdp(format!(
+            "thao tác localStorage tại {origin} timeout sau {OP_TIMEOUT:?}"
+        )))
+    });
+    session.disconnect();
+    result
+}
+
+/// (W33b) Đọc TOÀN BỘ localStorage của `origin`: navigate tab đầu tiên tới
+/// origin rồi eval `Object.entries(localStorage)`. Trả `(key, value)` sort
+/// theo key (tất định). Chọn eval-trên-trang thay vì DOMStorage domain vì
+/// DOMStorage cần track storageId/securityOrigin qua event; eval khi đã đứng
+/// trên đúng origin đơn giản hơn và đủ tin cậy.
+pub async fn get_local_storage(port: u16, origin: &str) -> Result<Vec<(String, String)>> {
+    let value = eval_at_origin(port, origin, LS_GET_JS).await?;
+    let raw = value.as_str().ok_or_else(|| {
+        AppError::Cdp(format!("đọc localStorage tại {origin} không trả string: {value}"))
+    })?;
+    if let Some(msg) = raw.strip_prefix("error:") {
+        return Err(AppError::Cdp(format!(
+            "đọc localStorage tại {origin} thất bại: {msg}"
+        )));
+    }
+    let mut entries: Vec<(String, String)> = serde_json::from_str(raw)
+        .map_err(|e| AppError::Cdp(format!("parse localStorage JSON thất bại: {e}")))?;
+    entries.sort();
+    Ok(entries)
+}
+
+/// (W33b) Ghi danh sách `(key, value)` vào localStorage của `origin` (navigate
+/// tới origin rồi `setItem` từng cặp). Key trùng bị ghi đè. Trả số key đã ghi.
+pub async fn set_local_storage(port: u16, origin: &str, items: &[(String, String)]) -> Result<usize> {
+    let payload = serde_json::to_string(items)?;
+    let js = format!(
+        "(() => {{ try {{ const items = {payload}; \
+         for (const [k, v] of items) localStorage.setItem(k, v); return 'ok'; }} \
+         catch (e) {{ return 'error:' + e.message; }} }})()"
+    );
+    let value = eval_at_origin(port, origin, &js).await?;
+    match value.as_str() {
+        Some("ok") => Ok(items.len()),
+        Some(s) if s.starts_with("error:") => Err(AppError::Cdp(format!(
+            "ghi localStorage tại {origin} thất bại: {}",
+            &s["error:".len()..]
+        ))),
+        other => Err(AppError::Cdp(format!(
+            "ghi localStorage tại {origin} trả kết quả lạ: {other:?}"
+        ))),
+    }
+}
+
 /// (W24a) `Browser.close` — shutdown MỀM: Chromium flush cookie/profile xuống đĩa
 /// rồi tự thoát (khác kill SIGKILL vốn có thể mất cookie chưa commit).
 pub async fn close_browser(port: u16) -> Result<()> {
@@ -311,6 +388,19 @@ mod tests {
     #[tokio::test]
     async fn ws_url_fails_without_endpoint() {
         let err = ws_url(1).await.unwrap_err();
+        assert!(matches!(err, AppError::Cdp(_) | AppError::Http(_)));
+    }
+
+    /// (W33b) Không có endpoint CDP tại port → get/set localStorage trả lỗi
+    /// (fail nhanh, không panic).
+    #[tokio::test]
+    async fn local_storage_fails_without_endpoint() {
+        let err = get_local_storage(1, "http://127.0.0.1:1/").await.unwrap_err();
+        assert!(matches!(err, AppError::Cdp(_) | AppError::Http(_)));
+        let items = [("k".to_string(), "v".to_string())];
+        let err = set_local_storage(1, "http://127.0.0.1:1/", &items)
+            .await
+            .unwrap_err();
         assert!(matches!(err, AppError::Cdp(_) | AppError::Http(_)));
     }
 

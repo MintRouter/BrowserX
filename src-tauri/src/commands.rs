@@ -1064,6 +1064,129 @@ pub async fn import_cookies(
     Ok(count)
 }
 
+/// Kết quả export storage_state: JSON + số cookie + số key localStorage.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageStateExportResult {
+    pub data: String,
+    pub cookie_count: usize,
+    pub local_storage_count: usize,
+}
+
+/// Kết quả import storage_state: số cookie + số key localStorage đã ghi.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageStateImportResult {
+    pub cookie_count: usize,
+    pub local_storage_count: usize,
+}
+
+/// (W33b) Export full storage_state (cookies + localStorage) của profile theo
+/// shape Playwright `{ cookies, origins: [{origin, localStorage}] }`.
+/// localStorage chỉ đọc được theo origin → caller truyền danh sách `origins`
+/// cần export (rỗng → cookie-only, tương đương export_cookies format json).
+/// Lưu ý: đọc localStorage navigate tab đầu tiên tới từng origin.
+#[tauri::command]
+pub async fn export_storage_state(
+    state: State<'_, AppState>,
+    profile_id: String,
+    origins: Vec<String>,
+) -> Result<StorageStateExportResult> {
+    let profile = state.db.get_profile(&profile_id)?;
+
+    let (port, temp) = open_cookie_session(&state, &profile).await?;
+    let fetched: Result<cookies::StorageState> = async {
+        let cookie_items = cdp::get_all_cookies(port).await?;
+        let mut origin_states = Vec::with_capacity(origins.len());
+        for origin in &origins {
+            let entries = cdp::get_local_storage(port, origin).await?;
+            origin_states.push(cookies::OriginState {
+                origin: origin.clone(),
+                local_storage: entries
+                    .into_iter()
+                    .map(|(name, value)| cookies::LocalStorageEntry { name, value })
+                    .collect(),
+            });
+        }
+        Ok(cookies::StorageState {
+            cookies: cookie_items,
+            origins: origin_states,
+        })
+    }
+    .await;
+    if let Some(t) = temp {
+        close_cookie_session(t).await;
+    }
+    let storage_state = fetched?;
+
+    let cookie_count = storage_state.cookies.len();
+    let local_storage_count = storage_state
+        .origins
+        .iter()
+        .map(|o| o.local_storage.len())
+        .sum();
+    let data = cookies::serialize_storage_state(&storage_state)?;
+    state.db.insert_audit(
+        "storage_state.export",
+        Some(&profile_id),
+        Some(&json!({ "cookies": cookie_count, "localStorageKeys": local_storage_count })),
+    )?;
+    Ok(StorageStateExportResult {
+        data,
+        cookie_count,
+        local_storage_count,
+    })
+}
+
+/// (W33b) Import storage_state vào profile: cookies qua `Storage.setCookies`,
+/// localStorage qua navigate + `setItem` theo từng origin. BACKWARD-COMPATIBLE:
+/// nhận cả dữ liệu cookie-only cũ (JSON array/Netscape → chỉ ghi cookie).
+#[tauri::command]
+pub async fn import_storage_state(
+    state: State<'_, AppState>,
+    profile_id: String,
+    data: String,
+) -> Result<StorageStateImportResult> {
+    let storage_state = cookies::parse_storage_state(&data)?;
+    let profile = state.db.get_profile(&profile_id)?;
+
+    let (port, temp) = open_cookie_session(&state, &profile).await?;
+    let written: Result<(usize, usize)> = async {
+        let cookie_count = if storage_state.cookies.is_empty() {
+            0
+        } else {
+            cdp::set_cookies(port, &storage_state.cookies).await?
+        };
+        let mut local_storage_count = 0;
+        for o in &storage_state.origins {
+            let items: Vec<(String, String)> = o
+                .local_storage
+                .iter()
+                .map(|e| (e.name.clone(), e.value.clone()))
+                .collect();
+            if !items.is_empty() {
+                local_storage_count += cdp::set_local_storage(port, &o.origin, &items).await?;
+            }
+        }
+        Ok((cookie_count, local_storage_count))
+    }
+    .await;
+    if let Some(t) = temp {
+        close_cookie_session(t).await;
+    }
+    let (cookie_count, local_storage_count) = written?;
+
+    state.db.insert_audit(
+        "storage_state.import",
+        Some(&profile_id),
+        Some(&json!({ "cookies": cookie_count, "localStorageKeys": local_storage_count })),
+    )?;
+    Ok(StorageStateImportResult {
+        cookie_count,
+        local_storage_count,
+    })
+}
+
 /// AppleScript kích hoạt cửa sổ theo PID (tách riêng để unit-test không cần
 /// gọi osascript — tránh popup xin quyền Automation lúc chạy test).
 #[cfg(any(target_os = "macos", test))]

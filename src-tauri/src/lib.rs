@@ -138,6 +138,8 @@ pub fn run() {
             commands::import_profile,
             commands::export_cookies,
             commands::import_cookies,
+            commands::export_storage_state,
+            commands::import_storage_state,
             commands::start_cookie_robot,
             commands::stop_cookie_robot,
             commands::open_logs_folder,

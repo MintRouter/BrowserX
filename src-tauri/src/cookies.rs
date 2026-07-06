@@ -70,6 +70,35 @@ fn default_path() -> String {
     "/".into()
 }
 
+/// (W33b) Một entry localStorage trong storage_state (shape Playwright:
+/// `{ "name": …, "value": … }`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LocalStorageEntry {
+    pub name: String,
+    pub value: String,
+}
+
+/// (W33b) localStorage của một origin trong storage_state.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OriginState {
+    pub origin: String,
+    #[serde(default)]
+    pub local_storage: Vec<LocalStorageEntry>,
+}
+
+/// (W33b) Full storage_state = cookies + localStorage theo origin — cùng shape
+/// với Playwright `storageState()` để quen thuộc/tương thích. `origins` rỗng
+/// tương đương export cookie-only.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageState {
+    #[serde(default)]
+    pub cookies: Vec<CookieItem>,
+    #[serde(default)]
+    pub origins: Vec<OriginState>,
+}
+
 /// Chuẩn hoá sameSite từ các biến thể export phổ biến về "Strict"/"Lax"/"None".
 pub fn normalize_same_site(raw: &str) -> Option<String> {
     match raw.trim().to_ascii_lowercase().as_str() {
@@ -77,6 +106,19 @@ pub fn normalize_same_site(raw: &str) -> Option<String> {
         "lax" => Some("Lax".into()),
         "none" | "no_restriction" => Some("None".into()),
         _ => None,
+    }
+}
+
+/// Loại cookie thiếu domain/name + chuẩn hoá sameSite (SameSite=None ép
+/// secure=true — Chromium từ chối nếu không). Dùng chung cho `parse` và
+/// `parse_storage_state`.
+fn sanitize(items: &mut Vec<CookieItem>) {
+    items.retain(|c| !c.domain.trim().is_empty() && !c.name.trim().is_empty());
+    for c in items {
+        c.same_site = c.same_site.as_deref().and_then(normalize_same_site);
+        if c.same_site.as_deref() == Some("None") {
+            c.secure = true;
+        }
     }
 }
 
@@ -92,20 +134,50 @@ pub fn parse(input: &str) -> Result<Vec<CookieItem>> {
     } else {
         parse_netscape(trimmed)?
     };
-    items.retain(|c| !c.domain.trim().is_empty() && !c.name.trim().is_empty());
+    sanitize(&mut items);
     if items.is_empty() {
         return Err(AppError::InvalidInput(
             "no valid cookies found in input".into(),
         ));
     }
-    for c in &mut items {
-        c.same_site = c.same_site.as_deref().and_then(normalize_same_site);
-        // Chromium từ chối SameSite=None mà không secure.
-        if c.same_site.as_deref() == Some("None") {
-            c.secure = true;
+    Ok(items)
+}
+
+/// (W33b) Parse storage_state — BACKWARD-COMPATIBLE: nhận cả full storage_state
+/// (`{cookies, origins}`), lẫn dữ liệu cookie-only cũ (JSON array, wrapped
+/// `{"cookies": […]}` hay Netscape → `origins` rỗng). Cookie được sanitize như
+/// `parse`; lỗi nếu không có cookie hợp lệ NÀO và cũng không có localStorage.
+pub fn parse_storage_state(input: &str) -> Result<StorageState> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::InvalidInput("storage state data is empty".into()));
+    }
+    if trimmed.starts_with('{') {
+        let value: serde_json::Value = serde_json::from_str(trimmed)
+            .map_err(|e| AppError::InvalidInput(format!("invalid storage state JSON: {e}")))?;
+        if value.get("cookies").is_some() || value.get("origins").is_some() {
+            let mut state: StorageState = serde_json::from_value(value)
+                .map_err(|e| AppError::InvalidInput(format!("invalid storage state JSON: {e}")))?;
+            sanitize(&mut state.cookies);
+            let has_local_storage = state.origins.iter().any(|o| !o.local_storage.is_empty());
+            if state.cookies.is_empty() && !has_local_storage {
+                return Err(AppError::InvalidInput(
+                    "no valid cookies or localStorage entries found in input".into(),
+                ));
+            }
+            return Ok(state);
         }
     }
-    Ok(items)
+    // Cookie-only (JSON array hoặc Netscape) — đường import_cookies cũ.
+    Ok(StorageState {
+        cookies: parse(trimmed)?,
+        origins: Vec::new(),
+    })
+}
+
+/// (W33b) Serialize full storage_state ra JSON (pretty, camelCase).
+pub fn serialize_storage_state(state: &StorageState) -> Result<String> {
+    Ok(serde_json::to_string_pretty(state)?)
 }
 
 /// JSON: mảng cookie object, hoặc object bọc `{"cookies": [...]}`.
@@ -318,5 +390,78 @@ mod tests {
         assert_eq!(Format::parse("json").unwrap(), Format::Json);
         assert_eq!(Format::parse(" Netscape ").unwrap(), Format::Netscape);
         assert!(Format::parse("csv").is_err());
+    }
+
+    /// (W33b) Full storage_state serialize → parse giữ nguyên cookies + origins.
+    #[test]
+    fn storage_state_roundtrip_preserves_cookies_and_origins() {
+        let state = StorageState {
+            cookies: sample(),
+            origins: vec![OriginState {
+                origin: "http://127.0.0.1:8080".into(),
+                local_storage: vec![
+                    LocalStorageEntry {
+                        name: "alpha".into(),
+                        value: "1".into(),
+                    },
+                    LocalStorageEntry {
+                        name: "beta".into(),
+                        value: "x y=z;".into(),
+                    },
+                ],
+            }],
+        };
+        let json = serialize_storage_state(&state).unwrap();
+        // Shape Playwright: key "localStorage" (camelCase).
+        assert!(json.contains("\"localStorage\""));
+        let parsed = parse_storage_state(&json).unwrap();
+        assert_eq!(parsed, state);
+    }
+
+    /// (W33b) Backward-compat: dữ liệu cookie-only cũ (JSON array, wrapped
+    /// object, Netscape) parse được thành storage_state với origins rỗng.
+    #[test]
+    fn parse_storage_state_accepts_cookie_only_inputs() {
+        let items = sample();
+        let json_array = serialize(&items, Format::Json).unwrap();
+        let st = parse_storage_state(&json_array).unwrap();
+        assert_eq!(st.cookies, items);
+        assert!(st.origins.is_empty());
+
+        let wrapped = r#"{"cookies":[{"name":"a","value":"1","domain":"x.com"}]}"#;
+        let st = parse_storage_state(wrapped).unwrap();
+        assert_eq!(st.cookies.len(), 1);
+        assert!(st.origins.is_empty());
+
+        let netscape = serialize(&items, Format::Netscape).unwrap();
+        let st = parse_storage_state(&netscape).unwrap();
+        assert_eq!(st.cookies.len(), 2);
+        assert!(st.origins.is_empty());
+    }
+
+    /// (W33b) storage_state chỉ có localStorage (không cookie) vẫn hợp lệ;
+    /// rỗng cả hai → lỗi.
+    #[test]
+    fn parse_storage_state_localstorage_only_and_empty() {
+        let ls_only = r#"{"cookies":[],"origins":[{"origin":"http://a","localStorage":[{"name":"k","value":"v"}]}]}"#;
+        let st = parse_storage_state(ls_only).unwrap();
+        assert!(st.cookies.is_empty());
+        assert_eq!(st.origins[0].local_storage[0].name, "k");
+
+        let err = parse_storage_state(r#"{"cookies":[],"origins":[]}"#).unwrap_err();
+        assert!(err.to_string().contains("no valid cookies or localStorage"));
+
+        let err = parse_storage_state("   ").unwrap_err();
+        assert!(err.to_string().contains("empty"));
+    }
+
+    /// (W33b) Cookie trong storage_state được sanitize như `parse` (sameSite
+    /// chuẩn hoá, None → secure).
+    #[test]
+    fn parse_storage_state_sanitizes_cookies() {
+        let input = r#"{"cookies":[{"name":"t","value":"1","domain":".x.com","sameSite":"no_restriction","secure":false}],"origins":[]}"#;
+        let st = parse_storage_state(input).unwrap();
+        assert_eq!(st.cookies[0].same_site.as_deref(), Some("None"));
+        assert!(st.cookies[0].secure);
     }
 }
