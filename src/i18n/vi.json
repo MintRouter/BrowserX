@@ -536,6 +536,20 @@
     "loadFailed": "Không tải được nhật ký hành động",
     "desktopOnly": "Nhật ký hành động chỉ có trong ứng dụng desktop."
   },
+  "system": {
+    "title": "Hệ thống",
+    "hint": "Số liệu phiên đang chạy và khởi chạy theo thời gian thực. Bộ đếm launch đặt lại khi mở lại ứng dụng.",
+    "liveSessions": "Phiên đang chạy",
+    "ramTotal": "Tổng RAM",
+    "ramPerSession": "RAM / phiên (trung bình)",
+    "ramNote": "RAM chỉ đo tiến trình trình duyệt chính (RSS) — các tiến trình con không được tính. N/A khi không đo được.",
+    "launchP95": "Launch p95",
+    "errorRate": "Tỷ lệ lỗi khởi chạy",
+    "launches": "{{success}} thành công / {{fail}} lỗi",
+    "na": "N/A",
+    "loadFailed": "Không tải được số liệu hệ thống",
+    "desktopOnly": "Số liệu hệ thống chỉ có trong ứng dụng desktop."
+  },
   "engine": {
     "downloading": "Đang chuẩn bị engine trình duyệt",
     "phase": {

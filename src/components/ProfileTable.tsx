@@ -27,7 +27,7 @@ import {
   Terminal,
   Trash2,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Folder, Platform, Profile } from "../lib/api";
 import { ExtensionsPanel, FolderPanel, MenuItem, Popover, TagPanel } from "./Popover";
@@ -63,6 +63,10 @@ export const DEFAULT_COLUMNS: ColumnVisibility = {
   os: true,
   lastStart: true,
 };
+
+/** (W26c) Windowing: fixed row height (W15/F4) + overscan rows above/below. */
+const ROW_HEIGHT = 49;
+const OVERSCAN = 10;
 
 /** Relative "14 hours ago" formatting for the Last start column. */
 function relativeTime(iso: string, locale: string): string {
@@ -544,6 +548,47 @@ export function ProfileTable({
   const { t, i18n } = useTranslation();
   const [pickerOpen, setPickerOpen] = useState(false);
 
+  // (W26c) Manual windowing: only mount ~viewport+overscan rows. The scroll
+  // container is owned here so the slice tracks the real scroll element.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportH, setViewportH] = useState(0);
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const measure = () => setViewportH(el.clientHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Small lists (or unmeasured container, e.g. tests) render fully as before.
+  let start = 0;
+  let end = rows.length;
+  if (viewportH > 0 && rows.length * ROW_HEIGHT > viewportH) {
+    start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+    end = Math.min(
+      rows.length,
+      Math.ceil((scrollTop + viewportH) / ROW_HEIGHT) + OVERSCAN,
+    );
+  }
+  // Keep the row being renamed mounted: RenameInput submits on blur, so
+  // unmounting it mid-scroll would fire a stray submit.
+  if (renamingId) {
+    const idx = rows.findIndex((r) => r.id === renamingId);
+    if (idx >= 0) {
+      start = Math.min(start, idx);
+      end = Math.max(end, idx + 1);
+    }
+  }
+  const visibleRows = rows.slice(start, end);
+  const padTop = start * ROW_HEIGHT;
+  const padBottom = (rows.length - end) * ROW_HEIGHT;
+  // 6 fixed columns (checkbox, favorite, launch, name, column picker, menu).
+  const colCount = 6 + ALL_COLUMNS.filter((key) => columns[key]).length;
+
   const pageIds = rows.map((r) => r.id);
   const allChecked = rows.length > 0 && pageIds.every((id) => selected.has(id));
   const someChecked = pageIds.some((id) => selected.has(id));
@@ -562,6 +607,11 @@ export function ProfileTable({
   const th = "h-10 px-3 text-left align-middle text-xs font-medium text-fg";
 
   return (
+    <div
+      ref={scrollRef}
+      onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+      className="min-h-0 flex-1 overflow-auto"
+    >
     <table className="w-full text-sm">
       <thead className="sticky top-0 z-10 border-b border-border bg-surface-2">
         <tr className="h-10 border-b border-border">
@@ -661,7 +711,12 @@ export function ProfileTable({
         </tr>
       </thead>
       <tbody>
-        {rows.map((p) => {
+        {padTop > 0 && (
+          <tr aria-hidden="true">
+            <td colSpan={colCount} className="p-0" style={{ height: padTop }} />
+          </tr>
+        )}
+        {visibleRows.map((p) => {
           const running = runningIds.has(p.id);
           const isSelected = selected.has(p.id);
           return (
@@ -829,7 +884,13 @@ export function ProfileTable({
             </tr>
           );
         })}
+        {padBottom > 0 && (
+          <tr aria-hidden="true">
+            <td colSpan={colCount} className="p-0" style={{ height: padBottom }} />
+          </tr>
+        )}
       </tbody>
     </table>
+    </div>
   );
 }

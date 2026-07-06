@@ -3493,12 +3493,15 @@ mod tests {
         assert_eq!(db.list_audit(None, None, None, 1000).unwrap().len(), 200);
     }
 
-    #[test]
-    fn five_thousand_profiles_list_and_search_are_fast() {
+    /// (W26c) Canary hiệu năng dùng chung: insert `n` profile (giữ tên 4 chữ số
+    /// để "profile-09" luôn khớp đúng 100 bản ghi) rồi đo list/search/tag/filter.
+    /// Số đo thật in ra bằng `println!` (chạy `cargo test -- --nocapture` để xem).
+    fn run_profile_perf_canary(n: usize) {
+        assert!(n <= 10_000, "tên profile-{{i:04}} chỉ đúng invariant tới 10_000");
         let (db, _guard) = temp_db();
 
         let t_insert = std::time::Instant::now();
-        for i in 0..5000 {
+        for i in 0..n {
             db.create_profile(ProfileInput {
                 name: format!("profile-{i:04}"),
                 tags: if i % 10 == 0 {
@@ -3515,7 +3518,7 @@ mod tests {
         let t_list = std::time::Instant::now();
         let all = db.list_profiles().unwrap();
         let list_ms = t_list.elapsed().as_millis();
-        assert_eq!(all.len(), 5000);
+        assert_eq!(all.len(), n);
 
         let t_search = std::time::Instant::now();
         let hits = db
@@ -3527,16 +3530,43 @@ mod tests {
         let t_tag = std::time::Instant::now();
         let vips = db.search_profiles("profile", &tag_filter("vip")).unwrap();
         let tag_ms = t_tag.elapsed().as_millis();
-        assert_eq!(vips.len(), 500);
+        assert_eq!(vips.len(), n / 10);
+
+        // Filter kết hợp query + ProfileFilter (has_proxy=false khớp toàn bộ n
+        // vì chưa gán proxy) — đo đường JOIN profile_proxy.
+        let t_filter = std::time::Instant::now();
+        let unproxied = db
+            .search_profiles(
+                "profile",
+                &ProfileFilter {
+                    has_proxy: Some(false),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let filter_ms = t_filter.elapsed().as_millis();
+        assert_eq!(unproxied.len(), n);
 
         println!(
-            "5000 profiles: insert={insert_ms}ms list={list_ms}ms search={search_ms}ms tag_search={tag_ms}ms"
+            "{n} profiles: insert={insert_ms}ms list={list_ms}ms search={search_ms}ms tag_search={tag_ms}ms filter={filter_ms}ms"
         );
-        // Mục tiêu docs: <200ms p95 (release) cho 1000. Debug build chậm hơn và
-        // canary 5000 profile (5×) → ngưỡng 5000ms chống flaky.
+        // Mục tiêu docs: <200ms p95 (release) cho 1000. Debug build chậm hơn
+        // nhiều lần → ngưỡng 5000ms đặt dư chống flaky trên CI.
         assert!(list_ms < 5000, "list_profiles too slow: {list_ms}ms");
         assert!(search_ms < 5000, "search_profiles too slow: {search_ms}ms");
         assert!(tag_ms < 5000, "tag search too slow: {tag_ms}ms");
+        assert!(filter_ms < 5000, "filter search too slow: {filter_ms}ms");
+    }
+
+    #[test]
+    fn five_thousand_profiles_list_and_search_are_fast() {
+        run_profile_perf_canary(5000);
+    }
+
+    /// (W26c) Exit-criteria: ≥10.000 profile stored, list/search vẫn nhanh.
+    #[test]
+    fn ten_thousand_profiles_list_search_filter_are_fast() {
+        run_profile_perf_canary(10_000);
     }
 
     #[test]

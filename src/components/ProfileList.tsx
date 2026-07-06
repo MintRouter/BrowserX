@@ -441,42 +441,41 @@ export function ProfileList(props: ProfileListProps) {
             <p className="text-sm text-fg-muted">{t("table.noMatches")}</p>
           </div>
         ) : (
-          <div className="flex-1 overflow-auto">
-            <ProfileTable
-              rows={paged}
-              folders={folders}
-              runningIds={runningIds}
-              crashedIds={props.crashedIds}
-              selected={selected}
-              sizes={sizes}
-              onToggleRow={toggleRow}
-              onTogglePage={togglePage}
-              sort={sort}
-              onSortChange={setSort}
-              columns={columns}
-              onColumnsChange={setColumns}
-              onToggleFavorite={(p) => void props.onToggleFavorite(p)}
-              onLaunch={props.onLaunch}
-              onStop={props.onStop}
-              onEdit={props.onEdit}
-              onClone={(p) => void props.onClone(p)}
-              onExport={(p) => void handleExport(p)}
-              onExportCookies={(p) => setCookieDialog({ mode: "export", profiles: [p] })}
-              onImportCookies={(p) => setCookieDialog({ mode: "import", profiles: [p] })}
-              onCookieRobot={setRobotProfile}
-              onMove={(ids, folderId) => void props.onMove(ids, folderId)}
-              onAddTags={(ids, tags) => void props.onAddTags(ids, tags)}
-              onClearCache={(ids) => void handleClearCache(ids)}
-              onTrash={(ids) => void props.onTrash(ids)}
-              renamingId={renamingId}
-              onRenameStart={setRenamingId}
-              onRenameSubmit={(id, name) => void handleRenameSubmit(id, name)}
-              onRenameCancel={() => setRenamingId(null)}
-              onCopyId={(id) => void handleCopyId(id)}
-              onCopyCdpUrl={(id) => void handleCopyCdpUrl(id)}
-              onBringToFront={(id) => void handleBringToFront(id)}
-            />
-          </div>
+          /* (W26c) ProfileTable owns the scroll container (windowed rows). */
+          <ProfileTable
+            rows={paged}
+            folders={folders}
+            runningIds={runningIds}
+            crashedIds={props.crashedIds}
+            selected={selected}
+            sizes={sizes}
+            onToggleRow={toggleRow}
+            onTogglePage={togglePage}
+            sort={sort}
+            onSortChange={setSort}
+            columns={columns}
+            onColumnsChange={setColumns}
+            onToggleFavorite={(p) => void props.onToggleFavorite(p)}
+            onLaunch={props.onLaunch}
+            onStop={props.onStop}
+            onEdit={props.onEdit}
+            onClone={(p) => void props.onClone(p)}
+            onExport={(p) => void handleExport(p)}
+            onExportCookies={(p) => setCookieDialog({ mode: "export", profiles: [p] })}
+            onImportCookies={(p) => setCookieDialog({ mode: "import", profiles: [p] })}
+            onCookieRobot={setRobotProfile}
+            onMove={(ids, folderId) => void props.onMove(ids, folderId)}
+            onAddTags={(ids, tags) => void props.onAddTags(ids, tags)}
+            onClearCache={(ids) => void handleClearCache(ids)}
+            onTrash={(ids) => void props.onTrash(ids)}
+            renamingId={renamingId}
+            onRenameStart={setRenamingId}
+            onRenameSubmit={(id, name) => void handleRenameSubmit(id, name)}
+            onRenameCancel={() => setRenamingId(null)}
+            onCopyId={(id) => void handleCopyId(id)}
+            onCopyCdpUrl={(id) => void handleCopyCdpUrl(id)}
+            onBringToFront={(id) => void handleBringToFront(id)}
+          />
         )}
         <TableFooter
           total={filtered.length}

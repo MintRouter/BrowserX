@@ -429,6 +429,21 @@ export interface AuditQuery {
   limit?: number;
 }
 
+/** (W26b) System metrics snapshot for the Settings "System" panel.
+ * Launch counters + p95 are in-memory since app start (reset on restart);
+ * RAM is the main browser process RSS only (null/missing = not measurable). */
+export interface SystemMetrics {
+  live_sessions: number;
+  /** Sum of measured session RSS in MB; null when sessions exist but RSS is unavailable (e.g. Windows). */
+  ram_total_mb: number | null;
+  /** Per-session RSS in MB — may have fewer entries than live_sessions. */
+  ram_per_session_mb: number[];
+  /** p95 of successful launch durations (last 100 samples); null when no samples. */
+  launch_p95_ms: number | null;
+  launch_success: number;
+  launch_fail: number;
+}
+
 /** Settings key: auto-clear a profile's cache when its session stops ("true"/"false"). */
 export const AUTO_CLEAR_CACHE_SETTING = "auto_clear_cache_on_stop";
 
@@ -615,6 +630,9 @@ export const api = {
       beforeId: query?.beforeId ?? null,
       limit: query?.limit ?? 50,
     }),
+
+  // Observability (W26b) — live sessions / RAM / launch p95 / error counters.
+  getMetrics: () => invoke<SystemMetrics>("get_metrics"),
 };
 
 // --- Events ---

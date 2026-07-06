@@ -33,6 +33,7 @@ use crate::error::{AppError, Result};
 use crate::models::{
     Extension, Folder, Profile, ProfileTemplate, Proxy, ProxyTemplate, RunningSession,
 };
+use crate::metrics::LaunchMetrics;
 use crate::process::ProcessManager;
 use crate::proxy_check::{self, ProxyCheckResult};
 use crate::{binary, cdp, cookierobot, cookies, crypto, extensions, launcher, storage};
@@ -46,6 +47,8 @@ pub struct AppState {
     pub quitting: AtomicBool,
     /// (P3-4a) CookieRobot đang chạy theo profile_id — cancel token để stop.
     pub robots: cookierobot::RobotRegistry,
+    /// (W26b) Counter launch success/fail + ring buffer duration — since app start.
+    pub metrics: LaunchMetrics,
 }
 
 // ---------------------------------------------------------------------------
@@ -658,13 +661,31 @@ pub async fn check_proxy(
 // Session (launch/stop/list_running)
 // ---------------------------------------------------------------------------
 
+/// (W26b) Wrapper đo metrics quanh launch: duration chỉ ghi khi THÀNH CÔNG
+/// (p95 là latency launch ok), mọi lỗi (kể cả CDP attach) đếm vào `fail`.
 #[tauri::command]
 pub async fn launch_profile(
     app: AppHandle,
     state: State<'_, AppState>,
     profile_id: String,
 ) -> Result<RunningSession> {
-    let profile = state.db.get_profile(&profile_id)?;
+    let t0 = std::time::Instant::now();
+    let res = launch_profile_inner(&app, &state, &profile_id).await;
+    match &res {
+        Ok(_) => state
+            .metrics
+            .record_success(t0.elapsed().as_millis() as u64),
+        Err(_) => state.metrics.record_fail(),
+    }
+    res
+}
+
+async fn launch_profile_inner(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+    profile_id: &str,
+) -> Result<RunningSession> {
+    let profile = state.db.get_profile(profile_id)?;
 
     let proxy_url = match profile.proxy_id.as_deref() {
         Some(pid) => Some(proxy_url_from(&state.db.get_proxy(pid)?)?),
@@ -688,31 +709,31 @@ pub async fn launch_profile(
     let cdp_port = state.procs.allocate_cdp_port()?;
     // (P3-1a) Extension gán từ kho trung tâm (chỉ enabled) — merge với legacy
     // profile.extensions bên trong build_args.
-    let assigned_exts = state.db.profile_extension_paths(&profile_id)?;
+    let assigned_exts = state.db.profile_extension_paths(profile_id)?;
     let args = launcher::build_args(&profile, proxy_url.as_deref(), cdp_port, &assigned_exts);
     let program = binary_path.to_string_lossy().into_owned();
 
     let session = state
         .procs
-        .spawn(&profile_id, &program, args, cdp_port)
+        .spawn(profile_id, &program, args, cdp_port)
         .await?;
 
     if let Err(e) = cdp::attach(cdp_port).await {
         tracing::error!("launch_profile {profile_id}: CDP attach failed: {e}");
-        let _ = state.procs.stop(&profile_id).await;
-        emit_status(&app, &profile_id, "error", None, None);
+        let _ = state.procs.stop(profile_id).await;
+        emit_status(app, profile_id, "error", None, None);
         return Err(e);
     }
 
-    state.db.touch_last_start(&profile_id)?;
+    state.db.touch_last_start(profile_id)?;
     state.db.insert_audit(
         "profile.launch",
-        Some(&profile_id),
+        Some(profile_id),
         Some(&json!({ "pid": session.pid, "cdp_port": cdp_port })),
     )?;
     emit_status(
-        &app,
-        &profile_id,
+        app,
+        profile_id,
         "running",
         Some(session.pid),
         Some(session.cdp_url.clone()),
@@ -1791,6 +1812,78 @@ pub fn list_audit(
         before_id,
         limit.unwrap_or(50),
     )
+}
+
+// ---------------------------------------------------------------------------
+// Observability (W26b)
+// ---------------------------------------------------------------------------
+
+/// (W26b) Snapshot metrics cho panel System trong Settings.
+/// Counter launch + p95 là in-memory "since app start" (xem metrics.rs).
+#[derive(Debug, Clone, Serialize)]
+pub struct MetricsSnapshot {
+    pub live_sessions: u32,
+    /// Tổng RSS các phiên đo được; `None` khi có phiên nhưng không đo được
+    /// (Windows, hoặc `ps` lỗi) — UI hiển thị N/A thay vì fake 0.
+    pub ram_total_mb: Option<u64>,
+    /// RSS từng phiên đo được (MB) — có thể ít hơn `live_sessions`.
+    pub ram_per_session_mb: Vec<u64>,
+    /// p95 duration launch THÀNH CÔNG (100 mẫu gần nhất); `None` khi chưa có mẫu.
+    pub launch_p95_ms: Option<u64>,
+    pub launch_success: u64,
+    pub launch_fail: u64,
+}
+
+/// RSS (MB) của pid qua `ps -o rss= -p <pid>` (kB → MB). CHỈ đo process
+/// Chromium chính — renderer con không tính (không thêm dep sysinfo).
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+async fn rss_mb(pid: u32) -> Option<u64> {
+    let out = tokio::process::Command::new("ps")
+        .args(["-o", "rss=", "-p", &pid.to_string()])
+        .output()
+        .await
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let kb: u64 = String::from_utf8_lossy(&out.stdout).trim().parse().ok()?;
+    Some(kb / 1024)
+}
+
+/// Windows: chưa đo RSS (không có `ps`, không thêm dep) → UI hiển thị N/A.
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+async fn rss_mb(_pid: u32) -> Option<u64> {
+    None
+}
+
+/// (W26b) Metrics realtime: phiên live (registry đã reap zombie), RSS/phiên,
+/// launch p95 + success/fail counter. An toàn khi 0 phiên (list rỗng, Some(0)).
+#[tauri::command]
+pub async fn get_metrics(state: State<'_, AppState>) -> Result<MetricsSnapshot> {
+    let sessions = state.procs.list_running().await;
+    let live_sessions = sessions.len() as u32;
+
+    let mut ram_per_session_mb = Vec::with_capacity(sessions.len());
+    for s in &sessions {
+        if let Some(mb) = rss_mb(s.pid).await {
+            ram_per_session_mb.push(mb);
+        }
+    }
+    let ram_total_mb = if ram_per_session_mb.is_empty() && live_sessions > 0 {
+        None
+    } else {
+        Some(ram_per_session_mb.iter().sum())
+    };
+
+    let (launch_success, launch_fail, launch_p95_ms) = state.metrics.snapshot();
+    Ok(MetricsSnapshot {
+        live_sessions,
+        ram_total_mb,
+        ram_per_session_mb,
+        launch_p95_ms,
+        launch_success,
+        launch_fail,
+    })
 }
 
 #[cfg(test)]

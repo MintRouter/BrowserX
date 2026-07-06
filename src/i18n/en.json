@@ -542,6 +542,20 @@
     "loadFailed": "Failed to load the audit log",
     "desktopOnly": "The audit log is only available in the desktop app."
   },
+  "system": {
+    "title": "System",
+    "hint": "Live session and launch metrics. Launch counters reset when the app restarts.",
+    "liveSessions": "Live sessions",
+    "ramTotal": "RAM total",
+    "ramPerSession": "RAM / session (avg)",
+    "ramNote": "RAM is the main browser process (RSS) only — child renderer processes are not counted. N/A where it cannot be measured.",
+    "launchP95": "Launch p95",
+    "errorRate": "Launch error rate",
+    "launches": "{{success}} ok / {{fail}} failed",
+    "na": "N/A",
+    "loadFailed": "Failed to load system metrics",
+    "desktopOnly": "System metrics are only available in the desktop app."
+  },
   "engine": {
     "downloading": "Setting up browser engine",
     "phase": {

@@ -27,6 +27,7 @@ pub mod export;
 pub mod extensions;
 pub mod launcher;
 pub mod logging;
+pub mod metrics;
 pub mod models;
 pub mod process;
 pub mod proxy_check;
@@ -64,6 +65,7 @@ pub fn run() {
                 procs,
                 quitting: std::sync::atomic::AtomicBool::new(false),
                 robots: cookierobot::RobotRegistry::default(),
+                metrics: metrics::LaunchMetrics::default(),
             });
             Ok(())
         })
@@ -150,6 +152,7 @@ pub fn run() {
             commands::assign_extensions,
             commands::get_profile_extensions,
             commands::list_audit,
+            commands::get_metrics,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

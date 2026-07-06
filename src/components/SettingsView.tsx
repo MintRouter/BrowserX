@@ -6,6 +6,7 @@ import { useTheme } from "../lib/theme";
 import { Toggle } from "./profile-form/controls";
 import { AuditLog } from "./settings/AuditLog";
 import { BackupDialog } from "./settings/BackupDialog";
+import { SystemPanel } from "./settings/SystemPanel";
 import { ThemeCards } from "./settings/ThemeCards";
 
 /** Fallback persistence when running outside Tauri (plain browser dev). */
@@ -182,6 +183,11 @@ export function SettingsView() {
                 {t("backup.restoreButton")}
               </button>
             </SettingRow>
+          </Section>
+
+          <Section title={t("system.title")}>
+            <p className="text-xs text-fg-muted">{t("system.hint")}</p>
+            <SystemPanel />
           </Section>
 
           <Section title={t("audit.title")}>
