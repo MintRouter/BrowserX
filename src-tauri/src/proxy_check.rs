@@ -110,6 +110,25 @@ async fn fetch_text(client: &reqwest::Client, url: &str) -> Result<String> {
 /// Check proxy: IP-echo chính là ipify (JSON), fallback ifconfig.me (text).
 /// Latency = thời gian của request thành công. Country best-effort qua ipapi.co.
 pub async fn check_proxy_url(proxy_url: &str) -> ProxyCheckResult {
+    check_proxy_url_with(
+        proxy_url,
+        &["https://api.ipify.org?format=json", "https://ifconfig.me/ip"],
+        Some("https://ipapi.co/{ip}/country_name/"),
+        CHECK_TIMEOUT,
+    )
+    .await
+}
+
+/// Lõi check với endpoint + timeout tham số hoá (W33a: cho harness offline trỏ
+/// vào server local, timeout ngắn). `ip_echo_urls` thử lần lượt tới khi có IP;
+/// `country_url_template` chứa placeholder `{ip}` (None → bỏ qua country).
+/// `check_proxy_url` gọi vào đây với endpoint production — hành vi không đổi.
+pub async fn check_proxy_url_with(
+    proxy_url: &str,
+    ip_echo_urls: &[&str],
+    country_url_template: Option<&str>,
+    timeout: Duration,
+) -> ProxyCheckResult {
     let fail = |msg: String| ProxyCheckResult {
         ok: false,
         external_ip: None,
@@ -117,14 +136,14 @@ pub async fn check_proxy_url(proxy_url: &str) -> ProxyCheckResult {
         latency_ms: None,
         error: Some(msg),
     };
-    let client = match proxied_client(proxy_url, CHECK_TIMEOUT) {
+    let client = match proxied_client(proxy_url, timeout) {
         Ok(c) => c,
         Err(e) => return fail(e.to_string()),
     };
 
     let mut last_err = String::new();
     let mut found: Option<(String, u64)> = None;
-    for url in ["https://api.ipify.org?format=json", "https://ifconfig.me/ip"] {
+    for url in ip_echo_urls {
         let started = Instant::now();
         match fetch_text(&client, url).await {
             Ok(body) => match parse_ip_response(&body) {
@@ -142,13 +161,16 @@ pub async fn check_proxy_url(proxy_url: &str) -> ProxyCheckResult {
     };
 
     // Country best-effort — đi qua chính proxy để phản ánh ngữ cảnh exit IP.
-    let country = match proxied_client(proxy_url, COUNTRY_TIMEOUT) {
-        Ok(c) => fetch_text(&c, &format!("https://ipapi.co/{ip}/country_name/"))
-            .await
-            .ok()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty() && !s.contains("error")),
-        Err(_) => None,
+    let country = match country_url_template {
+        Some(tpl) => match proxied_client(proxy_url, timeout.min(COUNTRY_TIMEOUT)) {
+            Ok(c) => fetch_text(&c, &tpl.replace("{ip}", &ip))
+                .await
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty() && !s.contains("error")),
+            Err(_) => None,
+        },
+        None => None,
     };
 
     ProxyCheckResult {
