@@ -74,6 +74,20 @@ export interface Profile {
   store_sw_cache: boolean;
   /** (W24b) Local unpacked extension paths — passed as --load-extension on launch. */
   extensions: string[];
+  /** (P3-5a) Browser brand (Chrome/Edge/Opera/Vivaldi). Null = auto. → --fingerprint-brand. */
+  nav_brand: string | null;
+  /** (P3-5a) Brand version (UA + Client Hints). Null = auto. → --fingerprint-brand-version. */
+  nav_brand_version: string | null;
+  /** (P3-5a) Client Hints platform version. Null = auto. → --fingerprint-platform-version. */
+  platform_version: string | null;
+  /** (P3-5a) navigator.deviceMemory in GB. Null/0 = auto. → --fingerprint-device-memory. */
+  device_memory: number | null;
+  /** (P3-5a) Target-platform fonts directory. Null = skip. → --fingerprint-fonts-dir. */
+  fonts_dir: string | null;
+  /** (P3-5a) Align font metrics with Windows (Chromium 148+). → --fingerprint-windows-font-metrics. */
+  windows_font_metrics: boolean;
+  /** (P3-5a) Override storage quota in MB. Null = auto. → --fingerprint-storage-quota. */
+  storage_quota: number | null;
 }
 
 export interface Folder {
@@ -128,6 +142,20 @@ export interface ProfileInput {
   store_sw_cache?: boolean;
   /** (W24b) Local unpacked extension paths. Default: []. */
   extensions?: string[];
+  /** (P3-5a) Browser brand (Chrome/Edge/Opera/Vivaldi). Null/omitted = auto. */
+  nav_brand?: string | null;
+  /** (P3-5a) Brand version (UA + Client Hints). Null/omitted = auto. */
+  nav_brand_version?: string | null;
+  /** (P3-5a) Client Hints platform version. Null/omitted = auto. */
+  platform_version?: string | null;
+  /** (P3-5a) navigator.deviceMemory in GB. Null/0 = auto. */
+  device_memory?: number | null;
+  /** (P3-5a) Target-platform fonts directory. Null/omitted = skip. */
+  fonts_dir?: string | null;
+  /** (P3-5a) Align font metrics with Windows (Chromium 148+). Default: false. */
+  windows_font_metrics?: boolean;
+  /** (P3-5a) Override storage quota in MB. Null/omitted = auto. */
+  storage_quota?: number | null;
   /**
    * Target folder. NOTE: the Rust ProfileInput/ProfileUpdate structs do not
    * (yet) read this field — serde ignores it. Callers must follow up with

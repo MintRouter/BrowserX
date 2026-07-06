@@ -127,6 +127,35 @@ pub fn build_args(
         ));
     }
 
+    // (P3-5a) Fingerprint controls sâu — flag `--fingerprint-*` THẬT của binary
+    // (xác minh trong refs/CloakBrowser/README.md flag table). Chỉ emit khi field
+    // có giá trị → profile cũ (mọi field None/false) KHÔNG đổi hành vi.
+    if let Some(b) = profile.nav_brand.as_deref().filter(|s| !s.is_empty()) {
+        args.set(format!("--fingerprint-brand={}", b));
+    }
+    if let Some(v) = profile.nav_brand_version.as_deref().filter(|s| !s.is_empty()) {
+        args.set(format!("--fingerprint-brand-version={}", v));
+    }
+    if let Some(v) = profile
+        .platform_version
+        .as_deref()
+        .filter(|s| !s.is_empty())
+    {
+        args.set(format!("--fingerprint-platform-version={}", v));
+    }
+    if let Some(m) = profile.device_memory.filter(|m| *m > 0) {
+        args.set(format!("--fingerprint-device-memory={}", m));
+    }
+    if let Some(d) = profile.fonts_dir.as_deref().filter(|s| !s.is_empty()) {
+        args.set(format!("--fingerprint-fonts-dir={}", d));
+    }
+    if profile.windows_font_metrics {
+        args.set("--fingerprint-windows-font-metrics");
+    }
+    if let Some(q) = profile.storage_quota.filter(|q| *q > 0) {
+        args.set(format!("--fingerprint-storage-quota={}", q));
+    }
+
     // (W19c) Fingerprint controls nâng cao — flag thật của CloakBrowser binary.
     // Noise injection (canvas/WebGL/audio/client-rects) bật mặc định trong binary;
     // chỉ cần emit khi TẮT.
@@ -277,6 +306,13 @@ mod tests {
             store_passwords: true,
             store_sw_cache: true,
             extensions: serde_json::json!([]),
+            nav_brand: None,
+            nav_brand_version: None,
+            platform_version: None,
+            device_memory: None,
+            fonts_dir: None,
+            windows_font_metrics: false,
+            storage_quota: None,
         }
     }
 
@@ -541,5 +577,89 @@ mod tests {
         let args = build_args(&p, None, 1);
         let v = value_of(&args, "--fingerprint-platform").unwrap();
         assert!(v == "macos" || v == "windows");
+    }
+
+    // (P3-5a) Fingerprint controls sâu: mặc định (profile cũ) KHÔNG emit flag nào.
+    #[test]
+    fn deep_fp_defaults_emit_nothing() {
+        let args = build_args(&base_profile(), None, 1);
+        for key in [
+            "--fingerprint-brand",
+            "--fingerprint-brand-version",
+            "--fingerprint-platform-version",
+            "--fingerprint-device-memory",
+            "--fingerprint-fonts-dir",
+            "--fingerprint-windows-font-metrics",
+            "--fingerprint-storage-quota",
+        ] {
+            assert_eq!(count_key(&args, key), 0, "unexpected {key}");
+        }
+    }
+
+    // (P3-5a) Có giá trị → emit đúng flag + giá trị cho ≥5 field mới.
+    #[test]
+    fn deep_fp_string_flags_emit_when_set() {
+        let mut p = base_profile();
+        p.nav_brand = Some("Edge".into());
+        p.nav_brand_version = Some("120.0.0.0".into());
+        p.platform_version = Some("15.0.0".into());
+        p.fonts_dir = Some("/home/u/.fonts/win".into());
+        let args = build_args(&p, None, 1);
+        assert_eq!(value_of(&args, "--fingerprint-brand"), Some("Edge"));
+        assert_eq!(
+            value_of(&args, "--fingerprint-brand-version"),
+            Some("120.0.0.0")
+        );
+        assert_eq!(
+            value_of(&args, "--fingerprint-platform-version"),
+            Some("15.0.0")
+        );
+        assert_eq!(
+            value_of(&args, "--fingerprint-fonts-dir"),
+            Some("/home/u/.fonts/win")
+        );
+    }
+
+    // (P3-5a) String rỗng KHÔNG emit (giống các field chuyên biệt khác).
+    #[test]
+    fn deep_fp_empty_strings_omitted() {
+        let mut p = base_profile();
+        p.nav_brand = Some("".into());
+        p.fonts_dir = Some("".into());
+        let args = build_args(&p, None, 1);
+        assert_eq!(count_key(&args, "--fingerprint-brand"), 0);
+        assert_eq!(count_key(&args, "--fingerprint-fonts-dir"), 0);
+    }
+
+    // (P3-5a) device_memory/storage_quota: chỉ emit khi Some & >0.
+    #[test]
+    fn deep_fp_numeric_flags_emit_only_when_positive() {
+        let mut p = base_profile();
+        p.device_memory = Some(0);
+        p.storage_quota = Some(0);
+        let args = build_args(&p, None, 1);
+        assert_eq!(count_key(&args, "--fingerprint-device-memory"), 0);
+        assert_eq!(count_key(&args, "--fingerprint-storage-quota"), 0);
+
+        p.device_memory = Some(8);
+        p.storage_quota = Some(5000);
+        let args = build_args(&p, None, 1);
+        assert_eq!(value_of(&args, "--fingerprint-device-memory"), Some("8"));
+        assert_eq!(value_of(&args, "--fingerprint-storage-quota"), Some("5000"));
+    }
+
+    // (P3-5a) windows_font_metrics: cờ boolean, chỉ emit khi true.
+    #[test]
+    fn deep_fp_windows_font_metrics_bool_flag() {
+        let mut p = base_profile();
+        assert_eq!(
+            count_key(&build_args(&p, None, 1), "--fingerprint-windows-font-metrics"),
+            0
+        );
+        p.windows_font_metrics = true;
+        let args = build_args(&p, None, 1);
+        assert!(args
+            .iter()
+            .any(|a| a == "--fingerprint-windows-font-metrics"));
     }
 }

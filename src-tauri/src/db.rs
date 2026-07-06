@@ -77,6 +77,20 @@ pub struct ProfileInput {
     pub store_passwords: Option<bool>,
     /// (W20b) Giữ service-worker cache (None → default true).
     pub store_sw_cache: Option<bool>,
+    /// (P3-5a) Browser brand (Chrome/Edge/Opera/Vivaldi). None = auto.
+    pub nav_brand: Option<String>,
+    /// (P3-5a) Brand version (UA + Client Hints). None = auto.
+    pub nav_brand_version: Option<String>,
+    /// (P3-5a) Client Hints platform version. None = auto.
+    pub platform_version: Option<String>,
+    /// (P3-5a) navigator.deviceMemory (GB). None/0 = auto.
+    pub device_memory: Option<u32>,
+    /// (P3-5a) Thư mục fonts target-platform. None = bỏ qua.
+    pub fonts_dir: Option<String>,
+    /// (P3-5a) Căn font metrics theo Windows (Chromium 148+). None → default false.
+    pub windows_font_metrics: Option<bool>,
+    /// (P3-5a) Override storage quota (MB). None = auto.
+    pub storage_quota: Option<u32>,
 }
 
 /// Update từng phần: chỉ field `Some(_)` được ghi đè (giống `update_profile` Python).
@@ -125,6 +139,20 @@ pub struct ProfileUpdate {
     pub store_passwords: Option<bool>,
     /// (W20b) Giữ service-worker cache.
     pub store_sw_cache: Option<bool>,
+    /// (P3-5a) Browser brand (Chrome/Edge/Opera/Vivaldi).
+    pub nav_brand: Option<String>,
+    /// (P3-5a) Brand version (UA + Client Hints).
+    pub nav_brand_version: Option<String>,
+    /// (P3-5a) Client Hints platform version.
+    pub platform_version: Option<String>,
+    /// (P3-5a) navigator.deviceMemory (GB).
+    pub device_memory: Option<u32>,
+    /// (P3-5a) Thư mục fonts target-platform.
+    pub fonts_dir: Option<String>,
+    /// (P3-5a) Căn font metrics theo Windows (Chromium 148+).
+    pub windows_font_metrics: Option<bool>,
+    /// (P3-5a) Override storage quota (MB).
+    pub storage_quota: Option<u32>,
 }
 
 /// (P3-2a) Bộ lọc nâng cao cho [`Db::search_profiles`] — chỉ gồm tiêu chí có
@@ -262,7 +290,7 @@ pub struct AuditEntry {
 // ---------------------------------------------------------------------------
 
 /// Schema version hiện tại (PRAGMA user_version).
-const SCHEMA_VERSION: i64 = 10;
+const SCHEMA_VERSION: i64 = 11;
 
 const SCHEMA_V1: &str = "
 CREATE TABLE IF NOT EXISTS profiles (
@@ -467,6 +495,25 @@ CREATE TABLE IF NOT EXISTS proxy_templates (
 CREATE INDEX IF NOT EXISTS idx_proxy_templates_name ON proxy_templates(name);
 ";
 
+/// Migration v10→v11 (P3-5a): fingerprint controls sâu — flag `--fingerprint-*`
+/// THẬT của binary chưa expose. Tất cả nullable/default an toàn → profile cũ
+/// KHÔNG đổi hành vi (chỉ emit flag khi field có giá trị, xem launcher::build_args).
+/// - `nav_brand`/`nav_brand_version`/`platform_version`: UA + Client Hints.
+/// - `device_memory`/`storage_quota`: nullable INTEGER (chỉ emit khi >0).
+/// - `fonts_dir`: đường dẫn fonts target-platform.
+/// - `windows_font_metrics`: default 0 (tắt) — Chromium 148+, no-op bản cũ.
+///
+/// ALTER TABLE không có IF NOT EXISTS — idempotency đảm bảo bởi guard `user_version < 11`.
+const SCHEMA_V11: &str = "
+ALTER TABLE profiles ADD COLUMN nav_brand TEXT;
+ALTER TABLE profiles ADD COLUMN nav_brand_version TEXT;
+ALTER TABLE profiles ADD COLUMN platform_version TEXT;
+ALTER TABLE profiles ADD COLUMN device_memory INTEGER;
+ALTER TABLE profiles ADD COLUMN fonts_dir TEXT;
+ALTER TABLE profiles ADD COLUMN windows_font_metrics INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE profiles ADD COLUMN storage_quota INTEGER;
+";
+
 /// Kết nối SQLite của app. `Mutex<Connection>` để dùng được trong `tauri::State`
 /// (single-process, mọi thao tác tuần tự qua lock — đủ cho local app).
 pub struct Db {
@@ -648,6 +695,10 @@ fn migrate_inner(conn: &Connection, checkpoint: impl Fn(i64) -> Result<()>) -> R
             conn.execute_batch(SCHEMA_V10)?;
             checkpoint(10)?;
         }
+        if version < 11 {
+            conn.execute_batch(SCHEMA_V11)?;
+            checkpoint(11)?;
+        }
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         Ok(())
     })();
@@ -780,6 +831,13 @@ fn row_to_profile(row: &Row) -> rusqlite::Result<Profile> {
         store_passwords: row.get("store_passwords")?,
         store_sw_cache: row.get("store_sw_cache")?,
         extensions,
+        nav_brand: row.get("nav_brand")?,
+        nav_brand_version: row.get("nav_brand_version")?,
+        platform_version: row.get("platform_version")?,
+        device_memory: row.get("device_memory")?,
+        fonts_dir: row.get("fonts_dir")?,
+        windows_font_metrics: row.get("windows_font_metrics")?,
+        storage_quota: row.get("storage_quota")?,
     })
 }
 
@@ -900,8 +958,10 @@ impl Db {
                     color_scheme, launch_args, user_data_dir, notes, created_at, updated_at,
                     is_quick, startup_behavior, startup_urls,
                     fp_noise, webrtc_mode, webrtc_ip, geolocation_mode, geo_latitude, geo_longitude,
-                    store_history, store_passwords, store_sw_cache, extensions
-                ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34)",
+                    store_history, store_passwords, store_sw_cache, extensions,
+                    nav_brand, nav_brand_version, platform_version, device_memory, fonts_dir,
+                    windows_font_metrics, storage_quota
+                ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,?36,?37,?38,?39,?40,?41)",
                 params![
                     id,
                     input.name,
@@ -937,6 +997,13 @@ impl Db {
                     input.store_passwords.unwrap_or(true),
                     input.store_sw_cache.unwrap_or(true),
                     serde_json::to_string(&extensions)?,
+                    input.nav_brand,
+                    input.nav_brand_version,
+                    input.platform_version,
+                    input.device_memory,
+                    input.fonts_dir,
+                    input.windows_font_metrics.unwrap_or(false),
+                    input.storage_quota,
                 ],
             )?;
             if let Some(tags) = &input.tags {
@@ -1167,6 +1234,34 @@ impl Db {
         if let Some(v) = input.store_sw_cache {
             cols.push("store_sw_cache");
             values.push(sql_bool(v));
+        }
+        if let Some(v) = input.nav_brand {
+            cols.push("nav_brand");
+            values.push(sql_text(v));
+        }
+        if let Some(v) = input.nav_brand_version {
+            cols.push("nav_brand_version");
+            values.push(sql_text(v));
+        }
+        if let Some(v) = input.platform_version {
+            cols.push("platform_version");
+            values.push(sql_text(v));
+        }
+        if let Some(v) = input.device_memory {
+            cols.push("device_memory");
+            values.push(sql_int(v as i64));
+        }
+        if let Some(v) = input.fonts_dir {
+            cols.push("fonts_dir");
+            values.push(sql_text(v));
+        }
+        if let Some(v) = input.windows_font_metrics {
+            cols.push("windows_font_metrics");
+            values.push(sql_bool(v));
+        }
+        if let Some(v) = input.storage_quota {
+            cols.push("storage_quota");
+            values.push(sql_int(v as i64));
         }
 
         {

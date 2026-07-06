@@ -80,6 +80,23 @@ pub struct Profile {
     /// (W24b) Đường dẫn unpacked extension local (JSON array chuỗi) — emit
     /// `--load-extension` + `--disable-extensions-except` khi launch.
     pub extensions: serde_json::Value,
+    /// (P3-5a) Browser brand cho UA/Client Hints (Chrome/Edge/Opera/Vivaldi).
+    /// None = auto theo seed. → `--fingerprint-brand`.
+    pub nav_brand: Option<String>,
+    /// (P3-5a) Brand version (UA + Client Hints). None = auto. → `--fingerprint-brand-version`.
+    pub nav_brand_version: Option<String>,
+    /// (P3-5a) Client Hints platform version. None = auto. → `--fingerprint-platform-version`.
+    pub platform_version: Option<String>,
+    /// (P3-5a) `navigator.deviceMemory` (GB). None hoặc 0 = auto. → `--fingerprint-device-memory`.
+    pub device_memory: Option<u32>,
+    /// (P3-5a) Thư mục fonts target-platform. None = bỏ qua. → `--fingerprint-fonts-dir`.
+    pub fonts_dir: Option<String>,
+    /// (P3-5a) Căn font metrics theo Windows (Chromium 148+, no-op bản cũ). Mặc định
+    /// false. `true` → `--fingerprint-windows-font-metrics`.
+    pub windows_font_metrics: bool,
+    /// (P3-5a) Override storage quota (MB) — `storage.estimate()` v.v. None = auto.
+    /// → `--fingerprint-storage-quota`.
+    pub storage_quota: Option<u32>,
 }
 
 /// (P3-1a) Extension trong kho trung tâm (bảng `extensions`), gán N-N với

@@ -278,6 +278,14 @@ pub fn import_profile_json(db: &Db, json: &str) -> Result<Profile> {
         store_history: Some(p.store_history),
         store_passwords: Some(p.store_passwords),
         store_sw_cache: Some(p.store_sw_cache),
+        // (P3-5a) File export không mang fingerprint controls sâu → default DB.
+        nav_brand: None,
+        nav_brand_version: None,
+        platform_version: None,
+        device_memory: None,
+        fonts_dir: None,
+        windows_font_metrics: None,
+        storage_quota: None,
     })?;
 
     // Folder khớp theo TÊN (id không mang qua máy khác); không có → bỏ qua.
