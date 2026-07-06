@@ -10,6 +10,7 @@
 //!
 //! Wave 2c. `build_args`/`resolve_proxy_args` là hàm public cho W3a wiring.
 
+use crate::geoip::GeoInfo;
 use crate::models::Profile;
 
 /// Map bảo toàn thứ tự chèn; set lại key đã có sẽ cập nhật tại chỗ (giống dict Python).
@@ -59,13 +60,19 @@ fn host_default_platform() -> &'static str {
 /// `--proxy-server=<url>`. `cdp_port` là cổng remote-debugging đã cấp bởi process manager.
 /// `assigned_extensions` (P3-1a) là paths unpacked từ kho trung tâm
 /// (`db.profile_extension_paths`) — merge + dedup với legacy `profile.extensions`.
+/// `geo` (W35) là kết quả GeoIP đã resolve từ exit IP proxy (commands resolve
+/// async trước khi gọi) — CHỈ dùng làm fallback khi `profile.geoip == true` và
+/// field tương ứng trống; giá trị thủ công luôn thắng.
 pub fn build_args(
     profile: &Profile,
     proxy_url: Option<&str>,
     cdp_port: u16,
     assigned_extensions: &[String],
+    geo: Option<&GeoInfo>,
 ) -> Vec<String> {
     let mut args = OrderedArgs::new();
+    // GeoIP chỉ có hiệu lực khi profile bật cờ — geoip=false bỏ qua hoàn toàn.
+    let geo = if profile.geoip { geo } else { None };
 
     // 1) Stealth defaults (ưu tiên thấp nhất).
     args.set("--no-sandbox");
@@ -94,10 +101,27 @@ pub fn build_args(
     }
 
     // 3) Tham số chuyên biệt từ profile (ưu tiên cao nhất — luôn thắng user args).
-    if let Some(tz) = profile.timezone.as_deref().filter(|s| !s.is_empty()) {
+    // (W35) timezone/locale: thủ công thắng; trống + geoip=true → fallback GeoIP.
+    let tz = profile
+        .timezone
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            geo.and_then(|g| g.timezone.as_deref())
+                .filter(|s| !s.is_empty())
+        });
+    if let Some(tz) = tz {
         args.set(format!("--fingerprint-timezone={}", tz));
     }
-    if let Some(loc) = profile.locale.as_deref().filter(|s| !s.is_empty()) {
+    let loc = profile
+        .locale
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            geo.and_then(|g| g.locale.as_deref())
+                .filter(|s| !s.is_empty())
+        });
+    if let Some(loc) = loc {
         args.set(format!("--lang={}", loc));
         args.set(format!("--fingerprint-locale={}", loc));
     }
@@ -174,8 +198,9 @@ pub fn build_args(
         args.set(format!("--fingerprint-webrtc-ip={}", ip));
     }
     // Geolocation: "manual" + đủ lat/lon → --fingerprint-location=lat,lon.
-    if profile.geolocation_mode == "manual" {
-        if let (Some(lat), Some(lon)) = (
+    // (W35) Không có toạ độ thủ công + geoip=true → fallback toạ độ GeoIP.
+    let manual_location = if profile.geolocation_mode == "manual" {
+        match (
             profile
                 .geo_latitude
                 .as_deref()
@@ -187,8 +212,20 @@ pub fn build_args(
                 .map(str::trim)
                 .filter(|s| !s.is_empty()),
         ) {
-            args.set(format!("--fingerprint-location={},{}", lat, lon));
+            (Some(lat), Some(lon)) => Some(format!("{},{}", lat, lon)),
+            _ => None,
         }
+    } else {
+        None
+    };
+    let location = manual_location.or_else(|| {
+        geo.and_then(|g| match (g.latitude.as_deref(), g.longitude.as_deref()) {
+            (Some(lat), Some(lon)) => Some(format!("{},{}", lat, lon)),
+            _ => None,
+        })
+    });
+    if let Some(loc) = location {
+        args.set(format!("--fingerprint-location={}", loc));
     }
 
     // (W24b + P3-1a) Unpacked extensions: gộp paths gán từ kho trung tâm
@@ -261,65 +298,71 @@ pub fn resolve_proxy_args(proxy_url: Option<&str>) -> Vec<String> {
     }
 }
 
+/// Profile mẫu cho unit test (dùng chung với test module `geoip`).
+#[cfg(test)]
+pub(crate) fn test_profile() -> Profile {
+    Profile {
+        id: "p1".into(),
+        name: "test".into(),
+        fingerprint_seed: "42".into(),
+        platform: "windows".into(),
+        timezone: None,
+        locale: None,
+        screen_width: 0,
+        screen_height: 0,
+        gpu_vendor: None,
+        gpu_renderer: None,
+        hardware_concurrency: 0,
+        humanize: false,
+        human_preset: None,
+        headless: true,
+        geoip: false,
+        color_scheme: None,
+        launch_args: serde_json::json!([]),
+        user_data_dir: "/tmp/udd".into(),
+        notes: None,
+        folder_id: None,
+        favorite: false,
+        is_quick: false,
+        proxy_id: None,
+        tags: vec![],
+        created_at: "2026-07-01T00:00:00Z".into(),
+        updated_at: "2026-07-01T00:00:00Z".into(),
+        last_start_at: None,
+        startup_behavior: "restore".into(),
+        startup_urls: serde_json::json!([]),
+        fp_noise: true,
+        webrtc_mode: "real".into(),
+        webrtc_ip: None,
+        geolocation_mode: "auto".into(),
+        geo_latitude: None,
+        geo_longitude: None,
+        store_history: true,
+        store_passwords: true,
+        store_sw_cache: true,
+        extensions: serde_json::json!([]),
+        nav_brand: None,
+        nav_brand_version: None,
+        platform_version: None,
+        device_memory: None,
+        fonts_dir: None,
+        windows_font_metrics: false,
+        storage_quota: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn base_profile() -> Profile {
-        Profile {
-            id: "p1".into(),
-            name: "test".into(),
-            fingerprint_seed: "42".into(),
-            platform: "windows".into(),
-            timezone: None,
-            locale: None,
-            screen_width: 0,
-            screen_height: 0,
-            gpu_vendor: None,
-            gpu_renderer: None,
-            hardware_concurrency: 0,
-            humanize: false,
-            human_preset: None,
-            headless: true,
-            geoip: false,
-            color_scheme: None,
-            launch_args: serde_json::json!([]),
-            user_data_dir: "/tmp/udd".into(),
-            notes: None,
-            folder_id: None,
-            favorite: false,
-            is_quick: false,
-            proxy_id: None,
-            tags: vec![],
-            created_at: "2026-07-01T00:00:00Z".into(),
-            updated_at: "2026-07-01T00:00:00Z".into(),
-            last_start_at: None,
-            startup_behavior: "restore".into(),
-            startup_urls: serde_json::json!([]),
-            fp_noise: true,
-            webrtc_mode: "real".into(),
-            webrtc_ip: None,
-            geolocation_mode: "auto".into(),
-            geo_latitude: None,
-            geo_longitude: None,
-            store_history: true,
-            store_passwords: true,
-            store_sw_cache: true,
-            extensions: serde_json::json!([]),
-            nav_brand: None,
-            nav_brand_version: None,
-            platform_version: None,
-            device_memory: None,
-            fonts_dir: None,
-            windows_font_metrics: false,
-            storage_quota: None,
-        }
+        test_profile()
     }
 
     /// Shadow glob-import: đa số test không quan tâm extension gán từ kho
-    /// trung tâm → gọi bản 3 tham số, truyền `&[]` cho assigned_extensions.
+    /// trung tâm lẫn GeoIP → gọi bản 3 tham số, truyền `&[]` + `None`.
     fn build_args(profile: &Profile, proxy_url: Option<&str>, cdp_port: u16) -> Vec<String> {
-        super::build_args(profile, proxy_url, cdp_port, &[])
+        super::build_args(profile, proxy_url, cdp_port, &[], None)
     }
 
     fn value_of<'a>(args: &'a [String], key: &str) -> Option<&'a str> {
@@ -454,7 +497,7 @@ mod tests {
         let mut p = base_profile();
         // Chỉ assigned (kho trung tâm) — legacy rỗng.
         let assigned = vec!["/data/ext/store-a".to_string(), " /data/ext/store-b ".into()];
-        let args = super::build_args(&p, None, 1, &assigned);
+        let args = super::build_args(&p, None, 1, &assigned, None);
         assert_eq!(
             value_of(&args, "--load-extension"),
             Some("/data/ext/store-a,/data/ext/store-b")
@@ -462,7 +505,7 @@ mod tests {
 
         // Merge: assigned đứng trước legacy; trùng path (sau trim) chỉ giữ 1.
         p.extensions = serde_json::json!(["/data/ext/legacy", "/data/ext/store-a", ""]);
-        let args = super::build_args(&p, None, 1, &assigned);
+        let args = super::build_args(&p, None, 1, &assigned, None);
         assert_eq!(
             value_of(&args, "--load-extension"),
             Some("/data/ext/store-a,/data/ext/store-b,/data/ext/legacy")
@@ -661,5 +704,88 @@ mod tests {
         assert!(args
             .iter()
             .any(|a| a == "--fingerprint-windows-font-metrics"));
+    }
+
+    // ------------------------------------------------------------------
+    // (W35) GeoIP auto-match — geo resolve được mock bằng GeoInfo trực tiếp
+    // (không cần mạng: build_args nhận Option<&GeoInfo> đã resolve sẵn).
+    // ------------------------------------------------------------------
+
+    fn sample_geo() -> GeoInfo {
+        GeoInfo {
+            timezone: Some("Europe/Berlin".into()),
+            locale: Some("de-DE".into()),
+            latitude: Some("52.52".into()),
+            longitude: Some("13.405".into()),
+        }
+    }
+
+    // (a) geoip=true + field trống → điền timezone/locale/geolocation từ GeoIP.
+    #[test]
+    fn geoip_fills_empty_fields_from_resolved_geo() {
+        let mut p = base_profile();
+        p.geoip = true;
+        let geo = sample_geo();
+        let args = super::build_args(&p, Some("socks5://1.2.3.4:1080"), 1, &[], Some(&geo));
+        assert_eq!(
+            value_of(&args, "--fingerprint-timezone"),
+            Some("Europe/Berlin")
+        );
+        assert_eq!(value_of(&args, "--lang"), Some("de-DE"));
+        assert_eq!(value_of(&args, "--fingerprint-locale"), Some("de-DE"));
+        assert_eq!(
+            value_of(&args, "--fingerprint-location"),
+            Some("52.52,13.405")
+        );
+        // GeoInfo thiếu toạ độ → không emit location; tz/locale vẫn điền.
+        let partial = GeoInfo {
+            latitude: None,
+            longitude: None,
+            ..sample_geo()
+        };
+        let args = super::build_args(&p, Some("socks5://1.2.3.4:1080"), 1, &[], Some(&partial));
+        assert_eq!(count_key(&args, "--fingerprint-location"), 0);
+        assert_eq!(
+            value_of(&args, "--fingerprint-timezone"),
+            Some("Europe/Berlin")
+        );
+    }
+
+    // (b) geoip=true nhưng field đã set thủ công → thủ công thắng GeoIP.
+    #[test]
+    fn geoip_manual_values_win_over_geo() {
+        let mut p = base_profile();
+        p.geoip = true;
+        p.timezone = Some("Asia/Ho_Chi_Minh".into());
+        p.locale = Some("vi-VN".into());
+        p.geolocation_mode = "manual".into();
+        p.geo_latitude = Some("10.8".into());
+        p.geo_longitude = Some("106.6".into());
+        let geo = sample_geo();
+        let args = super::build_args(&p, Some("socks5://1.2.3.4:1080"), 1, &[], Some(&geo));
+        assert_eq!(
+            value_of(&args, "--fingerprint-timezone"),
+            Some("Asia/Ho_Chi_Minh")
+        );
+        assert_eq!(value_of(&args, "--lang"), Some("vi-VN"));
+        assert_eq!(value_of(&args, "--fingerprint-locale"), Some("vi-VN"));
+        assert_eq!(
+            value_of(&args, "--fingerprint-location"),
+            Some("10.8,106.6")
+        );
+        assert_eq!(count_key(&args, "--fingerprint-timezone"), 1);
+        assert_eq!(count_key(&args, "--fingerprint-location"), 1);
+    }
+
+    // (c) geoip=false → GeoInfo bị bỏ qua hoàn toàn, hành vi như trước.
+    #[test]
+    fn geoip_disabled_ignores_resolved_geo() {
+        let p = base_profile(); // geoip: false
+        let geo = sample_geo();
+        let args = super::build_args(&p, Some("socks5://1.2.3.4:1080"), 1, &[], Some(&geo));
+        assert_eq!(count_key(&args, "--fingerprint-timezone"), 0);
+        assert_eq!(count_key(&args, "--lang"), 0);
+        assert_eq!(count_key(&args, "--fingerprint-locale"), 0);
+        assert_eq!(count_key(&args, "--fingerprint-location"), 0);
     }
 }

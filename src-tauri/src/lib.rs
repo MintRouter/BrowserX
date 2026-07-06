@@ -25,6 +25,7 @@ pub mod db;
 pub mod error;
 pub mod export;
 pub mod extensions;
+pub mod geoip;
 pub mod launcher;
 pub mod logging;
 pub mod metrics;
@@ -97,6 +98,8 @@ pub fn run() {
             commands::update_proxy,
             commands::delete_proxy,
             commands::assign_proxy,
+            commands::rotate_proxy,
+            commands::rotate_proxies,
             commands::check_proxy,
             commands::list_proxy_templates,
             commands::create_proxy_template,

@@ -237,7 +237,7 @@ fn c_build_args_sets_at_least_12_of_17_fingerprint_flags() {
 
     // Đọc lại từ DB (roundtrip) rồi mới dựng args — xác nhận flow DB → launcher.
     let profile = db.get_profile(&created.id).unwrap();
-    let args = build_args(&profile, None, 9222, &[]);
+    let args = build_args(&profile, None, 9222, &[], None);
 
     let present: Vec<&str> = FP_FLAGS_17
         .iter()
@@ -342,7 +342,7 @@ async fn smoke_ensure_binary_spawn_headful_attach_cdp_best_effort() {
         .unwrap();
     let pm = ProcessManager::new(1);
     let port = pm.allocate_cdp_port().unwrap();
-    let args = build_args(&profile, None, port, &[]);
+    let args = build_args(&profile, None, port, &[], None);
     let sess = match pm
         .spawn(&profile.id, &bin.to_string_lossy(), args, port)
         .await

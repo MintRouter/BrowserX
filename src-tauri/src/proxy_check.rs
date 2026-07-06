@@ -92,16 +92,17 @@ pub fn parse_ip_response(body: &str) -> Option<String> {
     None
 }
 
-/// Client reqwest route MỌI request qua `proxy_url`.
-fn proxied_client(proxy_url: &str, timeout: Duration) -> Result<reqwest::Client> {
+/// Client reqwest route MỌI request qua `proxy_url`. `pub(crate)` để `geoip`
+/// (W35) tái dùng đường HTTP-qua-proxy này thay vì tự dựng client mới.
+pub(crate) fn proxied_client(proxy_url: &str, timeout: Duration) -> Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
         .proxy(reqwest::Proxy::all(proxy_url)?)
         .timeout(timeout)
         .build()?)
 }
 
-/// GET `url` qua client, trả body text nếu HTTP 2xx.
-async fn fetch_text(client: &reqwest::Client, url: &str) -> Result<String> {
+/// GET `url` qua client, trả body text nếu HTTP 2xx. `pub(crate)` cho `geoip`.
+pub(crate) async fn fetch_text(client: &reqwest::Client, url: &str) -> Result<String> {
     Ok(client
         .get(url)
         .send()

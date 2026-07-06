@@ -36,7 +36,7 @@ use crate::models::{
 use crate::metrics::LaunchMetrics;
 use crate::process::ProcessManager;
 use crate::proxy_check::{self, ProxyCheckResult};
-use crate::{binary, cdp, cookierobot, cookies, crypto, extensions, launcher, storage};
+use crate::{binary, cdp, cookierobot, cookies, crypto, extensions, geoip, launcher, storage};
 
 /// State toàn app — khởi tạo trong `tauri::Builder::setup` (lib.rs) rồi `.manage()`.
 pub struct AppState {
@@ -395,6 +395,38 @@ pub fn assign_proxy(
     Ok(())
 }
 
+/// (W36) Xoay proxy cho 1 profile: gán proxy healthy kế tiếp trong pool theo
+/// round-robin (bỏ qua proxy fail health-check, wrap-around) — xem
+/// [`db::Db::rotate_proxy`]. Trả proxy vừa gán.
+#[tauri::command]
+pub fn rotate_proxy(state: State<'_, AppState>, profile_id: String) -> Result<Proxy> {
+    let rec = state.db.rotate_proxy(&profile_id)?;
+    state.db.insert_audit(
+        "profile.rotate_proxy",
+        Some(&profile_id),
+        Some(&json!({ "proxy_id": rec.id })),
+    )?;
+    Ok(proxy_to_model(rec))
+}
+
+/// (W36) Xoay proxy cho nhiều profile — mỗi profile 1 audit, kết quả theo đúng
+/// thứ tự `profile_ids`. Fail-fast: lỗi ở profile nào → dừng tại đó, các
+/// profile đã xoay trước đó giữ nguyên gán mới.
+#[tauri::command]
+pub fn rotate_proxies(state: State<'_, AppState>, profile_ids: Vec<String>) -> Result<Vec<Proxy>> {
+    let mut out = Vec::with_capacity(profile_ids.len());
+    for pid in &profile_ids {
+        let rec = state.db.rotate_proxy(pid)?;
+        state.db.insert_audit(
+            "profile.rotate_proxy",
+            Some(pid),
+            Some(&json!({ "proxy_id": rec.id })),
+        )?;
+        out.push(proxy_to_model(rec));
+    }
+    Ok(out)
+}
+
 // ---------------------------------------------------------------------------
 // Proxy templates (P3-3a) — cấu hình proxy dùng lại được, credential mã hoá
 // như proxies. sticky_session/traffic_saver là metadata ngữ nghĩa NHÀ CUNG CẤP
@@ -710,7 +742,28 @@ async fn launch_profile_inner(
     // (P3-1a) Extension gán từ kho trung tâm (chỉ enabled) — merge với legacy
     // profile.extensions bên trong build_args.
     let assigned_exts = state.db.profile_extension_paths(profile_id)?;
-    let args = launcher::build_args(&profile, proxy_url.as_deref(), cdp_port, &assigned_exts);
+    // (W35) GeoIP auto-match: geoip=true + có proxy + còn field trống → resolve
+    // tz/locale/geo từ exit IP của proxy. Best-effort: lỗi mạng → launch tiếp
+    // với giá trị profile như cũ. Thủ công thắng (xem launcher::build_args).
+    let geo = match proxy_url.as_deref() {
+        Some(url) if geoip::profile_needs_geoip(&profile) => {
+            let g = geoip::resolve_geo(url).await;
+            if g.is_none() {
+                tracing::warn!(
+                    "launch_profile {profile_id}: GeoIP resolve thất bại — bỏ qua auto-match"
+                );
+            }
+            g
+        }
+        _ => None,
+    };
+    let args = launcher::build_args(
+        &profile,
+        proxy_url.as_deref(),
+        cdp_port,
+        &assigned_exts,
+        geo.as_ref(),
+    );
     let program = binary_path.to_string_lossy().into_owned();
 
     let session = state
@@ -979,8 +1032,8 @@ async fn open_cookie_session(
     p.headless = true;
     p.startup_behavior = "custom".into(); // không --restore-last-session
     p.startup_urls = json!([]); // không mở URL nào
-    // Phiên tạm thao tác cookie: không cần extension → truyền &[].
-    let mut args = launcher::build_args(&p, None, cdp_port, &[]);
+    // Phiên tạm thao tác cookie: không cần extension/GeoIP → truyền &[] + None.
+    let mut args = launcher::build_args(&p, None, cdp_port, &[], None);
     args.insert(0, "--headless=new".into());
 
     let child = tokio::process::Command::new(binary_path.as_os_str())

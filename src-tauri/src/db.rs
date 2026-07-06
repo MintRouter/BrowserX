@@ -1778,6 +1778,65 @@ impl Db {
         }
         Ok(())
     }
+
+    /// (W36) Xoay proxy: chọn proxy healthy KẾ TIẾP trong pool theo round-robin
+    /// (thứ tự insert — rowid), tính từ proxy đang gán, wrap-around khi hết pool.
+    /// Bỏ qua proxy unhealthy (`health_status = 'fail'` theo lần check gần nhất);
+    /// proxy chưa check (NULL) vẫn đủ điều kiện. Gán qua [`Db::assign_proxy`].
+    /// Pool rỗng / không còn proxy healthy → `InvalidInput` (không đổi gán hiện tại).
+    pub fn rotate_proxy(&self, profile_id: &str) -> Result<ProxyRecord> {
+        let (current, pool) = {
+            let conn = self.lock();
+            let exists = conn
+                .query_row(
+                    "SELECT 1 FROM profiles WHERE id = ?1",
+                    params![profile_id],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_some();
+            if !exists {
+                return Err(AppError::NotFound(format!("profile {profile_id}")));
+            }
+            let current: Option<String> = conn
+                .query_row(
+                    "SELECT proxy_id FROM profile_proxy WHERE profile_id = ?1",
+                    params![profile_id],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            let mut stmt = conn.prepare("SELECT id, health_status FROM proxies ORDER BY rowid")?;
+            let pool = stmt
+                .query_map([], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            (current, pool)
+        };
+        if pool.is_empty() {
+            return Err(AppError::InvalidInput(
+                "proxy pool is empty — add a proxy before rotating".into(),
+            ));
+        }
+        // Quét bắt đầu NGAY SAU proxy đang gán; chưa gán (hoặc proxy đã bị xoá
+        // khỏi pool) → từ đầu pool.
+        let start = current
+            .as_deref()
+            .and_then(|cur| pool.iter().position(|(id, _)| id == cur))
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        let next = (0..pool.len())
+            .map(|off| &pool[(start + off) % pool.len()])
+            .find(|(_, health)| health.as_deref() != Some("fail"))
+            .map(|(id, _)| id.clone())
+            .ok_or_else(|| {
+                AppError::InvalidInput(
+                    "no healthy proxy in pool — all proxies failed their last health check".into(),
+                )
+            })?;
+        self.assign_proxy(profile_id, Some(&next))?;
+        self.get_proxy(&next)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3555,6 +3614,72 @@ mod tests {
         assert!(db.delete_proxy(&proxy.id).unwrap());
         assert!(db.get_profile(&p.id).unwrap().proxy_id.is_none());
         assert_eq!(db.list_proxies().unwrap().len(), 0);
+    }
+
+    /// (W36) Rotate: round-robin theo thứ tự insert, bỏ qua proxy unhealthy
+    /// (health_status = "fail"), wrap-around; pool rỗng / toàn unhealthy →
+    /// InvalidInput rõ ràng, KHÔNG đổi gán hiện tại.
+    #[test]
+    fn rotate_proxy_round_robin_skips_unhealthy() {
+        let (db, _guard) = temp_db();
+        let p = db
+            .create_profile(ProfileInput {
+                name: "rot".into(),
+                ..Default::default()
+            })
+            .unwrap();
+
+        // Pool rỗng → lỗi rõ ràng, không panic.
+        assert!(matches!(
+            db.rotate_proxy(&p.id),
+            Err(AppError::InvalidInput(_))
+        ));
+
+        let mk = |name: &str| {
+            db.create_proxy(ProxyInput {
+                name: name.into(),
+                protocol: "http".into(),
+                host: "h".into(),
+                port: 8080,
+                ..Default::default()
+            })
+            .unwrap()
+        };
+        let a = mk("a");
+        let b = mk("b");
+        let c = mk("c");
+        db.set_proxy_health(&a.id, "ok").unwrap();
+        db.set_proxy_health(&b.id, "fail").unwrap();
+        // c chưa check (health NULL) → vẫn đủ điều kiện xoay.
+
+        // Chưa gán → bắt đầu từ đầu pool: a.
+        assert_eq!(db.rotate_proxy(&p.id).unwrap().id, a.id);
+        assert_eq!(
+            db.get_profile(&p.id).unwrap().proxy_id.as_deref(),
+            Some(a.id.as_str())
+        );
+        // a → bỏ qua b (unhealthy) → c.
+        assert_eq!(db.rotate_proxy(&p.id).unwrap().id, c.id);
+        // c → wrap-around về a.
+        assert_eq!(db.rotate_proxy(&p.id).unwrap().id, a.id);
+
+        // Toàn bộ pool unhealthy → lỗi, gán hiện tại giữ nguyên.
+        db.set_proxy_health(&a.id, "fail").unwrap();
+        db.set_proxy_health(&c.id, "fail").unwrap();
+        assert!(matches!(
+            db.rotate_proxy(&p.id),
+            Err(AppError::InvalidInput(_))
+        ));
+        assert_eq!(
+            db.get_profile(&p.id).unwrap().proxy_id.as_deref(),
+            Some(a.id.as_str())
+        );
+
+        // Profile không tồn tại → NotFound.
+        assert!(matches!(
+            db.rotate_proxy("missing"),
+            Err(AppError::NotFound(_))
+        ));
     }
 
     #[test]

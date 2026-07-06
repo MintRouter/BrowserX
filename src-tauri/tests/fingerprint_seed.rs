@@ -109,7 +109,7 @@ async fn measure(bin: &str, seed: &str, tag: &str) -> Fp {
 
     let pm = ProcessManager::new(1);
     let port = pm.allocate_cdp_port().unwrap();
-    let args = build_args(&profile, None, port, &[]);
+    let args = build_args(&profile, None, port, &[], None);
     let sess = pm
         .spawn(&profile.id, bin, args, port)
         .await
