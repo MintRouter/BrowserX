@@ -18,6 +18,7 @@ pub mod binary;
 pub mod cdp;
 pub mod commands;
 pub mod config;
+pub mod cookierobot;
 pub mod cookies;
 pub mod crypto;
 pub mod db;
@@ -62,6 +63,7 @@ pub fn run() {
                 db,
                 procs,
                 quitting: std::sync::atomic::AtomicBool::new(false),
+                robots: cookierobot::RobotRegistry::default(),
             });
             Ok(())
         })
@@ -133,6 +135,8 @@ pub fn run() {
             commands::import_profile,
             commands::export_cookies,
             commands::import_cookies,
+            commands::start_cookie_robot,
+            commands::stop_cookie_robot,
             commands::open_logs_folder,
             commands::stop_all_and_quit,
             commands::create_backup,

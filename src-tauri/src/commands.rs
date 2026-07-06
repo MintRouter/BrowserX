@@ -35,7 +35,7 @@ use crate::models::{
 };
 use crate::process::ProcessManager;
 use crate::proxy_check::{self, ProxyCheckResult};
-use crate::{binary, cdp, cookies, crypto, extensions, launcher, storage};
+use crate::{binary, cdp, cookierobot, cookies, crypto, extensions, launcher, storage};
 
 /// State toàn app — khởi tạo trong `tauri::Builder::setup` (lib.rs) rồi `.manage()`.
 pub struct AppState {
@@ -44,6 +44,8 @@ pub struct AppState {
     /// (W23a) true khi `stop_all_and_quit` đang thoát app — để ExitRequested
     /// trong lib.rs không chặn lần thoát này nữa.
     pub quitting: AtomicBool,
+    /// (P3-4a) CookieRobot đang chạy theo profile_id — cancel token để stop.
+    pub robots: cookierobot::RobotRegistry,
 }
 
 // ---------------------------------------------------------------------------
@@ -806,6 +808,109 @@ pub async fn get_cdp_ws_url(state: State<'_, AppState>, profile_id: String) -> R
         .find(|s| s.profile_id == profile_id)
         .ok_or_else(|| AppError::NotFound(format!("profile {profile_id} không chạy")))?;
     cdp::ws_url(session.cdp_port).await
+}
+
+// ---------------------------------------------------------------------------
+// CookieRobot (P3-4a) — bot nuôi cookie tuần tự 1 profile (xem cookierobot.rs)
+// ---------------------------------------------------------------------------
+
+/// Bắt đầu CookieRobot cho MỘT profile: proxy-guard trước khi start, launch
+/// profile nếu chưa chạy, rồi chạy vòng lặp goto/consent/dwell trong task nền
+/// (progress qua event `cookierobot://progress`). Err nếu list URL rỗng,
+/// proxy chết, hoặc profile đã có robot chạy.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn start_cookie_robot(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    profile_id: String,
+    urls: Vec<String>,
+    dwell_secs: u32,
+    random_order: bool,
+    process_consent: bool,
+    close_when_done: bool,
+) -> Result<()> {
+    let mut urls = cookierobot::normalize_urls(&urls);
+    if urls.is_empty() {
+        return Err(AppError::InvalidInput(
+            "cookie robot cần ít nhất 1 URL http(s) hợp lệ".into(),
+        ));
+    }
+    if random_order {
+        cookierobot::shuffle_with(&mut urls, |n| rand::random_range(0..n));
+    }
+
+    let profile = state.db.get_profile(&profile_id)?;
+    let proxy_url = match profile.proxy_id.as_deref() {
+        Some(pid) => Some(proxy_url_from(&state.db.get_proxy(pid)?)?),
+        None => None,
+    };
+
+    // Proxy-guard TRƯỚC khi start: proxy chết thì không launch/không chạy gì cả.
+    if let Some(purl) = &proxy_url {
+        let check = proxy_check::check_proxy_url(purl).await;
+        if !check.ok {
+            return Err(AppError::InvalidInput(format!(
+                "proxy của profile không hoạt động — không start cookie robot: {}",
+                check.error.unwrap_or_else(|| "unknown".into())
+            )));
+        }
+    }
+
+    // Đăng ký TRƯỚC khi launch: chặn double-start; launch fail → guard drop
+    // tự gỡ đăng ký.
+    let guard = state.robots.begin(&profile_id)?;
+
+    let running = state
+        .procs
+        .list_running()
+        .await
+        .into_iter()
+        .find(|s| s.profile_id == profile_id);
+    let cdp_port = match running {
+        Some(s) => s.cdp_port,
+        None => {
+            launch_profile(app.clone(), state.clone(), profile_id.clone())
+                .await?
+                .cdp_port
+        }
+    };
+
+    state.db.insert_audit(
+        "cookierobot.start",
+        Some(&profile_id),
+        Some(&json!({ "urls": urls.len(), "dwell_secs": dwell_secs })),
+    )?;
+
+    let job = cookierobot::RobotJob {
+        profile_id,
+        urls,
+        proxy_url,
+        cdp_port,
+        dwell_secs,
+        process_consent,
+        close_when_done,
+    };
+    tauri::async_runtime::spawn(cookierobot::run(
+        app,
+        state.procs.clone(),
+        guard,
+        job,
+    ));
+    Ok(())
+}
+
+/// Huỷ CookieRobot đang chạy của profile — cancel token đánh thức mọi điểm
+/// chờ ngay lập tức (robot emit phase "cancelled" rồi tự gỡ đăng ký).
+/// Phiên browser KHÔNG bị đóng (user stop_profile riêng nếu muốn).
+#[tauri::command]
+pub fn stop_cookie_robot(state: State<'_, AppState>, profile_id: String) -> Result<()> {
+    if !state.robots.cancel(&profile_id) {
+        return Err(AppError::NotFound(format!(
+            "không có cookie robot đang chạy cho profile {profile_id}"
+        )));
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

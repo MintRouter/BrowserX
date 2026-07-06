@@ -324,6 +324,41 @@ export interface CookieExportResult {
 /** (W24a) Cookie export formats supported by the backend. */
 export type CookieFormat = "json" | "netscape";
 
+/** (P3-4a) Options for start_cookie_robot. */
+export interface CookieRobotOptions {
+  /** URLs to visit sequentially (scheme-less entries get https:// prepended). */
+  urls: string[];
+  /** Seconds per site; 0 = random 20–40s per site (values are clamped to 3–120). */
+  dwellSecs?: number;
+  /** Shuffle the URL list before visiting. */
+  randomOrder?: boolean;
+  /** Try to click common cookie-consent "Accept" buttons on each page. */
+  processConsent?: boolean;
+  /** Softly close the browser session when the run finishes. */
+  closeWhenDone?: boolean;
+}
+
+/** (P3-4a) Payload of `cookierobot://progress`. */
+export interface CookieRobotProgressEvent {
+  profileId: string;
+  /** 1-based index of the site being processed; 0 during "starting". */
+  current: number;
+  total: number;
+  /** URL being processed; empty on global phases (starting/done/…). */
+  url: string;
+  phase:
+    | "starting"
+    | "proxy_check"
+    | "goto"
+    | "consent"
+    | "dwell"
+    | "closing"
+    | "done"
+    | "cancelled"
+    | "error";
+  error: string | null;
+}
+
 /** Settings key: auto-clear a profile's cache when its session stops ("true"/"false"). */
 export const AUTO_CLEAR_CACHE_SETTING = "auto_clear_cache_on_stop";
 
@@ -422,6 +457,20 @@ export const api = {
   importCookies: (profileId: string, data: string) =>
     invoke<number>("import_cookies", { profileId, data }),
 
+  // CookieRobot (P3-4a) — sequential cookie-warming bot for ONE profile
+  // (launches the profile if needed; progress on `cookierobot://progress`).
+  startCookieRobot: (profileId: string, opts: CookieRobotOptions) =>
+    invoke<void>("start_cookie_robot", {
+      profileId,
+      urls: opts.urls,
+      dwellSecs: opts.dwellSecs ?? 0,
+      randomOrder: opts.randomOrder ?? false,
+      processConsent: opts.processConsent ?? false,
+      closeWhenDone: opts.closeWhenDone ?? false,
+    }),
+  stopCookieRobot: (profileId: string) =>
+    invoke<void>("stop_cookie_robot", { profileId }),
+
   // Bring to front (W20a) — CDP Page.bringToFront on a running session (macOS
   // falls back to OS-level window activation when CDP fails)
   bringToFront: (profileId: string) =>
@@ -495,6 +544,15 @@ export function onBackupProgress(
   cb: (e: BackupProgressEvent) => void,
 ): Promise<UnlistenFn> {
   return listen<BackupProgressEvent>("backup://progress", (ev) =>
+    cb(ev.payload),
+  );
+}
+
+/** (P3-4a) Progress of a running CookieRobot. */
+export function onCookieRobotProgress(
+  cb: (e: CookieRobotProgressEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<CookieRobotProgressEvent>("cookierobot://progress", (ev) =>
     cb(ev.payload),
   );
 }
