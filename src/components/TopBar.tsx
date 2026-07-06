@@ -36,7 +36,10 @@ export function TopBar(props: TopBarProps) {
   const [accountOpen, setAccountOpen] = useState(false);
   const initial = t("app.name").charAt(0).toUpperCase();
   const profilesActive =
-    view !== "proxies" && view !== "templates" && view !== "settings";
+    view !== "proxies" &&
+    view !== "templates" &&
+    view !== "extensions" &&
+    view !== "settings";
 
   const navItems: {
     key: string;
@@ -75,6 +78,8 @@ export function TopBar(props: TopBarProps) {
       key: "extensions",
       label: t("topbar.extensions"),
       icon: <Puzzle className="h-5 w-5" strokeWidth={2} aria-hidden="true" />,
+      active: view === "extensions",
+      onClick: () => onNavigate?.("extensions"),
     },
     {
       key: "team",

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   api,
+  type Extension,
   type Folder,
   type Profile,
   type ProfileInput,
@@ -151,6 +152,11 @@ export function ProfileForm({
   const [templates, setTemplates] = useState<ProfileTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [saveAsTemplate, setSaveAsTemplate] = useState(false);
+  // (P3-1b) Central extension store: tick-list in the Extra tab, saved via
+  // assign_extensions (N-N) after the profile itself is saved.
+  const [storeExtensions, setStoreExtensions] = useState<Extension[]>([]);
+  const [assignedExtIds, setAssignedExtIds] = useState<Set<string>>(new Set());
+  const extAssignDirty = useRef(false);
   const defaultFolderApplied = useRef(false);
   const tabRefs = useRef<Partial<Record<TabId, HTMLButtonElement | null>>>({});
 
@@ -219,6 +225,38 @@ export function ProfileForm({
       cancelled = true;
     };
   }, []);
+
+  // (P3-1b) Store extensions + the profile's current assignment (edit mode).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [all, assigned] = await Promise.all([
+          api.listExtensions(),
+          profile ? api.getProfileExtensions(profile.id) : Promise.resolve([]),
+        ]);
+        if (cancelled) return;
+        setStoreExtensions(all);
+        setAssignedExtIds(new Set(assigned.map((e) => e.id)));
+        extAssignDirty.current = false;
+      } catch {
+        // offline / non-Tauri: keep empty list
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [profile?.id]);
+
+  const toggleExtension = (id: string) => {
+    extAssignDirty.current = true;
+    setAssignedExtIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   // Create mode: preselect the "Default folder" once folders arrive.
   useEffect(() => {
@@ -342,22 +380,36 @@ export function ProfileForm({
             // non-fatal: profile is still saved without the folder change
           }
         }
+        // (P3-1b) Persist store-extension assignment when the tick-list changed.
+        if (extAssignDirty.current) {
+          try {
+            await api.assignExtensions(profile.id, [...assignedExtIds]);
+          } catch {
+            // non-fatal: profile is still saved without the assignment change
+          }
+        }
         await onSave(input);
       } else {
         await onSave(input);
         // Backend ProfileInput has no folder_id — locate the created profile
-        // by name and move it into the selected folder.
-        if (form.folder_id) {
+        // by name and move it into the selected folder / assign extensions.
+        if (form.folder_id || assignedExtIds.size > 0) {
           try {
             const list = await api.listProfiles();
             const created = list
               .filter((p) => p.name === input.name)
               .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
-            if (created && created.folder_id !== form.folder_id) {
-              await api.moveProfilesToFolder([created.id], form.folder_id);
+            if (created) {
+              if (form.folder_id && created.folder_id !== form.folder_id) {
+                await api.moveProfilesToFolder([created.id], form.folder_id);
+              }
+              // (P3-1b) New profile: assign the ticked store extensions.
+              if (assignedExtIds.size > 0) {
+                await api.assignExtensions(created.id, [...assignedExtIds]);
+              }
             }
           } catch {
-            // non-fatal: profile created without folder assignment
+            // non-fatal: profile created without folder/extension assignment
           }
         }
       }
@@ -491,6 +543,9 @@ export function ProfileForm({
                 argsText={argsText}
                 onArgsChange={setArgsText}
                 argsError={argsInvalid ? t("pform.launchArgsError") : null}
+                storeExtensions={storeExtensions}
+                assignedExtIds={assignedExtIds}
+                onToggleExtension={toggleExtension}
               />
             )}
           </div>

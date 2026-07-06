@@ -5,6 +5,7 @@ import {
   LayoutGrid,
   Network,
   Plus,
+  Puzzle,
   Search,
   Smartphone,
   Star,
@@ -22,6 +23,7 @@ export type MainView =
   | "trash"
   | "proxies"
   | "templates"
+  | "extensions"
   | "settings";
 
 export interface SidebarFolder {
@@ -41,6 +43,7 @@ interface SidebarProps {
     trash: number;
     proxies: number;
     templates: number;
+    extensions: number;
   };
   activeFolderId: string | null;
   onSelectFolder: (id: string | null) => void;
@@ -124,6 +127,27 @@ export function Sidebar({
             count={counts.templates}
             active
             onClick={() => onNavigate("templates")}
+          />
+        </div>
+        <SidebarStats counts={counts} />
+      </nav>
+    );
+  }
+
+  // Extensions view keeps the shell sidebar but swaps folders for extension nav (P3-1b).
+  if (view === "extensions") {
+    return (
+      <nav
+        className="card my-4 ml-4 flex w-[270px] shrink-0 flex-col overflow-y-auto p-3"
+        aria-label={t("sidebar.extensions")}
+      >
+        <div className="space-y-0.5">
+          <NavRow
+            icon={<Puzzle className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />}
+            label={t("sidebar.allExtensions")}
+            count={counts.extensions}
+            active
+            onClick={() => onNavigate("extensions")}
           />
         </div>
         <SidebarStats counts={counts} />

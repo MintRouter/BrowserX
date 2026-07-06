@@ -1,6 +1,7 @@
-import { X } from "lucide-react";
+import { Puzzle, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { Extension } from "../../lib/api";
 import { Toggle } from "./controls";
 import type { FormState, SetField } from "./types";
 
@@ -10,9 +11,22 @@ interface ExtraTabProps {
   argsText: string;
   onArgsChange: (text: string) => void;
   argsError: string | null;
+  /** (P3-1b) Central extension store — tick to assign to this profile. */
+  storeExtensions: Extension[];
+  assignedExtIds: Set<string>;
+  onToggleExtension: (id: string) => void;
 }
 
-export function ExtraTab({ form, set, argsText, onArgsChange, argsError }: ExtraTabProps) {
+export function ExtraTab({
+  form,
+  set,
+  argsText,
+  onArgsChange,
+  argsError,
+  storeExtensions,
+  assignedExtIds,
+  onToggleExtension,
+}: ExtraTabProps) {
   const { t } = useTranslation();
   const [extInput, setExtInput] = useState("");
 
@@ -76,6 +90,47 @@ export function ExtraTab({ form, set, argsText, onArgsChange, argsError }: Extra
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Store extensions (P3-1b): tick-list of the central extension store */}
+      <div>
+        <span className="label" id="pf-store-ext-label">{t("ext.formTitle")}</span>
+        <p className="mb-2 text-xs text-fg-muted">{t("ext.formHint")}</p>
+        {storeExtensions.length === 0 ? (
+          <p className="rounded-md bg-surface-2 px-2.5 py-2 text-xs text-fg-muted">
+            {t("ext.noneInStore")}
+          </p>
+        ) : (
+          <ul
+            aria-labelledby="pf-store-ext-label"
+            className="max-h-48 space-y-0.5 overflow-auto rounded-md border border-border p-1"
+          >
+            {storeExtensions.map((ext) => (
+              <li key={ext.id}>
+                <label className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1.5 text-sm text-fg hover:bg-surface-2">
+                  <input
+                    type="checkbox"
+                    checked={assignedExtIds.has(ext.id)}
+                    onChange={() => onToggleExtension(ext.id)}
+                    className="h-4 w-4 rounded border-border accent-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                  />
+                  <Puzzle
+                    className={`h-4 w-4 shrink-0 ${ext.enabled ? "text-accent" : "text-fg-muted"}`}
+                    aria-hidden="true"
+                  />
+                  <span className={`truncate ${ext.enabled ? "" : "text-fg-muted"}`}>
+                    {ext.name}
+                  </span>
+                  {!ext.enabled && (
+                    <span className="ml-auto shrink-0 rounded bg-surface-3 px-1.5 py-0.5 text-[10px] text-fg-muted">
+                      {t("ext.disabledBadge")}
+                    </span>
+                  )}
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {/* Extensions (W24b): local unpacked extension dirs, passed as --load-extension */}

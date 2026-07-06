@@ -19,6 +19,7 @@ import {
   Pencil,
   PenLine,
   Play,
+  Puzzle,
   Square,
   Star,
   Tag,
@@ -28,7 +29,7 @@ import {
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Folder, Platform, Profile } from "../lib/api";
-import { FolderPanel, MenuItem, Popover, TagPanel } from "./Popover";
+import { ExtensionsPanel, FolderPanel, MenuItem, Popover, TagPanel } from "./Popover";
 
 export type ProfilesSort = { key: "name" | "updated"; dir: "asc" | "desc" };
 
@@ -297,7 +298,7 @@ function RowMenu({
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<"root" | "move" | "tags">("root");
+  const [mode, setMode] = useState<"root" | "move" | "tags" | "extensions">("root");
 
   const close = () => {
     setOpen(false);
@@ -438,6 +439,12 @@ function RowMenu({
           >
             {t("toolbar.addTags")}
           </MenuItem>
+          <MenuItem
+            icon={<Puzzle className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+            onClick={() => setMode("extensions")}
+          >
+            {t("ext.rowMenu")}
+          </MenuItem>
           <span
             className="block"
             title={running ? t("table.clearCacheRunning") : undefined}
@@ -472,6 +479,8 @@ function RowMenu({
             onMove(folderId);
           }}
         />
+      ) : mode === "extensions" ? (
+        <ExtensionsPanel profileId={profile.id} onDone={close} />
       ) : (
         <TagPanel
           onApply={(tags) => {

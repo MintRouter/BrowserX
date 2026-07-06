@@ -5,6 +5,7 @@ import {
   initialEngineState,
   type EngineState,
 } from "./components/EngineSetup";
+import { ExtensionsView } from "./components/ExtensionsView";
 import { ProfileForm } from "./components/ProfileForm";
 import { ProfileList } from "./components/ProfileList";
 import { ProxiesView, type ProxyPatch } from "./components/ProxiesView";
@@ -23,6 +24,7 @@ import {
   onBinaryProgress,
   onExitRequested,
   onProfileStatus,
+  type Extension,
   type Folder,
   type Profile,
   type ProfileInput,
@@ -45,6 +47,7 @@ export default function App() {
   const [trash, setTrash] = useState<Profile[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [templates, setTemplates] = useState<ProfileTemplate[]>([]);
+  const [extensions, setExtensions] = useState<Extension[]>([]);
   const [settings, setSettings] = useState<Record<string, string> | null>(null);
   const [editing, setEditing] = useState<Profile | "new" | null>(null);
   const [loadError, setLoadError] = useState(false);
@@ -125,6 +128,9 @@ export default function App() {
   const refetchTemplates = useCallback(async () => {
     setTemplates(await api.listTemplates());
   }, []);
+  const refetchExtensions = useCallback(async () => {
+    setExtensions(await api.listExtensions());
+  }, []);
 
   /** Await the given refetches; a failed one keeps the last known state. */
   const refetch = (...tasks: Promise<void>[]) => Promise.allSettled(tasks);
@@ -139,10 +145,11 @@ export default function App() {
       refetchFolders(),
       refetchTrash(),
       refetchTemplates(),
+      refetchExtensions(),
       api.getSettings().then(setSettings),
     ]);
     setLoadError([p, x, r].some((res) => res.status === "rejected"));
-  }, [refetchProfiles, refetchProxies, refetchRunning, refetchFolders, refetchTrash, refetchTemplates]);
+  }, [refetchProfiles, refetchProxies, refetchRunning, refetchFolders, refetchTrash, refetchTemplates, refetchExtensions]);
 
   useEffect(() => {
     void loadAll();
@@ -240,8 +247,9 @@ export default function App() {
       trash: trash.length,
       proxies: proxies.length,
       templates: templates.length,
+      extensions: extensions.length,
     }),
-    [profiles.length, running.length, favoriteProfiles.length, trash.length, proxies.length, templates.length],
+    [profiles.length, running.length, favoriteProfiles.length, trash.length, proxies.length, templates.length, extensions.length],
   );
 
   const navigate = (v: MainView) => {
@@ -687,6 +695,13 @@ export default function App() {
               onUpdate={handleUpdateTemplate}
               onDelete={handleDeleteTemplates}
               onSetDefault={handleSetDefaultTemplate}
+            />
+          ) : view === "extensions" ? (
+            <ExtensionsView
+              extensions={extensions}
+              profiles={profiles}
+              settings={settings}
+              onChanged={refetchExtensions}
             />
           ) : view === "settings" ? (
             <SettingsView />
