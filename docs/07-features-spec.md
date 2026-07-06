@@ -47,8 +47,8 @@ Liên quan: [`docs/02-critique-risks.md`](02-critique-risks.md) (thiếu "phần
 | Noise on/off (chống ML tampering) | ✅ | 🔴 | ✅ `launcher.rs` (`fp_noise`, W19c) | `README.md#L730` |
 | Fonts theo platform (fonts-dir / font-metrics) | ✅ | 🔴 | ✅ `launcher.rs` (`fonts_dir`, `windows_font_metrics`) | `README.md#L727-L728` |
 | Proxy per-profile HTTP/HTTPS/SOCKS5 + auth | ✅ | 🟡 | ✅ `db.rs` (http/https/socks5) + `launcher.rs` `--proxy-server` | `browser.py#L1305-L1351`; `browser_manager.py#L22-L53` |
-| Proxy health-check / rotation / marketplace | 🔴 | 🔴 | 🟡 health-check có (`proxy_check.rs`, W19b); rotation/marketplace 🔴 chưa làm | (không có — xem §4) |
-| Timezone/Geo/Locale auto khớp IP (GeoIP) | ✅ | 🟡 | 🟡 timezone/locale set thủ công (`launcher.rs`); auto khớp IP chưa nối (cột `geoip` trong DB chưa dùng khi launch) | `refs/CloakBrowser/cloakbrowser/geoip.py#L54-L109`; `browser_manager.py#L222-L226` |
+| Proxy health-check / rotation / marketplace | 🔴 | 🔴 | 🟡 health-check ✅ (`proxy_check.rs`, W19b); rotation ✅ (`db.rs` `rotate_proxy` + `commands.rs` `rotate_proxy`/`rotate_proxies`, W36 commit 69509a4 — round-robin bỏ qua proxy unhealthy, wrap-around, ghi audit); marketplace 🔴 chưa làm | (không có — xem §4) |
+| Timezone/Geo/Locale auto khớp IP (GeoIP) | ✅ | 🟡 | ✅ auto khớp IP thoát proxy (`geoip.rs`, W35 commit 69509a4 — resolve timezone/locale/geolocation qua ipapi.co **qua proxy**, không dùng mmdb offline; wire `launcher::build_args`); best-effort tổng ≤10s (W37 96eb4a4), set thủ công thắng GeoIP, `geoip=false` bỏ qua | `refs/CloakBrowser/cloakbrowser/geoip.py#L54-L109`; `browser_manager.py#L222-L226` |
 | Geolocation coords override | ✅ | 🔴 | ✅ `launcher.rs` (`geolocation_mode` manual → `--fingerprint-location`) | `README.md#L722` |
 | Cookie/localStorage persistence (user_data_dir) | ✅ | 🟡 | ✅ `launcher.rs` (`--user-data-dir`) | `browser.py#L347-L471`; `browser_manager.py#L217-L218` |
 | Cookie/profile import-export (định dạng) | ⚠️ | 🔴 | ✅ cookie JSON+Netscape qua CDP (`cookies.rs`, W24a); profile `.bxprofile` (`export.rs`, W19a) | `browser.py#L745`, `README.md#L755-L765` (chỉ `storage_state`); Manager: không endpoint |
