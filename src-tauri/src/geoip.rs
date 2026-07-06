@@ -12,7 +12,10 @@ use std::time::Duration;
 use crate::models::Profile;
 use crate::proxy_check::{fetch_text, parse_ip_response, proxied_client};
 
-/// Timeout tổng cho resolve GeoIP (IP-echo + geo lookup) — không kéo dài launch.
+/// Budget TỔNG cho toàn bộ resolve GeoIP (tối đa 2 IP-echo + 1 geo lookup,
+/// tuần tự). Cũng là timeout per-request của client, nhưng tổng thời gian bị
+/// chặn bởi `tokio::time::timeout` trong `resolve_geo_with` — worst-case
+/// launch chỉ trễ ~10s dù mọi request treo, không phải 3×10s.
 const GEOIP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Kết quả GeoIP đã map sẵn cho launcher. Field nào không suy được thì None.
@@ -163,30 +166,38 @@ pub async fn resolve_geo(proxy_url: &str) -> Option<GeoInfo> {
     .await
 }
 
-/// Lõi resolve với endpoint + timeout tham số hoá (test/offline harness trỏ vào
+/// Lõi resolve với endpoint + budget tham số hoá (test/offline harness trỏ vào
 /// server local — cùng pattern `proxy_check::check_proxy_url_with`):
 /// 1) IP-echo QUA proxy để lấy exit IP (thử lần lượt `ip_echo_urls`);
 /// 2) GET `geo_url_template` (placeholder `{ip}`) qua proxy → parse GeoInfo.
+///
+/// `budget` là bound TỔNG cho cả chuỗi request (không phải per-request):
+/// hết budget → None, launch vẫn tiếp tục (best-effort giữ nguyên).
 pub async fn resolve_geo_with(
     proxy_url: &str,
     ip_echo_urls: &[&str],
     geo_url_template: &str,
-    timeout: Duration,
+    budget: Duration,
 ) -> Option<GeoInfo> {
-    let client = proxied_client(proxy_url, timeout).ok()?;
-    let mut ip = None;
-    for url in ip_echo_urls {
-        if let Ok(body) = fetch_text(&client, url).await {
-            if let Some(found) = parse_ip_response(&body) {
-                ip = Some(found);
-                break;
+    tokio::time::timeout(budget, async {
+        let client = proxied_client(proxy_url, budget).ok()?;
+        let mut ip = None;
+        for url in ip_echo_urls {
+            if let Ok(body) = fetch_text(&client, url).await {
+                if let Some(found) = parse_ip_response(&body) {
+                    ip = Some(found);
+                    break;
+                }
             }
         }
-    }
-    let body = fetch_text(&client, &geo_url_template.replace("{ip}", &ip?))
-        .await
-        .ok()?;
-    parse_geo_response(&body)
+        let body = fetch_text(&client, &geo_url_template.replace("{ip}", &ip?))
+            .await
+            .ok()?;
+        parse_geo_response(&body)
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 #[cfg(test)]
@@ -259,5 +270,35 @@ mod tests {
     #[tokio::test]
     async fn resolve_geo_invalid_proxy_returns_none() {
         assert_eq!(resolve_geo("not a url").await, None);
+    }
+
+    /// Proxy treo (nhận kết nối nhưng không bao giờ trả lời): tổng thời gian
+    /// resolve phải bị chặn ở ~budget. Không có bound tổng, riêng 2 IP-echo
+    /// treo đã tốn ≥ 2×budget (mỗi request timeout riêng = budget).
+    #[tokio::test]
+    async fn resolve_geo_hanging_proxy_bounded_by_total_budget() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let mut held = Vec::new();
+            for stream in listener.incoming().flatten() {
+                held.push(stream); // giữ kết nối mở, không phản hồi gì
+            }
+        });
+        let budget = Duration::from_millis(300);
+        let started = std::time::Instant::now();
+        let got = resolve_geo_with(
+            &format!("http://{addr}"),
+            &["http://10.255.255.1/a", "http://10.255.255.1/b"],
+            "http://10.255.255.1/{ip}",
+            budget,
+        )
+        .await;
+        let elapsed = started.elapsed();
+        assert_eq!(got, None);
+        assert!(
+            elapsed < budget * 2,
+            "resolve mất {elapsed:?} — vượt bound tổng {budget:?}"
+        );
     }
 }
