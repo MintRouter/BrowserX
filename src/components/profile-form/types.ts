@@ -54,6 +54,8 @@ export interface FormState {
   windows_font_metrics: boolean;
   /** (P3-5b) Storage quota override in MB. Null = auto. */
   storage_quota: number | null;
+  /** (W42) Auto-rotate the assigned proxy on each launch. */
+  rotate_on_launch: boolean;
 }
 
 /** True when `raw` parses as an http(s) URL (startup URL validation). */

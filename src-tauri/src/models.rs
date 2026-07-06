@@ -97,6 +97,9 @@ pub struct Profile {
     /// (P3-5a) Override storage quota (MB) — `storage.estimate()` v.v. None = auto.
     /// → `--fingerprint-storage-quota`.
     pub storage_quota: Option<u32>,
+    /// (W42) Tự xoay proxy (round-robin pool healthy) mỗi lần launch — chỉ có
+    /// tác dụng khi profile đang gán proxy. Best-effort: xoay lỗi không chặn launch.
+    pub rotate_on_launch: bool,
 }
 
 /// (P3-1a) Extension trong kho trung tâm (bảng `extensions`), gán N-N với

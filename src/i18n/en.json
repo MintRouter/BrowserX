@@ -252,6 +252,7 @@
     "proxyLabel": "Proxy",
     "noProxy": "No proxy",
     "manageProxies": "Manage proxies in the Proxies view.",
+    "rotateOnLaunch": "Rotate proxy on each launch",
     "healthOk": "Healthy",
     "healthFail": "Failing",
     "fingerprintSeed": "Fingerprint seed",

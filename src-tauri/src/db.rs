@@ -91,6 +91,8 @@ pub struct ProfileInput {
     pub windows_font_metrics: Option<bool>,
     /// (P3-5a) Override storage quota (MB). None = auto.
     pub storage_quota: Option<u32>,
+    /// (W42) Tự xoay proxy mỗi lần launch. None → default false.
+    pub rotate_on_launch: Option<bool>,
 }
 
 /// Update từng phần: chỉ field `Some(_)` được ghi đè (giống `update_profile` Python).
@@ -153,6 +155,8 @@ pub struct ProfileUpdate {
     pub windows_font_metrics: Option<bool>,
     /// (P3-5a) Override storage quota (MB).
     pub storage_quota: Option<u32>,
+    /// (W42) Tự xoay proxy mỗi lần launch.
+    pub rotate_on_launch: Option<bool>,
 }
 
 /// (P3-2a) Bộ lọc nâng cao cho [`Db::search_profiles`] — chỉ gồm tiêu chí có
@@ -290,7 +294,7 @@ pub struct AuditEntry {
 // ---------------------------------------------------------------------------
 
 /// Schema version hiện tại (PRAGMA user_version).
-const SCHEMA_VERSION: i64 = 11;
+const SCHEMA_VERSION: i64 = 12;
 
 const SCHEMA_V1: &str = "
 CREATE TABLE IF NOT EXISTS profiles (
@@ -514,6 +518,15 @@ ALTER TABLE profiles ADD COLUMN windows_font_metrics INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE profiles ADD COLUMN storage_quota INTEGER;
 ";
 
+/// Migration v11→v12 (W42): cờ per-profile tự xoay proxy (round-robin pool
+/// healthy, xem [`Db::rotate_proxy`]) mỗi lần launch. Default 0 (tắt) →
+/// profile cũ KHÔNG đổi hành vi.
+///
+/// ALTER TABLE không có IF NOT EXISTS — idempotency đảm bảo bởi guard `user_version < 12`.
+const SCHEMA_V12: &str = "
+ALTER TABLE profiles ADD COLUMN rotate_on_launch INTEGER NOT NULL DEFAULT 0;
+";
+
 /// Kết nối SQLite của app. `Mutex<Connection>` để dùng được trong `tauri::State`
 /// (single-process, mọi thao tác tuần tự qua lock — đủ cho local app).
 pub struct Db {
@@ -699,6 +712,10 @@ fn migrate_inner(conn: &Connection, checkpoint: impl Fn(i64) -> Result<()>) -> R
             conn.execute_batch(SCHEMA_V11)?;
             checkpoint(11)?;
         }
+        if version < 12 {
+            conn.execute_batch(SCHEMA_V12)?;
+            checkpoint(12)?;
+        }
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         Ok(())
     })();
@@ -838,6 +855,7 @@ fn row_to_profile(row: &Row) -> rusqlite::Result<Profile> {
         fonts_dir: row.get("fonts_dir")?,
         windows_font_metrics: row.get("windows_font_metrics")?,
         storage_quota: row.get("storage_quota")?,
+        rotate_on_launch: row.get("rotate_on_launch")?,
     })
 }
 
@@ -912,8 +930,8 @@ fn insert_profile_tx(
             fp_noise, webrtc_mode, webrtc_ip, geolocation_mode, geo_latitude, geo_longitude,
             store_history, store_passwords, store_sw_cache, extensions,
             nav_brand, nav_brand_version, platform_version, device_memory, fonts_dir,
-            windows_font_metrics, storage_quota
-        ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,?36,?37,?38,?39,?40,?41)",
+            windows_font_metrics, storage_quota, rotate_on_launch
+        ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,?36,?37,?38,?39,?40,?41,?42)",
         params![
             id,
             input.name,
@@ -956,6 +974,7 @@ fn insert_profile_tx(
             input.fonts_dir,
             input.windows_font_metrics.unwrap_or(false),
             input.storage_quota,
+            input.rotate_on_launch.unwrap_or(false),
         ],
     )?;
     if let Some(tags) = &input.tags {
@@ -1281,6 +1300,10 @@ impl Db {
         if let Some(v) = input.storage_quota {
             cols.push("storage_quota");
             values.push(sql_int(v as i64));
+        }
+        if let Some(v) = input.rotate_on_launch {
+            cols.push("rotate_on_launch");
+            values.push(sql_bool(v));
         }
 
         {
@@ -3680,6 +3703,63 @@ mod tests {
             db.rotate_proxy("missing"),
             Err(AppError::NotFound(_))
         ));
+    }
+
+    /// (W42) rotate_on_launch: default false, round-trip create→get và
+    /// update→get giữ đúng giá trị.
+    #[test]
+    fn rotate_on_launch_default_and_round_trip() {
+        let (db, _guard) = temp_db();
+
+        // Không truyền → default false.
+        let p = db
+            .create_profile(ProfileInput {
+                name: "rol-default".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(!p.rotate_on_launch);
+        assert!(!db.get_profile(&p.id).unwrap().rotate_on_launch);
+
+        // Create với true → get trả true.
+        let p2 = db
+            .create_profile(ProfileInput {
+                name: "rol-on".into(),
+                rotate_on_launch: Some(true),
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(p2.rotate_on_launch);
+        assert!(db.get_profile(&p2.id).unwrap().rotate_on_launch);
+
+        // Update bật rồi tắt → get phản ánh đúng; field None không đụng cột.
+        db.update_profile(
+            &p.id,
+            ProfileUpdate {
+                rotate_on_launch: Some(true),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(db.get_profile(&p.id).unwrap().rotate_on_launch);
+        db.update_profile(
+            &p.id,
+            ProfileUpdate {
+                name: Some("rol-renamed".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(db.get_profile(&p.id).unwrap().rotate_on_launch);
+        db.update_profile(
+            &p.id,
+            ProfileUpdate {
+                rotate_on_launch: Some(false),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(!db.get_profile(&p.id).unwrap().rotate_on_launch);
     }
 
     #[test]

@@ -88,6 +88,8 @@ export interface Profile {
   windows_font_metrics: boolean;
   /** (P3-5a) Override storage quota in MB. Null = auto. → --fingerprint-storage-quota. */
   storage_quota: number | null;
+  /** (W42) Auto-rotate the assigned proxy (round-robin) on each launch. */
+  rotate_on_launch: boolean;
 }
 
 export interface Folder {
@@ -156,6 +158,8 @@ export interface ProfileInput {
   windows_font_metrics?: boolean;
   /** (P3-5a) Override storage quota in MB. Null/omitted = auto. */
   storage_quota?: number | null;
+  /** (W42) Auto-rotate the assigned proxy on each launch. Default: false. */
+  rotate_on_launch?: boolean;
   /**
    * Target folder. NOTE: the Rust ProfileInput/ProfileUpdate structs do not
    * (yet) read this field — serde ignores it. Callers must follow up with

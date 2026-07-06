@@ -7,6 +7,7 @@ import {
   type ProxyCheckResult,
   type ProxyTemplate,
 } from "../../lib/api";
+import { Toggle } from "./controls";
 import type { FormState, SetField } from "./types";
 
 interface ProxyTabProps {
@@ -191,6 +192,26 @@ export function ProxyTab({ form, set, proxies, onProxiesChanged }: ProxyTabProps
           </div>
         );
       })}
+
+      {/* (W42) Rotate-on-launch: only meaningful with a proxy assigned */}
+      <div className="flex items-center justify-between gap-3 pt-1">
+        <label
+          htmlFor="pf-rotate-on-launch"
+          className={[
+            "text-sm",
+            form.proxy_id === null ? "text-fg-muted" : "text-fg cursor-pointer",
+          ].join(" ")}
+        >
+          {t("pform.rotateOnLaunch")}
+        </label>
+        <Toggle
+          id="pf-rotate-on-launch"
+          checked={form.rotate_on_launch}
+          onChange={(v) => set("rotate_on_launch", v)}
+          disabled={form.proxy_id === null}
+          label={t("pform.rotateOnLaunch")}
+        />
+      </div>
 
       {/* (P3-3b) Create + assign a proxy from a saved proxy template */}
       {templates.length > 0 && (

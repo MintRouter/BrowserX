@@ -717,7 +717,28 @@ async fn launch_profile_inner(
     state: &State<'_, AppState>,
     profile_id: &str,
 ) -> Result<RunningSession> {
-    let profile = state.db.get_profile(profile_id)?;
+    let mut profile = state.db.get_profile(profile_id)?;
+
+    // (W42) Rotate-on-launch: xoay proxy round-robin TRƯỚC khi tính proxy_url.
+    // Best-effort — lỗi xoay (pool rỗng, hết proxy healthy…) KHÔNG chặn launch,
+    // giữ nguyên proxy hiện tại.
+    if profile.proxy_id.is_some() && profile.rotate_on_launch {
+        match state.db.rotate_proxy(profile_id) {
+            Ok(rec) => {
+                state.db.insert_audit(
+                    "profile.rotate_on_launch",
+                    Some(profile_id),
+                    Some(&json!({ "proxy_id": rec.id })),
+                )?;
+                profile = state.db.get_profile(profile_id)?;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "launch_profile {profile_id}: rotate_on_launch thất bại — giữ proxy hiện tại: {e}"
+                );
+            }
+        }
+    }
 
     let proxy_url = match profile.proxy_id.as_deref() {
         Some(pid) => Some(proxy_url_from(&state.db.get_proxy(pid)?)?),

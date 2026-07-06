@@ -348,6 +348,7 @@ pub(crate) fn test_profile() -> Profile {
         fonts_dir: None,
         windows_font_metrics: false,
         storage_quota: None,
+        rotate_on_launch: false,
     }
 }
 

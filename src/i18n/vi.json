@@ -250,6 +250,7 @@
     "proxyLabel": "Proxy",
     "noProxy": "Không dùng proxy",
     "manageProxies": "Quản lý proxy trong mục Proxy.",
+    "rotateOnLaunch": "Tự xoay proxy mỗi lần khởi chạy",
     "healthOk": "Ổn định",
     "healthFail": "Lỗi",
     "fingerprintSeed": "Fingerprint seed",

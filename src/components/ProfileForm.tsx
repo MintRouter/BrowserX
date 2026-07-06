@@ -79,6 +79,7 @@ function initialState(profile: Profile | null, defaultName: string): FormState {
       fonts_dir: profile.fonts_dir ?? null,
       windows_font_metrics: profile.windows_font_metrics ?? false,
       storage_quota: profile.storage_quota ?? null,
+      rotate_on_launch: profile.rotate_on_launch ?? false,
     };
   }
   return {
@@ -120,6 +121,7 @@ function initialState(profile: Profile | null, defaultName: string): FormState {
     fonts_dir: null,
     windows_font_metrics: false,
     storage_quota: null,
+    rotate_on_launch: false,
   };
 }
 
@@ -329,6 +331,7 @@ export function ProfileForm({
     fonts_dir: form.fonts_dir?.trim() || null,
     windows_font_metrics: form.windows_font_metrics,
     storage_quota: form.storage_quota,
+    rotate_on_launch: form.rotate_on_launch,
   });
 
   // (W20b) Fill the form from a template (create mode). Name is kept as typed;
@@ -377,6 +380,7 @@ export function ProfileForm({
       fonts_dir: c.fonts_dir ?? null,
       windows_font_metrics: c.windows_font_metrics ?? false,
       storage_quota: c.storage_quota ?? null,
+      rotate_on_launch: c.rotate_on_launch ?? false,
     }));
     setArgsText(
       c.launch_args && c.launch_args.length > 0
