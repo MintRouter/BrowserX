@@ -46,13 +46,16 @@ export function AuditLog() {
       setLoading(true);
       setError(false);
       try {
-        const page = await api.listAudit({
+        // (W27) Fetch one extra row so hasMore is exact (no stray "Load more"
+        // when the total is a multiple of PAGE_SIZE).
+        const raw = await api.listAudit({
           actionPrefix: prefix || null,
           beforeId: beforeId ?? null,
-          limit: PAGE_SIZE,
+          limit: PAGE_SIZE + 1,
         });
+        const page = raw.slice(0, PAGE_SIZE);
         setEntries((prev) => (beforeId ? [...prev, ...page] : page));
-        setHasMore(page.length === PAGE_SIZE);
+        setHasMore(raw.length > PAGE_SIZE);
       } catch {
         setError(true);
       } finally {

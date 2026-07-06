@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type SystemMetrics, api, isTauri } from "../../lib/api";
 
@@ -26,15 +26,29 @@ function Stat({
 /**
  * (W26b) Observability panel for Settings: live sessions, RAM per session
  * (main-process RSS; N/A where not measurable), launch p95 and error rate.
- * Polls every 3s only while mounted — the interval is cleared on unmount.
+ * (W27) Polls every 3s only while the section is in the viewport — an
+ * IntersectionObserver gates the interval; both are cleaned up on unmount.
  */
 export function SystemPanel() {
   const { t } = useTranslation();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [error, setError] = useState(false);
 
   useEffect(() => {
     if (!isTauri()) return;
+    const el = rootRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(([entry]) =>
+      setVisible(entry?.isIntersecting ?? false),
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!isTauri() || !visible) return;
     let cancelled = false;
     const load = async () => {
       try {
@@ -53,16 +67,24 @@ export function SystemPanel() {
       cancelled = true;
       clearInterval(id);
     };
-  }, []);
+  }, [visible]);
 
   if (!isTauri()) {
     return <p className="text-sm text-fg-muted">{t("system.desktopOnly")}</p>;
   }
 
   const na = t("system.na");
-  const ramTotal =
-    metrics?.ram_total_mb != null ? `${metrics.ram_total_mb} MB` : na;
   const perSession = metrics?.ram_per_session_mb ?? [];
+  // (W27) Partial sample: fewer measured sessions than live ones — the total
+  // is a lower bound, so label it "≥" with an explanatory sub note.
+  const ramPartial =
+    metrics != null &&
+    metrics.ram_total_mb != null &&
+    perSession.length < metrics.live_sessions;
+  const ramTotal =
+    metrics?.ram_total_mb != null
+      ? `${ramPartial ? "≥ " : ""}${metrics.ram_total_mb} MB`
+      : na;
   const ramMean =
     perSession.length > 0
       ? `${Math.round(perSession.reduce((a, b) => a + b, 0) / perSession.length)} MB`
@@ -75,13 +97,24 @@ export function SystemPanel() {
       : na;
 
   return (
-    <div className="space-y-3">
+    <div ref={rootRef} className="space-y-3">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <Stat
           label={t("system.liveSessions")}
           value={metrics ? String(metrics.live_sessions) : "—"}
         />
-        <Stat label={t("system.ramTotal")} value={metrics ? ramTotal : "—"} />
+        <Stat
+          label={t("system.ramTotal")}
+          value={metrics ? ramTotal : "—"}
+          sub={
+            metrics && ramPartial
+              ? t("system.ramPartial", {
+                  measured: perSession.length,
+                  live: metrics.live_sessions,
+                })
+              : undefined
+          }
+        />
         <Stat
           label={t("system.ramPerSession")}
           value={metrics ? ramMean : "—"}

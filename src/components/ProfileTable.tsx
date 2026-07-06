@@ -286,6 +286,7 @@ function RowMenu({
   onAddTags,
   onClearCache,
   onTrash,
+  onOpenChange,
 }: {
   profile: Profile;
   folders: Folder[];
@@ -304,14 +305,21 @@ function RowMenu({
   onAddTags: (tags: string[]) => void;
   onClearCache: () => void;
   onTrash: () => void;
+  /** (W27) Tells the table which row's menu is open so it stays mounted while scrolling. */
+  onOpenChange: (open: boolean) => void;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"root" | "move" | "tags" | "extensions">("root");
 
+  const openMenu = () => {
+    setOpen(true);
+    onOpenChange(true);
+  };
   const close = () => {
     setOpen(false);
     setMode("root");
+    onOpenChange(false);
   };
 
   return (
@@ -326,7 +334,7 @@ function RowMenu({
           aria-label={`${t("table.rowMenu")}: ${profile.name}`}
           aria-haspopup="menu"
           aria-expanded={open}
-          onClick={() => (open ? close() : setOpen(true))}
+          onClick={() => (open ? close() : openMenu())}
           className="grid h-8 w-8 place-items-center rounded-md text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
         >
           <EllipsisVertical className="h-4 w-4" aria-hidden="true" />
@@ -547,6 +555,8 @@ export function ProfileTable({
 }: ProfileTableProps) {
   const { t, i18n } = useTranslation();
   const [pickerOpen, setPickerOpen] = useState(false);
+  // (W27) Row whose kebab menu is currently open (kept mounted during scroll).
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
 
   // (W26c) Manual windowing: only mount ~viewport+overscan rows. The scroll
   // container is owned here so the slice tracks the real scroll element.
@@ -575,9 +585,11 @@ export function ProfileTable({
     );
   }
   // Keep the row being renamed mounted: RenameInput submits on blur, so
-  // unmounting it mid-scroll would fire a stray submit.
-  if (renamingId) {
-    const idx = rows.findIndex((r) => r.id === renamingId);
+  // unmounting it mid-scroll would fire a stray submit. (W27) Same for the
+  // row whose kebab menu is open — unmounting would silently close the menu.
+  for (const pinnedId of [renamingId, menuOpenId]) {
+    if (!pinnedId) continue;
+    const idx = rows.findIndex((r) => r.id === pinnedId);
     if (idx >= 0) {
       start = Math.min(start, idx);
       end = Math.max(end, idx + 1);
@@ -879,6 +891,7 @@ export function ProfileTable({
                   onAddTags={(tags) => onAddTags([p.id], tags)}
                   onClearCache={() => onClearCache([p.id])}
                   onTrash={() => onTrash([p.id])}
+                  onOpenChange={(o) => setMenuOpenId(o ? p.id : null)}
                 />
               </td>
             </tr>

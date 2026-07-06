@@ -547,6 +547,7 @@
     "hint": "Live session and launch metrics. Launch counters reset when the app restarts.",
     "liveSessions": "Live sessions",
     "ramTotal": "RAM total",
+    "ramPartial": "Partial: {{measured}}/{{live}} sessions measured",
     "ramPerSession": "RAM / session (avg)",
     "ramNote": "RAM is the main browser process (RSS) only — child renderer processes are not counted. N/A where it cannot be measured.",
     "launchP95": "Launch p95",

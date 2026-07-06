@@ -541,6 +541,7 @@
     "hint": "Số liệu phiên đang chạy và khởi chạy theo thời gian thực. Bộ đếm launch đặt lại khi mở lại ứng dụng.",
     "liveSessions": "Phiên đang chạy",
     "ramTotal": "Tổng RAM",
+    "ramPartial": "Một phần: chỉ đo được {{measured}}/{{live}} phiên",
     "ramPerSession": "RAM / phiên (trung bình)",
     "ramNote": "RAM chỉ đo tiến trình trình duyệt chính (RSS) — các tiến trình con không được tính. N/A khi không đo được.",
     "launchP95": "Launch p95",
