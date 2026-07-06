@@ -56,7 +56,7 @@ Liên quan: [`docs/02-critique-risks.md`](02-critique-risks.md) (thiếu "phần
 | Tags | — | 🟡 | ✅ `commands.rs` (`list_tags`, `set_profile_tags`) | `database.py#L61-L66`; `models.py#L60-L67` |
 | Search / filter profile | — | ⚠️ | ✅ server-side SQL (`db.rs` `search_profiles` + `ProfileFilter` os/proxy/tag/folder; canary 10k) | `refs/CloakBrowser-Manager/frontend/src/components/ProfileList.tsx#L14-L17` (client-side, theo tên) |
 | Template profile | — | 🔴 | ✅ profile + proxy template (`commands.rs` W20b: `list_templates`, `create_profile_from_template`, `create_proxy_from_template`) | (không có) |
-| Bulk create / bulk launch | — | ⚠️ | 🟡 bulk launch/export/cookie-export/move/trash qua multi-select (`ProfilesToolbar.tsx`); bulk create chưa có | chỉ `auto_launch` khi khởi động: `browser_manager.py#L342-L362` |
+| Bulk create / bulk launch | — | ⚠️ | ✅ bulk create từ template (`create_profiles_from_template`, W29a) + bulk launch/stop qua selection (Shift+L/S, tuần tự) | chỉ `auto_launch` khi khởi động: `browser_manager.py#L342-L362` |
 | Notes theo profile | — | 🟡 | ✅ cột `notes` (`db.rs`, `models.rs`) | `database.py#L55`; `models.py#L31` |
 | Team / multi-user / RBAC | 🔴 | ⚠️ | 🔴 chưa làm — app desktop local 1 user, chưa có team/RBAC | `refs/CloakBrowser-Manager/backend/main.py#L48-L80` (1 token chung) |
 | Automation API (CDP/Playwright) | ✅ | 🟡 | ✅ `get_cdp_ws_url` (`commands.rs`, `cdp.rs`, W24c — xem §10) | `main.py#L845-L879`; `browser_manager.py#L217` |
