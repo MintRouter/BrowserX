@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::db::{self, Db, ProfileInput, ProfileUpdate, TagInfo};
+use crate::db::{self, Db, ProfileFilter, ProfileInput, ProfileUpdate, TagInfo};
 use crate::error::{AppError, Result};
 use crate::models::{Extension, Folder, Profile, ProfileTemplate, Proxy, RunningSession};
 use crate::process::ProcessManager;
@@ -216,13 +216,15 @@ pub fn delete_profile(state: State<'_, AppState>, id: String) -> Result<bool> {
     Ok(deleted)
 }
 
+/// (P3-2a) `filter` là tuỳ chọn — FE cũ không gửi filter thì `None` →
+/// `ProfileFilter::default()` = hành vi cũ (chỉ lọc theo tên).
 #[tauri::command]
 pub fn search_profiles(
     state: State<'_, AppState>,
     query: String,
-    tag: Option<String>,
+    filter: Option<ProfileFilter>,
 ) -> Result<Vec<Profile>> {
-    state.db.search_profiles(&query, tag.as_deref())
+    state.db.search_profiles(&query, &filter.unwrap_or_default())
 }
 
 // ---------------------------------------------------------------------------

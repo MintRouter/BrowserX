@@ -127,6 +127,24 @@ pub struct ProfileUpdate {
     pub store_sw_cache: Option<bool>,
 }
 
+/// (P3-2a) Bộ lọc nâng cao cho [`Db::search_profiles`] — chỉ gồm tiêu chí có
+/// cột thật trong DB. Field `None` = bỏ qua tiêu chí; filter rỗng
+/// (`ProfileFilter::default()`) = hành vi cũ (chỉ lọc theo tên).
+/// Trạng thái running/stopped là runtime (ProcessManager) và dung lượng
+/// storage không có cột trong DB → các tiêu chí đó lọc ở FE, KHÔNG vào SQL.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProfileFilter {
+    /// Target OS fingerprint (cột `profiles.platform`): "windows" | "macos" | "linux".
+    pub os: Option<String>,
+    /// `true` = chỉ profile có gán proxy (bảng `profile_proxy`), `false` = chỉ
+    /// profile chưa gán.
+    pub has_proxy: Option<bool>,
+    /// Chỉ profile có tag này (bảng `profile_tags`, so khớp chính xác).
+    pub tag: Option<String>,
+    /// Chỉ profile thuộc folder này (cột `profiles.folder_id`).
+    pub folder_id: Option<String>,
+}
+
 /// Bản ghi proxy như lưu trong DB: credential là BLOB **đã mã hoá** bởi layer
 /// `crypto` (XChaCha20-Poly1305). DB layer không encode/decode.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -890,17 +908,38 @@ impl Db {
         Ok(profiles)
     }
 
-    /// Search theo tên (LIKE, không phân biệt hoa thường ASCII) + lọc tag tuỳ chọn.
+    /// Search theo tên (LIKE, không phân biệt hoa thường ASCII) + bộ lọc đa
+    /// tiêu chí (P3-2a). Filter rỗng = hành vi cũ (chỉ lọc theo tên).
+    /// SQL build động nhưng THAM SỐ HOÁ hoàn toàn — giá trị người dùng không
+    /// bao giờ nối thẳng vào chuỗi SQL (chỉ số placeholder do code sinh).
     /// Chỉ trả profile còn sống (deleted_at IS NULL).
-    pub fn search_profiles(&self, query: &str, tag: Option<&str>) -> Result<Vec<Profile>> {
+    pub fn search_profiles(&self, query: &str, filter: &ProfileFilter) -> Result<Vec<Profile>> {
         let conn = self.lock();
         let pattern = format!("%{}%", escape_like(query));
         let mut sql =
             format!("{PROFILE_SELECT} WHERE p.deleted_at IS NULL AND p.name LIKE ?1 ESCAPE '\\'");
         let mut values: Vec<SqlValue> = vec![sql_text(pattern)];
-        if let Some(tag) = tag {
-            sql.push_str(" AND p.id IN (SELECT profile_id FROM profile_tags WHERE tag = ?2)");
-            values.push(sql_text(tag.to_string()));
+        if let Some(tag) = &filter.tag {
+            values.push(sql_text(tag.clone()));
+            sql.push_str(&format!(
+                " AND p.id IN (SELECT profile_id FROM profile_tags WHERE tag = ?{})",
+                values.len()
+            ));
+        }
+        if let Some(os) = &filter.os {
+            values.push(sql_text(os.clone()));
+            sql.push_str(&format!(" AND p.platform = ?{}", values.len()));
+        }
+        if let Some(folder_id) = &filter.folder_id {
+            values.push(sql_text(folder_id.clone()));
+            sql.push_str(&format!(" AND p.folder_id = ?{}", values.len()));
+        }
+        if let Some(has_proxy) = filter.has_proxy {
+            sql.push_str(if has_proxy {
+                " AND pp.proxy_id IS NOT NULL"
+            } else {
+                " AND pp.proxy_id IS NULL"
+            });
         }
         sql.push_str(" ORDER BY p.updated_at DESC");
         let mut stmt = conn.prepare(&sql)?;
@@ -2009,6 +2048,14 @@ mod tests {
         (db, TempDir(dir))
     }
 
+    /// Filter chỉ có tag (viết gọn cho các test search).
+    fn tag_filter(tag: &str) -> ProfileFilter {
+        ProfileFilter {
+            tag: Some(tag.into()),
+            ..Default::default()
+        }
+    }
+
     /// (W23a) Checkpoint TRUNCATE phải đưa dữ liệu về file chính và cắt -wal về 0 byte.
     #[test]
     fn wal_checkpoint_truncate_empties_wal_file() {
@@ -2455,7 +2502,12 @@ mod tests {
         let alive = db.list_profiles().unwrap();
         assert_eq!(alive.len(), 1);
         assert_eq!(alive[0].id, b.id);
-        assert_eq!(db.search_profiles("trash-a", None).unwrap().len(), 0);
+        assert_eq!(
+            db.search_profiles("trash-a", &ProfileFilter::default())
+                .unwrap()
+                .len(),
+            0
+        );
         let trash = db.list_trash().unwrap();
         assert_eq!(trash.len(), 1);
         assert_eq!(trash[0].id, a.id);
@@ -2658,10 +2710,11 @@ mod tests {
         assert!(updated.updated_at >= created.updated_at);
 
         // Search theo tên + lọc tag.
-        assert_eq!(db.search_profiles("work", None).unwrap().len(), 1);
-        assert_eq!(db.search_profiles("work", Some("ig")).unwrap().len(), 1);
-        assert_eq!(db.search_profiles("work", Some("fb")).unwrap().len(), 0);
-        assert_eq!(db.search_profiles("nope", None).unwrap().len(), 0);
+        let empty = ProfileFilter::default();
+        assert_eq!(db.search_profiles("work", &empty).unwrap().len(), 1);
+        assert_eq!(db.search_profiles("work", &tag_filter("ig")).unwrap().len(), 1);
+        assert_eq!(db.search_profiles("work", &tag_filter("fb")).unwrap().len(), 0);
+        assert_eq!(db.search_profiles("nope", &empty).unwrap().len(), 0);
 
         assert!(db.delete_profile(&created.id).unwrap());
         assert!(!db.delete_profile(&created.id).unwrap());
@@ -2832,12 +2885,14 @@ mod tests {
         assert_eq!(all.len(), 5000);
 
         let t_search = std::time::Instant::now();
-        let hits = db.search_profiles("profile-09", None).unwrap();
+        let hits = db
+            .search_profiles("profile-09", &ProfileFilter::default())
+            .unwrap();
         let search_ms = t_search.elapsed().as_millis();
         assert_eq!(hits.len(), 100); // profile-0900..profile-0999
 
         let t_tag = std::time::Instant::now();
-        let vips = db.search_profiles("profile", Some("vip")).unwrap();
+        let vips = db.search_profiles("profile", &tag_filter("vip")).unwrap();
         let tag_ms = t_tag.elapsed().as_millis();
         assert_eq!(vips.len(), 500);
 

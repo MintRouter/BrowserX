@@ -10,7 +10,7 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use browserx_lib::db::{Db, ProfileInput, ProfileUpdate, ProxyInput};
+use browserx_lib::db::{Db, ProfileFilter, ProfileInput, ProfileUpdate, ProxyInput};
 use browserx_lib::launcher::build_args;
 use browserx_lib::process::ProcessManager;
 use browserx_lib::{binary, crypto};
@@ -69,7 +69,9 @@ fn a_crud_1000_profiles_list_search_p95_under_200ms() {
         assert_eq!(all.len(), 1000);
 
         let t = Instant::now();
-        let hits = db.search_profiles("profile-09", None).unwrap();
+        let hits = db
+            .search_profiles("profile-09", &ProfileFilter::default())
+            .unwrap();
         search_samples.push(t.elapsed());
         assert_eq!(hits.len(), 100);
     }

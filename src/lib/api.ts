@@ -136,6 +136,22 @@ export interface ProfileInput {
   folder_id?: string | null;
 }
 
+/**
+ * (P3-2a) Advanced filter for searchProfiles — mirrors src-tauri/src/db.rs
+ * ProfileFilter (serde snake_case, no rename). Omitted fields skip that
+ * criterion; an empty/omitted filter behaves like the old name-only search.
+ */
+export interface ProfileFilter {
+  /** Target OS fingerprint (profiles.platform). */
+  os?: Platform;
+  /** true = only profiles with a proxy assigned, false = only without. */
+  has_proxy?: boolean;
+  /** Only profiles carrying this exact tag. */
+  tag?: string;
+  /** Only profiles in this folder. */
+  folder_id?: string;
+}
+
 /** (P3-1a) Extension in the central store, assigned N-N to profiles. */
 export interface Extension {
   id: string;
@@ -297,8 +313,8 @@ export const api = {
   updateProfile: (id: string, input: ProfileInput) =>
     invoke<Profile>("update_profile", { id, input }),
   deleteProfile: (id: string) => invoke<void>("delete_profile", { id }),
-  searchProfiles: (query: string, tag?: string | null) =>
-    invoke<Profile[]>("search_profiles", { query, tag: tag ?? null }),
+  searchProfiles: (query: string, filter?: ProfileFilter | null) =>
+    invoke<Profile[]>("search_profiles", { query, filter: filter ?? null }),
 
   // Proxies
   listProxies: () => invoke<Proxy[]>("list_proxies"),
