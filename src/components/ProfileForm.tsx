@@ -28,6 +28,8 @@ interface ProfileFormProps {
   onTrashed?: () => void | Promise<void>;
   /** Optional: pass folders to skip the internal api.listFolders() fetch. */
   folders?: Folder[];
+  /** (P3-3b) Refetch proxies after "use template" creates one server-side. */
+  onProxiesChanged?: () => void | Promise<void>;
 }
 
 const TABS = ["general", "proxy", "fingerprint", "extra"] as const;
@@ -130,6 +132,7 @@ export function ProfileForm({
   onCancel,
   onTrashed,
   folders: foldersProp,
+  onProxiesChanged,
 }: ProfileFormProps) {
   const { t } = useTranslation();
   const isEdit = profile !== null;
@@ -533,7 +536,12 @@ export function ProfileForm({
               />
             )}
             {activeTab === "proxy" && (
-              <ProxyTab form={form} set={set} proxies={proxies} />
+              <ProxyTab
+                form={form}
+                set={set}
+                proxies={proxies}
+                onProxiesChanged={onProxiesChanged}
+              />
             )}
             {activeTab === "fingerprint" && <FingerprintTab form={form} set={set} />}
             {activeTab === "extra" && (

@@ -1,4 +1,5 @@
 import {
+  BookmarkPlus,
   Building2,
   Folder,
   Laptop,
@@ -22,6 +23,7 @@ export type MainView =
   | "favorites"
   | "trash"
   | "proxies"
+  | "proxyTemplates"
   | "templates"
   | "extensions"
   | "settings";
@@ -42,6 +44,7 @@ interface SidebarProps {
     favorites: number;
     trash: number;
     proxies: number;
+    proxyTemplates: number;
     templates: number;
     extensions: number;
   };
@@ -155,8 +158,9 @@ export function Sidebar({
     );
   }
 
-  // Proxies view keeps the shell sidebar but swaps folders for proxy nav (F2a).
-  if (view === "proxies") {
+  // Proxies + proxy-templates views keep the shell sidebar but swap folders
+  // for proxy nav (F2a, P3-3b).
+  if (view === "proxies" || view === "proxyTemplates") {
     return (
       <nav
         className="card my-4 ml-4 flex w-[270px] shrink-0 flex-col overflow-y-auto p-3"
@@ -167,8 +171,15 @@ export function Sidebar({
             icon={<Network className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />}
             label={t("sidebar.allProxies")}
             count={counts.proxies}
-            active
+            active={view === "proxies"}
             onClick={() => onNavigate("proxies")}
+          />
+          <NavRow
+            icon={<BookmarkPlus className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />}
+            label={t("sidebar.proxyTemplates")}
+            count={counts.proxyTemplates}
+            active={view === "proxyTemplates"}
+            onClick={() => onNavigate("proxyTemplates")}
           />
         </div>
         <SidebarStats counts={counts} />

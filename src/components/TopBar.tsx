@@ -37,6 +37,7 @@ export function TopBar(props: TopBarProps) {
   const initial = t("app.name").charAt(0).toUpperCase();
   const profilesActive =
     view !== "proxies" &&
+    view !== "proxyTemplates" &&
     view !== "templates" &&
     view !== "extensions" &&
     view !== "settings";
@@ -59,7 +60,7 @@ export function TopBar(props: TopBarProps) {
       key: "proxies",
       label: t("topbar.proxies"),
       icon: <Network className="h-5 w-5" strokeWidth={2} aria-hidden="true" />,
-      active: view === "proxies",
+      active: view === "proxies" || view === "proxyTemplates",
       onClick: () => onNavigate?.("proxies"),
     },
     {

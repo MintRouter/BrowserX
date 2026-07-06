@@ -229,6 +229,52 @@ export interface ProxyInput {
   password?: string | null;
 }
 
+/** (P3-3a) Reusable proxy template — same credential policy as Proxy: encrypted
+ * at rest, only masked username + has_password cross IPC. sticky_session /
+ * traffic_saver are provider-level metadata (not applied at launch). */
+export interface ProxyTemplate {
+  id: string;
+  name: string;
+  protocol: "http" | "https" | "socks5";
+  host: string;
+  port: number;
+  /** (W5c) Username never crosses IPC in plaintext — masked (first char + "***"). */
+  masked_username: string | null;
+  /** Password never crosses IPC in plaintext — backend only reports presence. */
+  has_password: boolean;
+  /** (W23b) Credentials can't be decrypted (master key changed) — re-enter password. */
+  credentials_invalid: boolean;
+  sticky_session: boolean;
+  traffic_saver: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Input for create_proxy_template (plaintext credentials — encrypted at rest). */
+export interface ProxyTemplateCreate {
+  name: string;
+  protocol: "http" | "https" | "socks5";
+  host: string;
+  port: number;
+  username?: string | null;
+  password?: string | null;
+  sticky_session?: boolean;
+  traffic_saver?: boolean;
+}
+
+/** Partial update for update_proxy_template (blank credential = keep stored). */
+export interface ProxyTemplatePatch {
+  name?: string;
+  protocol?: "http" | "https" | "socks5";
+  host?: string;
+  port?: number;
+  username?: string | null;
+  password?: string | null;
+  sticky_session?: boolean;
+  traffic_saver?: boolean;
+  clear_credentials?: boolean;
+}
+
 /** Input for check_proxy: either a stored proxy id, or inline params. */
 export interface ProxyCheckInput {
   proxy_id?: string | null;
@@ -391,6 +437,21 @@ export const api = {
     invoke<void>("assign_proxy", { profileId, proxyId: proxyId ?? null }),
   checkProxy: (input: ProxyCheckInput) =>
     invoke<ProxyCheckResult>("check_proxy", { input }),
+
+  // Proxy templates (P3-3a)
+  listProxyTemplates: () => invoke<ProxyTemplate[]>("list_proxy_templates"),
+  createProxyTemplate: (input: ProxyTemplateCreate) =>
+    invoke<ProxyTemplate>("create_proxy_template", { input }),
+  updateProxyTemplate: (id: string, input: ProxyTemplatePatch) =>
+    invoke<ProxyTemplate>("update_proxy_template", { id, input }),
+  deleteProxyTemplate: (id: string) =>
+    invoke<boolean>("delete_proxy_template", { id }),
+  /** Copies the encrypted credentials server-side — nothing is decrypted. */
+  createProxyFromTemplate: (templateId: string, name?: string | null) =>
+    invoke<Proxy>("create_proxy_from_template", {
+      templateId,
+      name: name ?? null,
+    }),
 
   // Session
   launchProfile: (id: string) => invoke<LaunchResult>("launch_profile", { id }),

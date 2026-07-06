@@ -1,24 +1,70 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
-import { api, type Proxy, type ProxyCheckResult } from "../../lib/api";
+import {
+  api,
+  type Proxy,
+  type ProxyCheckResult,
+  type ProxyTemplate,
+} from "../../lib/api";
 import type { FormState, SetField } from "./types";
 
 interface ProxyTabProps {
   form: FormState;
   set: SetField;
   proxies: Proxy[];
+  /** (P3-3b) Refetch proxies after "use template" creates one server-side. */
+  onProxiesChanged?: () => void | Promise<void>;
 }
 
 /** Optional health status — present in newer backend payloads. */
 type ProxyWithHealth = Proxy & { health_status?: string | null };
 
-export function ProxyTab({ form, set, proxies }: ProxyTabProps) {
+export function ProxyTab({ form, set, proxies, onProxiesChanged }: ProxyTabProps) {
   const { t } = useTranslation();
 
   const [checking, setChecking] = useState(false);
   const [checkedId, setCheckedId] = useState<string | null>(null);
   const [checkResult, setCheckResult] = useState<ProxyCheckResult | null>(null);
+  // (P3-3b) Proxy templates: pick one to create a pre-filled proxy and assign
+  // it. Credentials are copied encrypted server-side (never decrypted here).
+  const [templates, setTemplates] = useState<ProxyTemplate[]>([]);
+  const [templateId, setTemplateId] = useState("");
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listProxyTemplates()
+      .then((list) => {
+        if (!cancelled) setTemplates(list);
+      })
+      .catch(() => {
+        // offline / non-Tauri: keep empty list
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const selectedTemplate = templates.find((x) => x.id === templateId) ?? null;
+
+  const applyTemplate = async () => {
+    if (!selectedTemplate) return;
+    setApplying(true);
+    setApplyError(null);
+    try {
+      const created = await api.createProxyFromTemplate(selectedTemplate.id);
+      await onProxiesChanged?.();
+      set("proxy_id", created.id);
+      setTemplateId("");
+    } catch (e) {
+      setApplyError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setApplying(false);
+    }
+  };
 
   async function runCheck(proxyId: string) {
     setChecking(true);
@@ -145,6 +191,63 @@ export function ProxyTab({ form, set, proxies }: ProxyTabProps) {
           </div>
         );
       })}
+
+      {/* (P3-3b) Create + assign a proxy from a saved proxy template */}
+      {templates.length > 0 && (
+        <div className="rounded-lg border border-border bg-surface-1 px-3.5 py-3">
+          <label htmlFor="pf-proxy-template" className="label">
+            {t("pxtpl.useTemplate")}
+          </label>
+          <div className="flex items-center gap-2">
+            <select
+              id="pf-proxy-template"
+              className="input flex-1"
+              value={templateId}
+              onChange={(e) => setTemplateId(e.target.value)}
+              disabled={applying}
+            >
+              <option value="">{t("pxtpl.pickTemplate")}</option>
+              {templates.map((tpl) => (
+                <option key={tpl.id} value={tpl.id}>
+                  {tpl.name} — {tpl.protocol}://{tpl.host}:{tpl.port}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={!selectedTemplate || applying}
+              onClick={() => void applyTemplate()}
+              className="btn-secondary h-9 shrink-0 px-3 text-xs disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {applying && (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              )}
+              {t("pxtpl.apply")}
+            </button>
+          </div>
+          {selectedTemplate &&
+            (selectedTemplate.sticky_session || selectedTemplate.traffic_saver) && (
+              <p className="mt-1.5 flex flex-wrap gap-1.5 text-xs text-fg-muted">
+                {selectedTemplate.sticky_session && (
+                  <span className="rounded-full bg-accent/10 px-2 py-0.5 font-medium text-accent">
+                    {t("pxtpl.stickySession")}
+                  </span>
+                )}
+                {selectedTemplate.traffic_saver && (
+                  <span className="rounded-full bg-accent/10 px-2 py-0.5 font-medium text-accent">
+                    {t("pxtpl.trafficSaver")}
+                  </span>
+                )}
+              </p>
+            )}
+          <p className="mt-1.5 text-xs text-fg-muted">{t("pxtpl.useTemplateHint")}</p>
+          {applyError && (
+            <p role="alert" className="mt-1.5 text-xs text-danger">
+              {applyError}
+            </p>
+          )}
+        </div>
+      )}
 
       <p className="pt-1 text-xs text-fg-muted">{t("pform.manageProxies")}</p>
     </fieldset>

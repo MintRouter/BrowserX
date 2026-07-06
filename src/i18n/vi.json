@@ -29,6 +29,7 @@
     "trashBin": "Thùng rác",
     "proxies": "Proxy",
     "allProxies": "Tất cả proxy",
+    "proxyTemplates": "Template proxy",
     "templates": "Template",
     "allTemplates": "Tất cả template profile",
     "extensions": "Tiện ích mở rộng",
@@ -355,6 +356,25 @@
     "credentialsBanner": "Không giải mã được thông tin đăng nhập của một số proxy (khoá mã hoá đã thay đổi). Vui lòng nhập lại mật khẩu bên dưới.",
     "credentialsInvalid": "Cần nhập lại mật khẩu",
     "reenterSave": "Lưu"
+  },
+  "pxtpl": {
+    "newTemplate": "Template proxy mới",
+    "editTemplate": "Sửa template",
+    "delete": "Xoá",
+    "save": "Lưu template",
+    "searchPlaceholder": "Tìm template proxy",
+    "emptyTitle": "Chưa có template proxy nào",
+    "emptyHint": "Lưu cấu hình proxy thành template để dùng lại cho nhiều profile.",
+    "confirmDelete": "Xoá template proxy này?",
+    "confirmDeleteMany_other": "Xoá {{count}} template proxy?",
+    "stickySession": "Sticky session",
+    "trafficSaver": "Tiết kiệm lưu lượng",
+    "on": "Bật",
+    "metadataHint": "Chỉ là thông tin của nhà cung cấp — không áp dụng khi chạy profile.",
+    "useTemplate": "Dùng template proxy",
+    "pickTemplate": "Chọn template…",
+    "apply": "Áp dụng",
+    "useTemplateHint": "Tạo proxy từ template và gán cho profile này."
   },
   "tpl": {
     "newTemplate": "Template mới",

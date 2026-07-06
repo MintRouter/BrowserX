@@ -9,6 +9,7 @@ import { ExtensionsView } from "./components/ExtensionsView";
 import { ProfileForm } from "./components/ProfileForm";
 import { ProfileList } from "./components/ProfileList";
 import { ProxiesView, type ProxyPatch } from "./components/ProxiesView";
+import { ProxyTemplatesView } from "./components/ProxyTemplatesView";
 import { QuickStopDialog } from "./components/QuickStopDialog";
 import { QuitDialog } from "./components/QuitDialog";
 import { RunningDashboard } from "./components/RunningDashboard";
@@ -31,6 +32,9 @@ import {
   type ProfileTemplate,
   type Proxy,
   type ProxyInput,
+  type ProxyTemplate,
+  type ProxyTemplateCreate,
+  type ProxyTemplatePatch,
   type RunningSession,
 } from "./lib/api";
 
@@ -43,6 +47,7 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [proxies, setProxies] = useState<Proxy[]>([]);
+  const [proxyTemplates, setProxyTemplates] = useState<ProxyTemplate[]>([]);
   const [running, setRunning] = useState<RunningSession[]>([]);
   const [trash, setTrash] = useState<Profile[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -116,6 +121,9 @@ export default function App() {
   const refetchProxies = useCallback(async () => {
     setProxies(await api.listProxies());
   }, []);
+  const refetchProxyTemplates = useCallback(async () => {
+    setProxyTemplates(await api.listProxyTemplates());
+  }, []);
   const refetchRunning = useCallback(async () => {
     setRunning(await api.listRunning());
   }, []);
@@ -146,10 +154,11 @@ export default function App() {
       refetchTrash(),
       refetchTemplates(),
       refetchExtensions(),
+      refetchProxyTemplates(),
       api.getSettings().then(setSettings),
     ]);
     setLoadError([p, x, r].some((res) => res.status === "rejected"));
-  }, [refetchProfiles, refetchProxies, refetchRunning, refetchFolders, refetchTrash, refetchTemplates, refetchExtensions]);
+  }, [refetchProfiles, refetchProxies, refetchRunning, refetchFolders, refetchTrash, refetchTemplates, refetchExtensions, refetchProxyTemplates]);
 
   useEffect(() => {
     void loadAll();
@@ -246,10 +255,11 @@ export default function App() {
       favorites: favoriteProfiles.length,
       trash: trash.length,
       proxies: proxies.length,
+      proxyTemplates: proxyTemplates.length,
       templates: templates.length,
       extensions: extensions.length,
     }),
-    [profiles.length, running.length, favoriteProfiles.length, trash.length, proxies.length, templates.length, extensions.length],
+    [profiles.length, running.length, favoriteProfiles.length, trash.length, proxies.length, proxyTemplates.length, templates.length, extensions.length],
   );
 
   const navigate = (v: MainView) => {
@@ -539,6 +549,30 @@ export default function App() {
     await refetchProxies();
   };
 
+  // (P3-3b) Proxy-template CRUD — same credential semantics as proxies.
+  const handleCreateProxyTemplate = async (input: ProxyTemplateCreate) => {
+    await api.createProxyTemplate(input);
+    await refetchProxyTemplates();
+  };
+
+  const handleUpdateProxyTemplate = async (
+    id: string,
+    patch: ProxyTemplatePatch,
+  ) => {
+    await api.updateProxyTemplate(id, patch);
+    await refetchProxyTemplates();
+  };
+
+  const handleDeleteProxyTemplates = async (ids: string[]) => {
+    setActionError(null);
+    try {
+      for (const id of ids) await api.deleteProxyTemplate(id);
+      await refetchProxyTemplates();
+    } catch (err) {
+      setActionError(errMsg(err));
+    }
+  };
+
   // (F2b) Template CRUD + default-template setting.
   const handleCreateTemplate = async (name: string, config: ProfileInput) => {
     await api.saveAsTemplate(name, config);
@@ -640,6 +674,7 @@ export default function App() {
               onTrashed={async () => {
                 await refetch(refetchProfiles(), refetchFolders(), refetchTrash());
               }}
+              onProxiesChanged={refetchProxies}
             />
           ) : view === "profiles" || view === "favorites" ? (
             <ProfileList
@@ -684,6 +719,15 @@ export default function App() {
               onCreate={handleCreateProxy}
               onUpdate={handleUpdateProxy}
               onDelete={handleDeleteProxies}
+            />
+          ) : view === "proxyTemplates" ? (
+            <ProxyTemplatesView
+              templates={proxyTemplates}
+              profileCount={profiles.length}
+              settings={settings}
+              onCreate={handleCreateProxyTemplate}
+              onUpdate={handleUpdateProxyTemplate}
+              onDelete={handleDeleteProxyTemplates}
             />
           ) : view === "templates" ? (
             <TemplatesView
