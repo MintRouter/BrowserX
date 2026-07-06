@@ -21,6 +21,7 @@ import {
   PenLine,
   Play,
   Puzzle,
+  Shuffle,
   Square,
   Star,
   Tag,
@@ -117,6 +118,8 @@ interface ProfileTableProps {
   onStop: (id: string) => Promise<void>;
   onEdit: (profile: Profile) => void;
   onClone: (profile: Profile) => void;
+  /** (W40) Rotate the assigned proxy for one profile. */
+  onRotateProxy: (profile: Profile) => void;
   onExport: (profile: Profile) => void;
   /** (W24a) Open the cookie export/import dialog for one profile. */
   onExportCookies: (profile: Profile) => void;
@@ -278,6 +281,7 @@ function RowMenu({
   onCopyCdpUrl,
   onBringToFront,
   onClone,
+  onRotateProxy,
   onExport,
   onExportCookies,
   onImportCookies,
@@ -297,6 +301,7 @@ function RowMenu({
   onCopyCdpUrl: () => void;
   onBringToFront: () => void;
   onClone: () => void;
+  onRotateProxy: () => void;
   onExport: () => void;
   onExportCookies: () => void;
   onImportCookies: () => void;
@@ -410,6 +415,15 @@ function RowMenu({
             }}
           >
             {t("toolbar.clone")}
+          </MenuItem>
+          <MenuItem
+            icon={<Shuffle className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+            onClick={() => {
+              close();
+              onRotateProxy();
+            }}
+          >
+            {t("toolbar.rotateProxy")}
           </MenuItem>
           <span
             className="block"
@@ -537,6 +551,7 @@ export function ProfileTable({
   onStop,
   onEdit,
   onClone,
+  onRotateProxy,
   onExport,
   onExportCookies,
   onImportCookies,
@@ -883,6 +898,7 @@ export function ProfileTable({
                   onCopyCdpUrl={() => onCopyCdpUrl(p.id)}
                   onBringToFront={() => onBringToFront(p.id)}
                   onClone={() => onClone(p)}
+                  onRotateProxy={() => onRotateProxy(p)}
                   onExport={() => onExport(p)}
                   onExportCookies={() => onExportCookies(p)}
                   onImportCookies={() => onImportCookies(p)}

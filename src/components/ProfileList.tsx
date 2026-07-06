@@ -41,6 +41,8 @@ interface ProfileListProps {
   /** (F1a) Selective refetch after inline rename — profiles only (W23d pattern). */
   onRenamed: () => Promise<void>;
   onClone: (profile: Profile) => Promise<void>;
+  /** (W40) Rotate the assigned proxy for one profile (row ⋮ menu). */
+  onRotateProxy: (profile: Profile) => Promise<void>;
   onTrash: (ids: string[]) => Promise<void>;
   onMove: (ids: string[], folderId: string | null) => Promise<void>;
   onAddTags: (ids: string[], tags: string[]) => Promise<void>;
@@ -463,6 +465,7 @@ export function ProfileList(props: ProfileListProps) {
             onStop={props.onStop}
             onEdit={props.onEdit}
             onClone={(p) => void props.onClone(p)}
+            onRotateProxy={(p) => void props.onRotateProxy(p)}
             onExport={(p) => void handleExport(p)}
             onExportCookies={(p) => setCookieDialog({ mode: "export", profiles: [p] })}
             onImportCookies={(p) => setCookieDialog({ mode: "import", profiles: [p] })}

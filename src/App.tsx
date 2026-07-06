@@ -394,6 +394,17 @@ export default function App() {
     await refetch(refetchProfiles(), refetchProxies());
   };
 
+  // (W40) Rotate the assigned proxy for a single profile (row ⋮ menu).
+  const handleRotateProxy = async (p: Profile) => {
+    setActionError(null);
+    try {
+      await api.rotateProxy(p.id);
+    } catch (err) {
+      setActionError(errMsg(err));
+    }
+    await refetch(refetchProfiles(), refetchProxies());
+  };
+
   /** Resolve the quick-stop dialog: keep data as a regular profile or purge everything. */
   const resolveQuickStop = async (action: "save" | "delete") => {
     if (!quickStop) return;
@@ -725,6 +736,7 @@ export default function App() {
               }}
               onRenamed={refetchProfiles}
               onClone={handleClone}
+              onRotateProxy={handleRotateProxy}
               onTrash={handleTrash}
               onMove={handleMove}
               onAddTags={handleAddTags}
