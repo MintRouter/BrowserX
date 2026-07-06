@@ -149,7 +149,8 @@ const PERM_SET_JS: &str = r#"(() => {
 /// đã resolve từ `window.__perm` (cùng page/tab nên biến vẫn còn).
 const PERM_GET_JS: &str = "window.__perm";
 
-/// Launch 1 phiên headful thật, attach CDP, goto about:blank, đo tín hiệu stealth
+/// Launch 1 phiên headful thật, attach CDP, goto một http origin THẬT
+/// (`http://127.0.0.1:<ephemeral>/` do server `std::net` trong test phục vụ), đo tín hiệu stealth
 /// (sync + permissions 2 bước), teardown sạch (kill process + dọn temp), trả về
 /// object JSON đã parse gồm mọi field stealth + field `permState`.
 async fn measure(bin: &str, tag: &str) -> serde_json::Value {
@@ -274,7 +275,7 @@ async fn core_stealth_signals_present() {
         !ua.contains("Headless"),
         "[stealth] navigator.userAgent chứa \"Headless\" — lộ headless: {ua}"
     );
-    assert!(plugins > 0, "[stealth] navigator.plugins.length PHẢI > 0, đo được {plugins}");
+    assert!(plugins >= 5, "[stealth] navigator.plugins.length PHẢI >= 5 (baseline test CloakBrowser test_launch.py/test_stealth.py), đo được {plugins}");
     assert!(languages > 0, "[stealth] navigator.languages.length PHẢI > 0, đo được {languages}");
     assert_eq!(chrome, "object", "[stealth] typeof window.chrome PHẢI là 'object', đo được '{chrome}'");
 
