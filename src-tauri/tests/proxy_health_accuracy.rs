@@ -6,18 +6,30 @@
 //! HTTP proxy) lẫn CONNECT tunnel — nên các case healthy đi qua ĐÚNG tầng proxy
 //! của `reqwest::Proxy::all`, không phải shortcut trỏ thẳng vào ip-echo.
 //!
-//! 24 kịch bản có nhãn healthy/unhealthy. Mỗi kịch bản chạy
+//! 26 kịch bản có nhãn healthy/unhealthy. Mỗi kịch bản chạy
 //! `check_proxy_url_with` với endpoint local + timeout ngắn, so `ok` với nhãn,
 //! in bảng scenario→expected→got→OK/X rồi assert tỉ lệ đúng ≥ 0.95.
 //!
 //! Kịch bản #24: body JSON không có key "ip" và không chứa whitespace
 //! (vd `{"error":"forbidden"}`) — `parse_ip_response` đã validate token bằng
-//! `IpAddr` nên từ chối đúng → phân loại unhealthy chính xác, 24/24 = 100%.
+//! `IpAddr` nên từ chối đúng → phân loại unhealthy chính xác.
+//!
+//! W34b — phủ đường CONNECT tunnel (đường reqwest dùng khi target là https):
+//! - U25/U26 chạy QUA reqwest với target `https://` local → reqwest mở CONNECT
+//!   qua mock proxy thật (xác nhận bằng counter CONNECT). GIỚI HẠN trung thực:
+//!   không thêm crate TLS nên không dựng được server TLS local → không có case
+//!   CONNECT *healthy* end-to-end qua reqwest; U25 dừng ở TLS-handshake-fail
+//!   (sau khi tunnel đã Established), U26 là CONNECT bị proxy trả 502.
+//! - Chiều healthy của tunnel được CHỨNG MINH ở tầng TCP thuần (độc lập
+//!   reqwest) trong `connect_tunnel_success_tcp_level`: client tự mở CONNECT,
+//!   nhận 200 Established, gửi GET origin-form và đọc được JSON ip qua tunnel.
 //!
 //! Chạy: cd src-tauri && cargo test --test proxy_health_accuracy -- --nocapture
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use browserx_lib::proxy_check::check_proxy_url_with;
@@ -113,18 +125,23 @@ fn read_head(stream: &mut TcpStream) -> Option<Vec<u8>> {
 
 /// Mock HTTP forward proxy TỐI THIỂU: absolute-form GET (rewrite về
 /// origin-form rồi forward tới upstream) + CONNECT tunnel 2 chiều.
-fn start_forward_proxy() -> u16 {
+/// Trả thêm counter đếm số request CONNECT nhận được — để test chứng minh
+/// reqwest thực sự đi qua đường CONNECT chứ không phải absolute-form.
+fn start_forward_proxy() -> (u16, Arc<AtomicUsize>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind forward proxy");
     let port = listener.local_addr().expect("local_addr").port();
+    let connect_count = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&connect_count);
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
-            std::thread::spawn(move || handle_proxy_conn(stream));
+            let counter = Arc::clone(&counter);
+            std::thread::spawn(move || handle_proxy_conn(stream, counter));
         }
     });
-    port
+    (port, connect_count)
 }
 
-fn handle_proxy_conn(mut client: TcpStream) {
+fn handle_proxy_conn(mut client: TcpStream, connect_count: Arc<AtomicUsize>) {
     let Some(head) = read_head(&mut client) else {
         return;
     };
@@ -137,6 +154,7 @@ fn handle_proxy_conn(mut client: TcpStream) {
     let version = parts.next().unwrap_or("HTTP/1.1");
 
     if method.eq_ignore_ascii_case("CONNECT") {
+        connect_count.fetch_add(1, Ordering::SeqCst);
         let Ok(mut upstream) = TcpStream::connect(target) else {
             let _ = client.write_all(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n");
             return;
@@ -227,8 +245,11 @@ fn echo_url(port: u16, path: &str) -> String {
 #[tokio::test(flavor = "multi_thread")]
 async fn proxy_health_classification_accuracy() {
     // ---- Hạ tầng mock (mỗi server 1 thread daemon, cổng ephemeral) ----
-    let proxy_a = start_forward_proxy();
-    let proxy_b = start_forward_proxy();
+    let (proxy_a, _) = start_forward_proxy();
+    let (proxy_b, _) = start_forward_proxy();
+    // Proxy riêng cho các kịch bản CONNECT (counter chứng minh reqwest
+    // thực sự gửi CONNECT, không phải absolute-form GET).
+    let (proxy_c, connect_count_c) = start_forward_proxy();
     let silent_proxy = start_silent_server();
     let stall_proxy = start_stall_server();
     // "Proxy" hỏng kiểu captive-portal: trả HTML thay vì forward.
@@ -302,7 +323,7 @@ async fn proxy_health_classification_accuracy() {
     let proxy_url = |p: u16| format!("http://127.0.0.1:{p}");
     let dead_echo = dead_port();
 
-    // ---- Bộ mẫu chuẩn: 24 kịch bản có nhãn (9 healthy + 15 unhealthy) ----
+    // ---- Bộ mẫu chuẩn: 26 kịch bản có nhãn (9 healthy + 17 unhealthy) ----
     // Timeout 3000ms cho case bình thường; 300ms cho case treo (không chờ 10s).
     let scenarios = vec![
         // -------- HEALTHY: đi qua mock forward proxy THẬT tới ip-echo --------
@@ -481,6 +502,26 @@ async fn proxy_health_classification_accuracy() {
             3000,
             false,
         ),
+        // -------- CONNECT tunnel (W34b): target https:// → reqwest mở CONNECT --------
+        // GIỚI HẠN trung thực: không thêm crate TLS nên đích local là plain-HTTP;
+        // U25 vì thế dừng ở TLS-handshake-fail SAU KHI tunnel đã Established —
+        // vẫn ép reqwest đi đúng đường CONNECT (assert bằng connect_count_c bên
+        // dưới). Chiều CONNECT-thành-công-đọc-được-ip được chứng minh ở tầng TCP
+        // trong test `connect_tunnel_success_tcp_level`.
+        Scenario::new(
+            "U25 CONNECT established, đích không phải TLS → fail đúng",
+            proxy_url(proxy_c),
+            vec![format!("https://127.0.0.1:{echo_json}/?format=json")],
+            3000,
+            false,
+        ),
+        Scenario::new(
+            "U26 CONNECT tới đích chết → proxy trả 502 → fail đúng",
+            proxy_url(proxy_c),
+            vec![format!("https://127.0.0.1:{dead_echo}/")],
+            3000,
+            false,
+        ),
     ];
 
     // ---- Chạy tuần tự, so nhãn, in bảng ----
@@ -528,5 +569,88 @@ async fn proxy_health_classification_accuracy() {
         rate >= 0.95,
         "độ chính xác phân loại {correct}/{total} = {:.2}% < 95%",
         rate * 100.0
+    );
+
+    // Chứng minh U25/U26 thực sự đi đường CONNECT của reqwest (không phải
+    // absolute-form GET): mock proxy_c phải nhận ≥2 request CONNECT.
+    let connects = connect_count_c.load(Ordering::SeqCst);
+    assert!(
+        connects >= 2,
+        "kỳ vọng ≥2 request CONNECT tới proxy_c (U25+U26), nhận {connects}"
+    );
+    println!("CONNECT requests nhận bởi proxy_c: {connects} (≥2 — đúng đường tunnel)");
+}
+
+/// W34b — chiều CONNECT-thành-công ở tầng TCP thuần (độc lập reqwest):
+/// client mở CONNECT tới mock proxy, nhận `200 Connection Established`, gửi
+/// GET origin-form qua tunnel tới IP-echo và đọc được JSON ip. Chứng minh
+/// tunnel 2 chiều của mock proxy thông suốt — bù cho việc không dựng được
+/// server TLS local (không thêm crate) nên harness reqwest không có case
+/// CONNECT healthy end-to-end.
+#[test]
+fn connect_tunnel_success_tcp_level() {
+    let (proxy, connect_count) = start_forward_proxy();
+    let echo = start_canned_server(http_response(
+        "200 OK",
+        "application/json",
+        r#"{"ip":"1.2.3.4"}"#,
+    ));
+
+    let mut stream = TcpStream::connect(("127.0.0.1", proxy)).expect("connect proxy");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .expect("set timeout");
+    stream
+        .write_all(format!("CONNECT 127.0.0.1:{echo} HTTP/1.1\r\nHost: 127.0.0.1:{echo}\r\n\r\n").as_bytes())
+        .expect("send CONNECT");
+
+    // Đọc đúng response CONNECT (kết thúc ở \r\n\r\n, không có body).
+    let mut head = Vec::new();
+    let mut byte = [0u8; 1];
+    while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+        match stream.read(&mut byte) {
+            Ok(1) => head.push(byte[0]),
+            _ => break,
+        }
+    }
+    let head_str = String::from_utf8_lossy(&head);
+    assert!(
+        head_str.starts_with("HTTP/1.1 200"),
+        "kỳ vọng 200 Connection Established, nhận: {head_str}"
+    );
+    assert_eq!(connect_count.load(Ordering::SeqCst), 1);
+
+    // Qua tunnel: gửi GET origin-form và đọc JSON ip từ echo server.
+    stream
+        .write_all(format!("GET /?format=json HTTP/1.1\r\nHost: 127.0.0.1:{echo}\r\nConnection: close\r\n\r\n").as_bytes())
+        .expect("send GET through tunnel");
+    let mut body = String::new();
+    let _ = stream.read_to_string(&mut body);
+    assert!(
+        body.contains(r#"{"ip":"1.2.3.4"}"#),
+        "kỳ vọng JSON ip qua tunnel, nhận: {body}"
+    );
+}
+
+/// W34b — chiều CONNECT-bị-từ-chối ở tầng TCP thuần: đích chết → mock proxy
+/// trả 502 Bad Gateway thay vì Established.
+#[test]
+fn connect_tunnel_refused_tcp_level() {
+    let (proxy, _) = start_forward_proxy();
+    let dead = dead_port();
+
+    let mut stream = TcpStream::connect(("127.0.0.1", proxy)).expect("connect proxy");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .expect("set timeout");
+    stream
+        .write_all(format!("CONNECT 127.0.0.1:{dead} HTTP/1.1\r\nHost: 127.0.0.1:{dead}\r\n\r\n").as_bytes())
+        .expect("send CONNECT");
+
+    let mut resp = String::new();
+    let _ = stream.read_to_string(&mut resp);
+    assert!(
+        resp.starts_with("HTTP/1.1 502"),
+        "kỳ vọng 502 Bad Gateway cho CONNECT tới đích chết, nhận: {resp}"
     );
 }
