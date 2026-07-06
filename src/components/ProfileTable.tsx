@@ -4,6 +4,7 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Bot,
   ClipboardCopy,
   Columns3,
   Cookie,
@@ -116,6 +117,8 @@ interface ProfileTableProps {
   /** (W24a) Open the cookie export/import dialog for one profile. */
   onExportCookies: (profile: Profile) => void;
   onImportCookies: (profile: Profile) => void;
+  /** (P3-4b) Open the CookieRobot dialog for one profile. */
+  onCookieRobot: (profile: Profile) => void;
   onMove: (ids: string[], folderId: string | null) => void;
   onAddTags: (ids: string[], tags: string[]) => void;
   onClearCache: (ids: string[]) => void;
@@ -274,6 +277,7 @@ function RowMenu({
   onExport,
   onExportCookies,
   onImportCookies,
+  onCookieRobot,
   onMove,
   onAddTags,
   onClearCache,
@@ -291,6 +295,7 @@ function RowMenu({
   onExport: () => void;
   onExportCookies: () => void;
   onImportCookies: () => void;
+  onCookieRobot: () => void;
   onMove: (folderId: string | null) => void;
   onAddTags: (tags: string[]) => void;
   onClearCache: () => void;
@@ -428,6 +433,15 @@ function RowMenu({
             {t("cookies.menuImport")}
           </MenuItem>
           <MenuItem
+            icon={<Bot className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+            onClick={() => {
+              close();
+              onCookieRobot();
+            }}
+          >
+            {t("robot.menu")}
+          </MenuItem>
+          <MenuItem
             icon={<FolderInput className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
             onClick={() => setMode("move")}
           >
@@ -514,6 +528,7 @@ export function ProfileTable({
   onExport,
   onExportCookies,
   onImportCookies,
+  onCookieRobot,
   onMove,
   onAddTags,
   onClearCache,
@@ -804,6 +819,7 @@ export function ProfileTable({
                   onExport={() => onExport(p)}
                   onExportCookies={() => onExportCookies(p)}
                   onImportCookies={() => onImportCookies(p)}
+                  onCookieRobot={() => onCookieRobot(p)}
                   onMove={(folderId) => onMove([p.id], folderId)}
                   onAddTags={(tags) => onAddTags([p.id], tags)}
                   onClearCache={() => onClearCache([p.id])}

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, type Folder, type Profile } from "../lib/api";
 import { CookieDialog } from "./CookieDialog";
+import { CookieRobotDialog } from "./CookieRobotDialog";
 import { toProfileFilter, type ProfileFilters } from "./FilterPanel";
 import { ProfilesToolbar } from "./ProfilesToolbar";
 import {
@@ -73,6 +74,8 @@ export function ProfileList(props: ProfileListProps) {
     mode: "export" | "import";
     profiles: Profile[];
   } | null>(null);
+  // (P3-4b) CookieRobot dialog target (one profile at a time).
+  const [robotProfile, setRobotProfile] = useState<Profile | null>(null);
 
   const folderName = (id: string | null) =>
     id ? (folders.find((f) => f.id === id)?.name ?? "") : "";
@@ -460,6 +463,7 @@ export function ProfileList(props: ProfileListProps) {
               onExport={(p) => void handleExport(p)}
               onExportCookies={(p) => setCookieDialog({ mode: "export", profiles: [p] })}
               onImportCookies={(p) => setCookieDialog({ mode: "import", profiles: [p] })}
+              onCookieRobot={setRobotProfile}
               onMove={(ids, folderId) => void props.onMove(ids, folderId)}
               onAddTags={(ids, tags) => void props.onAddTags(ids, tags)}
               onClearCache={(ids) => void handleClearCache(ids)}
@@ -491,6 +495,13 @@ export function ProfileList(props: ProfileListProps) {
           profiles={cookieDialog.profiles}
           onClose={() => setCookieDialog(null)}
           onDone={setToast}
+        />
+      )}
+
+      {robotProfile && (
+        <CookieRobotDialog
+          profile={robotProfile}
+          onClose={() => setRobotProfile(null)}
         />
       )}
 
