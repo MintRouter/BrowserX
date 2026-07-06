@@ -198,22 +198,29 @@ có health-check, automation API qua CDP.
 - **Mã hoá at-rest toàn diện:** proxy + cookie export + secret trong DB (docs/03 §2).
 
 **Exit criteria (đo được).**
-- [ ] Import → export → import lại 1 profile **round-trip** giữ nguyên cookie/localStorage
+- [x] Import → export → import lại 1 profile **round-trip** giữ nguyên cookie/localStorage
       (so hash `storage_state`).
-      — ⏳ PHẦN COOKIE đã có bằng chứng round-trip: W31b cookie_roundtrip.rs PASS
-      (export→import→re-export qua CDP Storage.set/getCookies, SHA-256 tập cookie
-      chuẩn hoá giữ nguyên 38eb8ec3…, commit e065740). localStorage/full storage_state
-      vẫn ngoài phạm vi export chủ đích → giữ mở.
+      — ✅ FULL round-trip (cookie + localStorage): cookie đã xong ở W31b
+      (cookie_roundtrip.rs, hash 38eb8ec3…, commit e065740); W33b (commit bf5ecf8)
+      bổ sung localStorage qua CDP get/set_local_storage + storage_state kiểu
+      Playwright (export/import_storage_state, backward-compat), test
+      storage_state_roundtrip.rs chạy trên binary THẬT: seed 3 cookie + 4
+      localStorage key → export → import vào PROFILE MỚI → re-export, SHA-256 tập
+      chuẩn hoá (cookie+localStorage) trùng khớp (verifier APPROVED High). Hash là
+      run-specific vì gồm origin port ephemeral.
 - [x] Bulk tạo **≥500 profile** từ 1 template trong 1 thao tác; bulk launch/stop **≥20
       profile** trong 1 lệnh (tôn trọng semaphore concurrency).
       — ✅ `create_profiles_from_template` 1 transaction, canary 500 profile = 62ms
       (W29a 2026-07-07, commit 887ab47); bulk launch/stop qua multi-select ⇧L/⇧S tôn
       trọng semaphore (W13, xác nhận lại ở W29).
-- [ ] Proxy health-check phân loại **healthy/unhealthy** đúng ≥ 95% mẫu test; UI hiển thị
+- [x] Proxy health-check phân loại **healthy/unhealthy** đúng ≥ 95% mẫu test; UI hiển thị
       trạng thái + lần kiểm tra cuối.
-      — ⏳ tính năng đã có (W19b verified: proxy check + UI trạng thái/lần kiểm cuối;
-      4 unit test phân loại proxy_check.rs) nhưng **chưa đo** tỉ lệ đúng ≥95% trên bộ
-      mẫu chuẩn.
+      — ✅ Đã ĐO trên bộ mẫu chuẩn: tests/proxy_health_accuracy.rs (commit 82d2f14,
+      hardening 585be39) chạy 24 kịch bản có nhãn qua mock forward proxy + IP-echo
+      bằng std::net → phân loại đúng 24/24 = 100% (≥95%). Tính năng + UI trạng
+      thái/lần kiểm cuối đã có từ W19b. Caveat trung thực: harness chỉ phủ transport
+      HTTP-proxy (chưa đo đường CONNECT/TLS tunnel); production check_proxy_url giữ
+      nguyên endpoint ipify/ifconfig.me + timeout 10s.
 - [x] Automation: script mẫu qua CDP điều khiển ≥1 profile (goto + click + đọc DOM) thành công.
       — ✅ W5r 2026-07-03: `cdp::goto` + eval đọc DOM trên binary thật PASS
       (`tests/fingerprint_seed.rs`); click consent qua `cdp::eval` trong CookieRobot
