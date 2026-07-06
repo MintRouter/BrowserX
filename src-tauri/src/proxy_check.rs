@@ -70,7 +70,8 @@ pub fn build_proxy_url(
 }
 
 /// Parse body từ endpoint IP-echo: JSON `{"ip":"1.2.3.4"}` (ipify) hoặc
-/// plain-text (ifconfig.me). Trả None nếu không nhận ra IP.
+/// plain-text (ifconfig.me). Token trích ra PHẢI parse được thành
+/// `std::net::IpAddr` (IPv4/IPv6 thật); ngược lại trả None.
 pub fn parse_ip_response(body: &str) -> Option<String> {
     let trimmed = body.trim();
     if trimmed.is_empty() {
@@ -78,11 +79,14 @@ pub fn parse_ip_response(body: &str) -> Option<String> {
     }
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
         if let Some(ip) = v.get("ip").and_then(|x| x.as_str()) {
-            return Some(ip.trim().to_string());
+            let ip = ip.trim();
+            if ip.parse::<std::net::IpAddr>().is_ok() {
+                return Some(ip.to_string());
+            }
         }
     }
-    // Plain text: chấp nhận nếu ngắn và không chứa khoảng trắng (tránh nuốt HTML lỗi).
-    if trimmed.len() <= 45 && !trimmed.contains(char::is_whitespace) {
+    // Plain text: chỉ chấp nhận nếu là IP hợp lệ (tránh nuốt HTML/JSON lỗi).
+    if trimmed.parse::<std::net::IpAddr>().is_ok() {
         return Some(trimmed.to_string());
     }
     None

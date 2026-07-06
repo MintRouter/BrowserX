@@ -10,10 +10,9 @@
 //! `check_proxy_url_with` với endpoint local + timeout ngắn, so `ok` với nhãn,
 //! in bảng scenario→expected→got→OK/X rồi assert tỉ lệ đúng ≥ 0.95.
 //!
-//! Kịch bản #24 là KNOWN-GAP có chủ đích: body JSON không có key "ip" và không
-//! chứa whitespace (vd `{"error":"forbidden"}`) bị `parse_ip_response` nhận
-//! nhầm là IP plain-text → phân loại healthy sai. Giữ nhãn unhealthy trung
-//! thực và chấp nhận 23/24 ≈ 95.8% — KHÔNG chỉnh nhãn để đạt.
+//! Kịch bản #24: body JSON không có key "ip" và không chứa whitespace
+//! (vd `{"error":"forbidden"}`) — `parse_ip_response` đã validate token bằng
+//! `IpAddr` nên từ chối đúng → phân loại unhealthy chính xác, 24/24 = 100%.
 //!
 //! Chạy: cd src-tauri && cargo test --test proxy_health_accuracy -- --nocapture
 
@@ -292,8 +291,8 @@ async fn proxy_health_classification_accuracy() {
         "text/plain",
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     ));
-    // KNOWN-GAP: JSON không có "ip", KHÔNG whitespace → lọt qua nhánh
-    // plain-text của parse_ip_response và bị nhận nhầm là IP.
+    // JSON không có "ip", KHÔNG whitespace → parse_ip_response validate
+    // bằng IpAddr nên từ chối đúng (không còn nhận nhầm là IP).
     let echo_json_error = start_canned_server(http_response(
         "200 OK",
         "application/json",
@@ -476,7 +475,7 @@ async fn proxy_health_classification_accuracy() {
             false,
         ),
         Scenario::new(
-            "U24 KNOWN-GAP: JSON lỗi không whitespace bị nhận nhầm IP",
+            "U24 echo trả JSON lỗi không whitespace (không phải IP)",
             proxy_url(proxy_a),
             vec![echo_url(echo_json_error, "/?format=json")],
             3000,
