@@ -592,6 +592,17 @@ export const api = {
       templateId,
       name: name ?? null,
     }),
+  /** (W29a) Bulk create N profiles from a template — one call, one transaction. */
+  createProfilesFromTemplate: (
+    templateId: string,
+    count: number,
+    namePrefix?: string | null,
+  ) =>
+    invoke<Profile[]>("create_profiles_from_template", {
+      templateId,
+      count,
+      namePrefix: namePrefix ?? null,
+    }),
 
   // Logs (W21b) — open ~/.browserx/logs in the OS file manager
   openLogsFolder: () => invoke<void>("open_logs_folder"),

@@ -24,6 +24,7 @@ Liên quan: [`docs/02-critique-risks.md`](02-critique-risks.md) (thiếu "phần
 | 🟡 **Manager** | CloakBrowser-Manager đã tự xây một phần (UI/DB/endpoint) |
 | 🔴 **Thiếu** | Không tồn tại trong cả 2 repo → **BrowserX phải tự xây** |
 | ⚠️ **Giới hạn** | Có nhưng ràng buộc/không production-grade (ghi rõ ở mục chi tiết) |
+| **Cột BrowserX** | Trạng thái **code BrowserX hiện tại** (2026-07-07, grep `src/` + `src-tauri/src/`): ✅ đã có, 🟡 một phần, 🔴 chưa làm (kèm lý do ngắn) |
 
 > Lưu ý phương pháp: các thuộc tính fingerprint (canvas/WebGL/audio/GPU/screen/fonts) được
 > patch **ở source-level trong binary C++ đóng** → ta **không đọc được implementation**, chỉ
@@ -34,34 +35,34 @@ Liên quan: [`docs/02-critique-risks.md`](02-critique-risks.md) (thiếu "phần
 
 ## 1. Bảng tổng quan parity (feature × trạng thái)
 
-| Tính năng Multilogin | Engine | Manager | Nguồn chính |
-|---|:--:|:--:|---|
-| Fingerprint theo seed (canvas/WebGL/audio/fonts/rects) | ✅ | 🟡 | `refs/CloakBrowser/README.md#L698-L703`; `refs/CloakBrowser-Manager/backend/browser_manager.py#L387-L389` |
-| GPU vendor/renderer override | ✅ | 🟡 | `README.md#L713-L714`; `browser_manager.py#L396-L402` |
-| Hardware concurrency / device memory | ✅ | ⚠️ | `README.md#L715-L716`; `browser_manager.py#L404-L406` |
-| Screen width/height | ✅ | 🟡 | `README.md#L717-L718`; `browser_manager.py#L408-L413` |
-| Chọn OS fingerprint (Windows/macOS/Linux) — user chọn tự do + cảnh báo mismatch | ✅ | 🟡 | `refs/CloakBrowser/cloakbrowser/config.py#L54-L76`; `browser_manager.py#L391-L394` |
-| Brand / brand-version / platform-version (UA-CH) | ✅ | 🔴 | `README.md#L719-L721` |
-| WebRTC IP spoof theo proxy | ✅ | ⚠️ | `refs/CloakBrowser/cloakbrowser/browser.py#L201-L204`, `#L987-L1025` |
-| Noise on/off (chống ML tampering) | ✅ | 🔴 | `README.md#L730` |
-| Fonts theo platform (fonts-dir / font-metrics) | ✅ | 🔴 | `README.md#L727-L728` |
-| Proxy per-profile HTTP/HTTPS/SOCKS5 + auth | ✅ | 🟡 | `browser.py#L1305-L1351`; `browser_manager.py#L22-L53` |
-| Proxy health-check / rotation / marketplace | 🔴 | 🔴 | (không có — xem §4) |
-| Timezone/Geo/Locale auto khớp IP (GeoIP) | ✅ | 🟡 | `refs/CloakBrowser/cloakbrowser/geoip.py#L54-L109`; `browser_manager.py#L222-L226` |
-| Geolocation coords override | ✅ | 🔴 | `README.md#L722` |
-| Cookie/localStorage persistence (user_data_dir) | ✅ | 🟡 | `browser.py#L347-L471`; `browser_manager.py#L217-L218` |
-| Cookie/profile import-export (định dạng) | ⚠️ | 🔴 | `browser.py#L745`, `README.md#L755-L765` (chỉ `storage_state`); Manager: không endpoint |
-| Mã hoá cookie/proxy khi lưu (encryption at rest) | 🔴 | 🔴 | `refs/CloakBrowser-Manager/backend/database.py#L34-L59` (plaintext) |
-| Tags | — | 🟡 | `database.py#L61-L66`; `models.py#L60-L67` |
-| Search / filter profile | — | ⚠️ | `refs/CloakBrowser-Manager/frontend/src/components/ProfileList.tsx#L14-L17` (client-side, theo tên) |
-| Template profile | — | 🔴 | (không có) |
-| Bulk create / bulk launch | — | ⚠️ | chỉ `auto_launch` khi khởi động: `browser_manager.py#L342-L362` |
-| Notes theo profile | — | 🟡 | `database.py#L55`; `models.py#L31` |
-| Team / multi-user / RBAC | 🔴 | ⚠️ | `refs/CloakBrowser-Manager/backend/main.py#L48-L80` (1 token chung) |
-| Automation API (CDP/Playwright) | ✅ | 🟡 | `main.py#L845-L879`; `browser_manager.py#L217` |
-| Audit log (bền, truy vấn được) | 🔴 | 🔴 | `main.py#L42` (chỉ log stdout) |
-| Mobile fingerprint (Android/iOS) | 🔴 | 🔴 | `config.py#L91-L98` (chỉ desktop) |
-| Engine Firefox (Stealthfox) | 🔴 | 🔴 | chỉ Chromium (`config.py#L18-L26`) |
+| Tính năng Multilogin | Engine | Manager | BrowserX | Nguồn chính |
+|---|:--:|:--:|:--|---|
+| Fingerprint theo seed (canvas/WebGL/audio/fonts/rects) | ✅ | 🟡 | ✅ `launcher.rs` (`--fingerprint=seed`) | `refs/CloakBrowser/README.md#L698-L703`; `refs/CloakBrowser-Manager/backend/browser_manager.py#L387-L389` |
+| GPU vendor/renderer override | ✅ | 🟡 | ✅ `launcher.rs` | `README.md#L713-L714`; `browser_manager.py#L396-L402` |
+| Hardware concurrency / device memory | ✅ | ⚠️ | ✅ `launcher.rs` (cả 2 flag) | `README.md#L715-L716`; `browser_manager.py#L404-L406` |
+| Screen width/height | ✅ | 🟡 | ✅ `launcher.rs` | `README.md#L717-L718`; `browser_manager.py#L408-L413` |
+| Chọn OS fingerprint (Windows/macOS/Linux) — user chọn tự do + cảnh báo mismatch | ✅ | 🟡 | ✅ `launcher.rs` + cảnh báo mismatch trong UI (`i18n` `platformMismatch`) | `refs/CloakBrowser/cloakbrowser/config.py#L54-L76`; `browser_manager.py#L391-L394` |
+| Brand / brand-version / platform-version (UA-CH) | ✅ | 🔴 | ✅ `launcher.rs` (P3-5a) | `README.md#L719-L721` |
+| WebRTC IP spoof theo proxy | ✅ | ⚠️ | ✅ `launcher.rs` (`webrtc_mode` masked/auto/real) | `refs/CloakBrowser/cloakbrowser/browser.py#L201-L204`, `#L987-L1025` |
+| Noise on/off (chống ML tampering) | ✅ | 🔴 | ✅ `launcher.rs` (`fp_noise`, W19c) | `README.md#L730` |
+| Fonts theo platform (fonts-dir / font-metrics) | ✅ | 🔴 | ✅ `launcher.rs` (`fonts_dir`, `windows_font_metrics`) | `README.md#L727-L728` |
+| Proxy per-profile HTTP/HTTPS/SOCKS5 + auth | ✅ | 🟡 | ✅ `db.rs` (http/https/socks5) + `launcher.rs` `--proxy-server` | `browser.py#L1305-L1351`; `browser_manager.py#L22-L53` |
+| Proxy health-check / rotation / marketplace | 🔴 | 🔴 | 🟡 health-check có (`proxy_check.rs`, W19b); rotation/marketplace 🔴 chưa làm | (không có — xem §4) |
+| Timezone/Geo/Locale auto khớp IP (GeoIP) | ✅ | 🟡 | 🟡 timezone/locale set thủ công (`launcher.rs`); auto khớp IP chưa nối (cột `geoip` trong DB chưa dùng khi launch) | `refs/CloakBrowser/cloakbrowser/geoip.py#L54-L109`; `browser_manager.py#L222-L226` |
+| Geolocation coords override | ✅ | 🔴 | ✅ `launcher.rs` (`geolocation_mode` manual → `--fingerprint-location`) | `README.md#L722` |
+| Cookie/localStorage persistence (user_data_dir) | ✅ | 🟡 | ✅ `launcher.rs` (`--user-data-dir`) | `browser.py#L347-L471`; `browser_manager.py#L217-L218` |
+| Cookie/profile import-export (định dạng) | ⚠️ | 🔴 | ✅ cookie JSON+Netscape qua CDP (`cookies.rs`, W24a); profile `.bxprofile` (`export.rs`, W19a) | `browser.py#L745`, `README.md#L755-L765` (chỉ `storage_state`); Manager: không endpoint |
+| Mã hoá cookie/proxy khi lưu (encryption at rest) | 🔴 | 🔴 | 🟡 proxy credential mã hoá XChaCha20-Poly1305 (`crypto.rs`, `username_enc/password_enc`); backup mã hoá (W25a); cookie vẫn trong `user_data_dir` của Chromium | `refs/CloakBrowser-Manager/backend/database.py#L34-L59` (plaintext) |
+| Tags | — | 🟡 | ✅ `commands.rs` (`list_tags`, `set_profile_tags`) | `database.py#L61-L66`; `models.py#L60-L67` |
+| Search / filter profile | — | ⚠️ | ✅ server-side SQL (`db.rs` `search_profiles` + `ProfileFilter` os/proxy/tag/folder; canary 10k) | `refs/CloakBrowser-Manager/frontend/src/components/ProfileList.tsx#L14-L17` (client-side, theo tên) |
+| Template profile | — | 🔴 | ✅ profile + proxy template (`commands.rs` W20b: `list_templates`, `create_profile_from_template`, `create_proxy_from_template`) | (không có) |
+| Bulk create / bulk launch | — | ⚠️ | 🟡 bulk launch/export/cookie-export/move/trash qua multi-select (`ProfilesToolbar.tsx`); bulk create chưa có | chỉ `auto_launch` khi khởi động: `browser_manager.py#L342-L362` |
+| Notes theo profile | — | 🟡 | ✅ cột `notes` (`db.rs`, `models.rs`) | `database.py#L55`; `models.py#L31` |
+| Team / multi-user / RBAC | 🔴 | ⚠️ | 🔴 chưa làm — app desktop local 1 user, chưa có team/RBAC | `refs/CloakBrowser-Manager/backend/main.py#L48-L80` (1 token chung) |
+| Automation API (CDP/Playwright) | ✅ | 🟡 | ✅ `get_cdp_ws_url` (`commands.rs`, `cdp.rs`, W24c — xem §10) | `main.py#L845-L879`; `browser_manager.py#L217` |
+| Audit log (bền, truy vấn được) | 🔴 | 🔴 | ✅ `db.rs` (`insert_audit`/`list_audit`, filter + cursor) + viewer/metrics (W26, `metrics.rs`, `get_metrics`) | `main.py#L42` (chỉ log stdout) |
+| Mobile fingerprint (Android/iOS) | 🔴 | 🔴 | 🔴 chưa làm — binary CloakBrowser chỉ desktop, khoá cứng nên phụ thuộc CloakHQ | `config.py#L91-L98` (chỉ desktop) |
+| Engine Firefox (Stealthfox) | 🔴 | 🔴 | 🔴 chưa làm — chỉ Chromium, khoá cứng CloakBrowser | chỉ Chromium (`config.py#L18-L26`) |
 
 > Cột "Engine —" nghĩa là tính năng thuộc tầng quản lý (không phải nhiệm vụ của binary).
 

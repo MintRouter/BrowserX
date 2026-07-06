@@ -421,7 +421,12 @@
     "emptyTitle": "Chưa có template nào",
     "emptyHint": "Tạo template để mở profile cấu hình sẵn chỉ với một cú nhấp.",
     "confirmDelete": "Xoá template này?",
-    "confirmDeleteMany_other": "Xoá {{count}} template?"
+    "confirmDeleteMany_other": "Xoá {{count}} template?",
+    "createMultiple": "Tạo nhiều profile",
+    "bulkCount": "Số lượng profile (1\u20131000)",
+    "bulkPrefix": "Tiền tố tên",
+    "bulkNameHint": "Profile sẽ được đặt tên \u201c{{first}}\u201d \u2026 \u201c{{last}}\u201d.",
+    "bulkCreate": "Tạo profile"
   },
   "running": {
     "title": "Phiên đang chạy",

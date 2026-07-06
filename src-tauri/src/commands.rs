@@ -1484,6 +1484,29 @@ pub fn create_profile_from_template(
     Ok(profile)
 }
 
+/// (W29a) Bulk: tạo `count` profile từ template trong 1 transaction duy nhất
+/// (lỗi giữa chừng → 0 profile). `count` ngoài 1..=1000 trả lỗi rõ. Audit
+/// đúng MỘT dòng "profile.bulk_create_from_template" meta {template_id, count}
+/// — không ghi mỗi profile một dòng.
+#[tauri::command]
+pub fn create_profiles_from_template(
+    state: State<'_, AppState>,
+    template_id: String,
+    count: u32,
+    name_prefix: Option<String>,
+) -> Result<Vec<Profile>> {
+    let profiles =
+        state
+            .db
+            .create_profiles_from_template(&template_id, count, name_prefix.as_deref())?;
+    state.db.insert_audit(
+        "profile.bulk_create_from_template",
+        Some(&template_id),
+        Some(&json!({ "template_id": template_id, "count": profiles.len() })),
+    )?;
+    Ok(profiles)
+}
+
 // ---------------------------------------------------------------------------
 // Export / Import profile (W19a): file .bxprofile JSON — xem module `export`.
 // Proxy password KHÔNG BAO GIỜ nằm trong file export.

@@ -603,6 +603,17 @@ export default function App() {
     }
   };
 
+  // (W29a) Bulk create N profiles từ template — refetch profiles + folder
+  // counts như onImported (W23d); dialog trong TemplatesView tự hiện lỗi.
+  const handleBulkCreateFromTemplate = async (
+    templateId: string,
+    count: number,
+    namePrefix: string | null,
+  ) => {
+    await api.createProfilesFromTemplate(templateId, count, namePrefix);
+    await refetch(refetchProfiles(), refetchFolders());
+  };
+
   const handleSetDefaultTemplate = async (id: string) => {
     setActionError(null);
     try {
@@ -739,6 +750,7 @@ export default function App() {
               onUpdate={handleUpdateTemplate}
               onDelete={handleDeleteTemplates}
               onSetDefault={handleSetDefaultTemplate}
+              onBulkCreate={handleBulkCreateFromTemplate}
             />
           ) : view === "extensions" ? (
             <ExtensionsView

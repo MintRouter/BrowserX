@@ -1,4 +1,5 @@
 import {
+  CopyPlus,
   EllipsisVertical,
   Laptop,
   Pencil,
@@ -29,6 +30,12 @@ interface TemplatesViewProps {
   onUpdate: (id: string, name: string, config: ProfileInput) => Promise<void>;
   onDelete: (ids: string[]) => Promise<void>;
   onSetDefault: (id: string) => Promise<void>;
+  /** (W29a) Bulk create N profiles from a template (1 transaction). */
+  onBulkCreate: (
+    templateId: string,
+    count: number,
+    namePrefix: string | null,
+  ) => Promise<void>;
 }
 
 function ToolButton({
@@ -65,6 +72,8 @@ export function TemplatesView(props: TemplatesViewProps) {
   const [rowsPerPage, setRowsPerPage] = useState(100);
   /** null = closed · "new" = create dialog · ProfileTemplate = edit dialog. */
   const [dialog, setDialog] = useState<ProfileTemplate | "new" | null>(null);
+  /** (W29a) Template the "create multiple profiles" dialog is open for. */
+  const [bulkFor, setBulkFor] = useState<ProfileTemplate | null>(null);
   const [menuId, setMenuId] = useState<string | null>(null);
 
   const defaultId = props.settings?.[DEFAULT_TEMPLATE_SETTING] || null;
@@ -319,6 +328,15 @@ export function TemplatesView(props: TemplatesViewProps) {
                             >
                               {t("tpl.editTemplate")}
                             </MenuItem>
+                            <MenuItem
+                              icon={<CopyPlus className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+                              onClick={() => {
+                                setMenuId(null);
+                                setBulkFor(x);
+                              }}
+                            >
+                              {t("tpl.createMultiple")}
+                            </MenuItem>
                             {!isDefault && (
                               <MenuItem
                                 icon={<Laptop className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
@@ -369,6 +387,14 @@ export function TemplatesView(props: TemplatesViewProps) {
           onClose={() => setDialog(null)}
           onCreate={props.onCreate}
           onUpdate={props.onUpdate}
+        />
+      )}
+
+      {bulkFor !== null && (
+        <BulkCreateDialog
+          template={bulkFor}
+          onClose={() => setBulkFor(null)}
+          onCreate={props.onBulkCreate}
         />
       )}
     </div>
@@ -535,6 +561,127 @@ function TemplateDialog({
             disabled={saving}
           >
             {saving ? t("form.saving") : t("tpl.save")}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+interface BulkCreateDialogProps {
+  template: ProfileTemplate;
+  onClose: () => void;
+  onCreate: (
+    templateId: string,
+    count: number,
+    namePrefix: string | null,
+  ) => Promise<void>;
+}
+
+/** (W29a) Small dialog: create N (1-1000) profiles from one template. */
+function BulkCreateDialog({ template, onClose, onCreate }: BulkCreateDialogProps) {
+  const { t } = useTranslation();
+  const [count, setCount] = useState("10");
+  const [prefix, setPrefix] = useState(template.name);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const n = Number.parseInt(count, 10);
+  const valid = Number.isInteger(n) && n >= 1 && n <= 1000;
+  const shownPrefix = prefix.trim() || template.name;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!valid) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await onCreate(template.id, n, prefix.trim() || null);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("tpl.createMultiple")}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && !saving) onClose();
+      }}
+    >
+      <form onSubmit={handleSubmit} className="card w-full max-w-sm p-5">
+        <h2 className="text-base font-semibold text-fg">
+          {t("tpl.createMultiple")}
+        </h2>
+        <p className="mt-1 text-sm text-fg-muted">{template.name}</p>
+
+        <div className="mt-4 grid gap-3">
+          <div>
+            <label className="label" htmlFor="tpl-bulk-count">
+              {t("tpl.bulkCount")}
+            </label>
+            <input
+              id="tpl-bulk-count"
+              className="input"
+              type="number"
+              min={1}
+              max={1000}
+              step={1}
+              value={count}
+              onChange={(e) => setCount(e.target.value)}
+              autoFocus
+              required
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="tpl-bulk-prefix">
+              {t("tpl.bulkPrefix")} ({t("tpl.optional")})
+            </label>
+            <input
+              id="tpl-bulk-prefix"
+              className="input"
+              value={prefix}
+              onChange={(e) => setPrefix(e.target.value)}
+              placeholder={template.name}
+            />
+          </div>
+          {valid && (
+            <p className="text-xs text-fg-muted">
+              {t("tpl.bulkNameHint", {
+                first: `${shownPrefix} 1`,
+                last: `${shownPrefix} ${n}`,
+              })}
+            </p>
+          )}
+        </div>
+
+        {error && (
+          <p className="mt-3 text-xs text-danger" role="alert">
+            {error}
+          </p>
+        )}
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            className="btn-secondary px-3 py-1.5 text-sm"
+            disabled={saving}
+            onClick={onClose}
+          >
+            {t("form.cancel")}
+          </button>
+          <button
+            type="submit"
+            className="btn-primary px-3 py-1.5 text-sm"
+            disabled={saving || !valid}
+          >
+            {saving ? t("form.saving") : t("tpl.bulkCreate")}
           </button>
         </div>
       </form>

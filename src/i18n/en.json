@@ -426,7 +426,12 @@
     "emptyHint": "Create a template to spin up pre-configured profiles in one click.",
     "confirmDelete": "Delete this template?",
     "confirmDeleteMany_one": "Delete {{count}} template?",
-    "confirmDeleteMany_other": "Delete {{count}} templates?"
+    "confirmDeleteMany_other": "Delete {{count}} templates?",
+    "createMultiple": "Create multiple profiles",
+    "bulkCount": "Number of profiles (1\u20131000)",
+    "bulkPrefix": "Name prefix",
+    "bulkNameHint": "Profiles will be named \u201c{{first}}\u201d \u2026 \u201c{{last}}\u201d.",
+    "bulkCreate": "Create profiles"
   },
   "running": {
     "title": "Running sessions",

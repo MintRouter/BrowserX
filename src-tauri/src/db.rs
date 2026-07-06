@@ -867,6 +867,109 @@ fn row_to_proxy(row: &Row) -> rusqlite::Result<ProxyRecord> {
     })
 }
 
+/// (W29a) Validate chung cho create_profile + bulk create: tên không rỗng,
+/// các mode enum hợp lệ.
+fn validate_profile_input(input: &ProfileInput) -> Result<()> {
+    if input.name.trim().is_empty() {
+        return Err(AppError::InvalidInput(
+            "profile name must not be empty".into(),
+        ));
+    }
+    if let Some(b) = input.startup_behavior.as_deref() {
+        validate_startup_behavior(b)?;
+    }
+    if let Some(m) = input.webrtc_mode.as_deref() {
+        validate_webrtc_mode(m)?;
+    }
+    if let Some(m) = input.geolocation_mode.as_deref() {
+        validate_geolocation_mode(m)?;
+    }
+    Ok(())
+}
+
+/// (W29a) INSERT 1 profile (+ tags + proxy) trên connection/transaction có sẵn.
+/// Caller validate input trước và cấp id/seed/user_data_dir/ts — nhờ đó
+/// bulk create gom N insert vào MỘT transaction mà không copy-paste SQL.
+fn insert_profile_tx(
+    conn: &Connection,
+    id: &str,
+    input: &ProfileInput,
+    seed: &str,
+    user_data_dir: &str,
+    ts: &str,
+) -> Result<()> {
+    let empty = serde_json::Value::Array(vec![]);
+    let launch_args = input.launch_args.as_ref().unwrap_or(&empty);
+    let startup_urls = input.startup_urls.as_ref().unwrap_or(&empty);
+    let extensions = input.extensions.as_ref().unwrap_or(&empty);
+    conn.execute(
+        "INSERT INTO profiles (
+            id, name, fingerprint_seed, platform, timezone, locale,
+            screen_width, screen_height, gpu_vendor, gpu_renderer,
+            hardware_concurrency, humanize, human_preset, headless, geoip,
+            color_scheme, launch_args, user_data_dir, notes, created_at, updated_at,
+            is_quick, startup_behavior, startup_urls,
+            fp_noise, webrtc_mode, webrtc_ip, geolocation_mode, geo_latitude, geo_longitude,
+            store_history, store_passwords, store_sw_cache, extensions,
+            nav_brand, nav_brand_version, platform_version, device_memory, fonts_dir,
+            windows_font_metrics, storage_quota
+        ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,?36,?37,?38,?39,?40,?41)",
+        params![
+            id,
+            input.name,
+            seed,
+            input.platform.as_deref().unwrap_or("windows"),
+            input.timezone,
+            input.locale,
+            input.screen_width.unwrap_or(1920),
+            input.screen_height.unwrap_or(1080),
+            input.gpu_vendor,
+            input.gpu_renderer,
+            input.hardware_concurrency.unwrap_or(8),
+            input.humanize.unwrap_or(false),
+            input.human_preset.as_deref().unwrap_or("default"),
+            input.headless.unwrap_or(false),
+            input.geoip.unwrap_or(false),
+            input.color_scheme,
+            serde_json::to_string(launch_args)?,
+            user_data_dir,
+            input.notes,
+            ts,
+            ts,
+            input.is_quick.unwrap_or(false),
+            input.startup_behavior.as_deref().unwrap_or("restore"),
+            serde_json::to_string(startup_urls)?,
+            input.fp_noise.unwrap_or(true),
+            input.webrtc_mode.as_deref().unwrap_or("real"),
+            input.webrtc_ip,
+            input.geolocation_mode.as_deref().unwrap_or("auto"),
+            input.geo_latitude,
+            input.geo_longitude,
+            input.store_history.unwrap_or(true),
+            input.store_passwords.unwrap_or(true),
+            input.store_sw_cache.unwrap_or(true),
+            serde_json::to_string(extensions)?,
+            input.nav_brand,
+            input.nav_brand_version,
+            input.platform_version,
+            input.device_memory,
+            input.fonts_dir,
+            input.windows_font_metrics.unwrap_or(false),
+            input.storage_quota,
+        ],
+    )?;
+    if let Some(tags) = &input.tags {
+        set_profile_tags_tx(conn, id, tags)?;
+    }
+    if let Some(proxy_id) = &input.proxy_id {
+        conn.execute(
+            "INSERT OR REPLACE INTO profile_proxy (profile_id, proxy_id) VALUES (?1, ?2)",
+            params![id, proxy_id],
+        )?;
+    }
+    Ok(())
+}
+
 /// Thay toàn bộ tags của 1 profile (upsert vào bảng `tags` rồi ghi `profile_tags`).
 fn set_profile_tags_tx(conn: &Connection, profile_id: &str, tags: &[String]) -> Result<()> {
     conn.execute(
@@ -909,112 +1012,28 @@ const PROFILE_SELECT: &str =
 impl Db {
     /// Tạo profile mới (port `create_profile` database.py#L87-L138):
     /// seed random 10000–99999 nếu không truyền, user_data_dir mặc định
-    /// `<data_dir>/profiles/<id>`, gán tags + proxy trong cùng transaction.
+    /// `<data_dir>/profiles/<id>`, gán tags + proxy trong cùng transaction
+    /// (SQL nằm trong [`insert_profile_tx`], dùng chung với bulk create W29a).
     pub fn create_profile(&self, input: ProfileInput) -> Result<Profile> {
-        if input.name.trim().is_empty() {
-            return Err(AppError::InvalidInput(
-                "profile name must not be empty".into(),
-            ));
-        }
-        if let Some(b) = input.startup_behavior.as_deref() {
-            validate_startup_behavior(b)?;
-        }
-        if let Some(m) = input.webrtc_mode.as_deref() {
-            validate_webrtc_mode(m)?;
-        }
-        if let Some(m) = input.geolocation_mode.as_deref() {
-            validate_geolocation_mode(m)?;
-        }
+        validate_profile_input(&input)?;
         let id = uuid::Uuid::new_v4().to_string();
         let seed = input
             .fingerprint_seed
+            .clone()
             .unwrap_or_else(|| rand::rng().random_range(10000u32..=99999).to_string());
-        let user_data_dir = input.user_data_dir.unwrap_or_else(|| {
+        let user_data_dir = input.user_data_dir.clone().unwrap_or_else(|| {
             self.data_dir
                 .join("profiles")
                 .join(&id)
                 .to_string_lossy()
                 .into_owned()
         });
-        let launch_args = input
-            .launch_args
-            .unwrap_or_else(|| serde_json::Value::Array(vec![]));
-        let startup_urls = input
-            .startup_urls
-            .unwrap_or_else(|| serde_json::Value::Array(vec![]));
-        let extensions = input
-            .extensions
-            .unwrap_or_else(|| serde_json::Value::Array(vec![]));
         let ts = now();
 
         {
             let mut conn = self.lock();
             let tx = conn.transaction()?;
-            tx.execute(
-                "INSERT INTO profiles (
-                    id, name, fingerprint_seed, platform, timezone, locale,
-                    screen_width, screen_height, gpu_vendor, gpu_renderer,
-                    hardware_concurrency, humanize, human_preset, headless, geoip,
-                    color_scheme, launch_args, user_data_dir, notes, created_at, updated_at,
-                    is_quick, startup_behavior, startup_urls,
-                    fp_noise, webrtc_mode, webrtc_ip, geolocation_mode, geo_latitude, geo_longitude,
-                    store_history, store_passwords, store_sw_cache, extensions,
-                    nav_brand, nav_brand_version, platform_version, device_memory, fonts_dir,
-                    windows_font_metrics, storage_quota
-                ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,?36,?37,?38,?39,?40,?41)",
-                params![
-                    id,
-                    input.name,
-                    seed,
-                    input.platform.as_deref().unwrap_or("windows"),
-                    input.timezone,
-                    input.locale,
-                    input.screen_width.unwrap_or(1920),
-                    input.screen_height.unwrap_or(1080),
-                    input.gpu_vendor,
-                    input.gpu_renderer,
-                    input.hardware_concurrency.unwrap_or(8),
-                    input.humanize.unwrap_or(false),
-                    input.human_preset.as_deref().unwrap_or("default"),
-                    input.headless.unwrap_or(false),
-                    input.geoip.unwrap_or(false),
-                    input.color_scheme,
-                    serde_json::to_string(&launch_args)?,
-                    user_data_dir,
-                    input.notes,
-                    ts,
-                    ts,
-                    input.is_quick.unwrap_or(false),
-                    input.startup_behavior.as_deref().unwrap_or("restore"),
-                    serde_json::to_string(&startup_urls)?,
-                    input.fp_noise.unwrap_or(true),
-                    input.webrtc_mode.as_deref().unwrap_or("real"),
-                    input.webrtc_ip,
-                    input.geolocation_mode.as_deref().unwrap_or("auto"),
-                    input.geo_latitude,
-                    input.geo_longitude,
-                    input.store_history.unwrap_or(true),
-                    input.store_passwords.unwrap_or(true),
-                    input.store_sw_cache.unwrap_or(true),
-                    serde_json::to_string(&extensions)?,
-                    input.nav_brand,
-                    input.nav_brand_version,
-                    input.platform_version,
-                    input.device_memory,
-                    input.fonts_dir,
-                    input.windows_font_metrics.unwrap_or(false),
-                    input.storage_quota,
-                ],
-            )?;
-            if let Some(tags) = &input.tags {
-                set_profile_tags_tx(&tx, &id, tags)?;
-            }
-            if let Some(proxy_id) = &input.proxy_id {
-                tx.execute(
-                    "INSERT OR REPLACE INTO profile_proxy (profile_id, proxy_id) VALUES (?1, ?2)",
-                    params![id, proxy_id],
-                )?;
-            }
+            insert_profile_tx(&tx, &id, &input, &seed, &user_data_dir, &ts)?;
             tx.commit()?;
         }
         self.get_profile(&id)
@@ -2238,18 +2257,84 @@ impl Db {
         name: Option<&str>,
     ) -> Result<Profile> {
         let tpl = self.get_template(template_id)?;
-        let mut input: ProfileInput = serde_json::from_value(tpl.config.clone())
-            .map_err(|e| AppError::InvalidInput(format!("invalid template config: {e}")))?;
+        let mut input = profile_input_from_template(&tpl)?;
         input.name = name
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_owned)
             .unwrap_or(tpl.name);
-        input.fingerprint_seed = None;
-        input.user_data_dir = None;
-        input.is_quick = None;
         self.create_profile(input)
     }
+
+    /// (W29a) Bulk: tạo `count` profile từ template trong MỘT transaction duy
+    /// nhất — lỗi giữa chừng rollback toàn bộ (0 profile được tạo). Tên đánh
+    /// số "{prefix} {i}" với i = 1..=count; prefix None/rỗng → tên template.
+    /// `count` ngoài 1..=1000 trả `InvalidInput` (KHÔNG silently clamp — FE
+    /// giới hạn input tương ứng). Seed random 10000–99999 KHÔNG trùng trong
+    /// batch; user_data_dir theo id mới nên luôn unique.
+    pub fn create_profiles_from_template(
+        &self,
+        template_id: &str,
+        count: u32,
+        name_prefix: Option<&str>,
+    ) -> Result<Vec<Profile>> {
+        if !(1..=1000).contains(&count) {
+            return Err(AppError::InvalidInput(format!(
+                "count must be within 1..=1000, got {count}"
+            )));
+        }
+        let tpl = self.get_template(template_id)?;
+        let base = profile_input_from_template(&tpl)?;
+        let prefix = name_prefix
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .unwrap_or(tpl.name);
+        // Validate 1 lần cho cả batch (mọi profile chỉ khác hậu tố số).
+        let mut probe = base.clone();
+        probe.name = format!("{prefix} 1");
+        validate_profile_input(&probe)?;
+
+        // Seed unique trong batch: random 10000–99999 lấy không lặp qua set.
+        let mut seed_set = std::collections::HashSet::with_capacity(count as usize);
+        while seed_set.len() < count as usize {
+            seed_set.insert(rand::rng().random_range(10000u32..=99999));
+        }
+        let seeds: Vec<u32> = seed_set.into_iter().collect();
+
+        let ts = now();
+        let mut ids: Vec<String> = Vec::with_capacity(count as usize);
+        {
+            let mut conn = self.lock();
+            let tx = conn.transaction()?;
+            for (i, seed) in seeds.iter().enumerate() {
+                let id = uuid::Uuid::new_v4().to_string();
+                let user_data_dir = self
+                    .data_dir
+                    .join("profiles")
+                    .join(&id)
+                    .to_string_lossy()
+                    .into_owned();
+                let mut input = base.clone();
+                input.name = format!("{prefix} {}", i + 1);
+                insert_profile_tx(&tx, &id, &input, &seed.to_string(), &user_data_dir, &ts)?;
+                ids.push(id);
+            }
+            tx.commit()?;
+        }
+        ids.iter().map(|id| self.get_profile(id)).collect()
+    }
+}
+
+/// (W29a) Parse config template thành `ProfileInput`; seed/user_data_dir/
+/// is_quick luôn bị xoá để mỗi profile được cấp giá trị mới.
+fn profile_input_from_template(tpl: &ProfileTemplate) -> Result<ProfileInput> {
+    let mut input: ProfileInput = serde_json::from_value(tpl.config.clone())
+        .map_err(|e| AppError::InvalidInput(format!("invalid template config: {e}")))?;
+    input.fingerprint_seed = None;
+    input.user_data_dir = None;
+    input.is_quick = None;
+    Ok(input)
 }
 
 // ---------------------------------------------------------------------------
@@ -2897,6 +2982,92 @@ mod tests {
         ));
         // Profile đã tạo từ template không bị ảnh hưởng.
         assert_eq!(db.list_profiles().unwrap().len(), 2);
+    }
+
+    /// (W29a) Bulk create từ template: đúng N profile, tên "{prefix} {i}",
+    /// seed + user_data_dir unique, count ngoài 1..=1000 trả lỗi rõ.
+    #[test]
+    fn bulk_create_profiles_from_template() {
+        let (db, _guard) = temp_db();
+        let tpl = db
+            .create_template(
+                "Farm",
+                &serde_json::json!({ "platform": "macos", "tags": ["farm"] }),
+            )
+            .unwrap();
+
+        // Prefix mặc định = tên template.
+        let profiles = db.create_profiles_from_template(&tpl.id, 7, None).unwrap();
+        assert_eq!(profiles.len(), 7);
+        let names: std::collections::HashSet<_> =
+            profiles.iter().map(|p| p.name.clone()).collect();
+        for i in 1..=7 {
+            assert!(names.contains(&format!("Farm {i}")));
+        }
+        let seeds: std::collections::HashSet<_> =
+            profiles.iter().map(|p| p.fingerprint_seed.clone()).collect();
+        assert_eq!(seeds.len(), 7, "fingerprint seeds must be unique");
+        let dirs: std::collections::HashSet<_> =
+            profiles.iter().map(|p| p.user_data_dir.clone()).collect();
+        assert_eq!(dirs.len(), 7, "user_data_dirs must be unique");
+        assert!(profiles
+            .iter()
+            .all(|p| p.platform == "macos" && p.tags == vec!["farm".to_string()]));
+        assert_eq!(db.list_profiles().unwrap().len(), 7);
+
+        // Prefix tuỳ chỉnh (trim); prefix toàn khoảng trắng → fallback tên template.
+        let bots = db
+            .create_profiles_from_template(&tpl.id, 2, Some("  Bot  "))
+            .unwrap();
+        assert_eq!(bots[0].name, "Bot 1");
+        assert_eq!(bots[1].name, "Bot 2");
+
+        // Count ngoài 1..=1000 → InvalidInput, không profile nào được tạo.
+        for bad in [0u32, 1001] {
+            assert!(matches!(
+                db.create_profiles_from_template(&tpl.id, bad, None),
+                Err(AppError::InvalidInput(_))
+            ));
+        }
+        assert_eq!(db.list_profiles().unwrap().len(), 9);
+
+        // Template không tồn tại.
+        assert!(matches!(
+            db.create_profiles_from_template("missing-id", 3, None),
+            Err(AppError::NotFound(_))
+        ));
+    }
+
+    /// (W29a) Transaction: config template trỏ proxy không tồn tại → FK
+    /// profile_proxy fail SAU khi row profiles đã insert trong cùng tx →
+    /// rollback toàn bộ, 0 profile được tạo.
+    #[test]
+    fn bulk_create_rolls_back_on_mid_transaction_error() {
+        let (db, _guard) = temp_db();
+        let tpl = db
+            .create_template("Bad", &serde_json::json!({ "proxy_id": "no-such-proxy" }))
+            .unwrap();
+        assert!(db.create_profiles_from_template(&tpl.id, 5, None).is_err());
+        assert_eq!(db.list_profiles().unwrap().len(), 0);
+    }
+
+    /// (W29a) Canary exit-criteria Pha 2: 500 profile từ 1 template trong
+    /// MỘT thao tác < 2s (debug build; số đo thật xem `--nocapture`).
+    #[test]
+    fn bulk_create_500_profiles_canary_under_2s() {
+        let (db, _guard) = temp_db();
+        let tpl = db
+            .create_template("Canary", &serde_json::json!({ "platform": "windows" }))
+            .unwrap();
+        let t = std::time::Instant::now();
+        let profiles = db.create_profiles_from_template(&tpl.id, 500, None).unwrap();
+        let ms = t.elapsed().as_millis();
+        assert_eq!(profiles.len(), 500);
+        let seeds: std::collections::HashSet<_> =
+            profiles.iter().map(|p| p.fingerprint_seed.clone()).collect();
+        assert_eq!(seeds.len(), 500);
+        println!("bulk create 500 from template: {ms}ms");
+        assert!(ms < 2000, "bulk create 500 too slow: {ms}ms");
     }
 
     /// (P3-3a) Migration v10: DB cũ v1 upgrade thẳng → bảng proxy_templates

@@ -133,6 +133,7 @@ pub fn run() {
             commands::update_template,
             commands::delete_template,
             commands::create_profile_from_template,
+            commands::create_profiles_from_template,
             commands::export_profile,
             commands::import_profile,
             commands::export_cookies,
