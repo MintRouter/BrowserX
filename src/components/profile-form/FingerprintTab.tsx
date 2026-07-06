@@ -3,7 +3,9 @@ import { useTranslation } from "react-i18next";
 import type { GeolocationMode, Platform, WebrtcMode } from "../../lib/api";
 import { Segmented, Toggle } from "./controls";
 import {
+  DEVICE_MEMORY_OPTIONS,
   HARDWARE_CONCURRENCY_OPTIONS,
+  NAV_BRAND_OPTIONS,
   RESOLUTION_PRESETS,
   type FormState,
   type SetField,
@@ -29,6 +31,17 @@ export function FingerprintTab({ form, set }: FingerprintTabProps) {
   ) {
     hcOptions.push(form.hardware_concurrency);
     hcOptions.sort((a, b) => a - b);
+  }
+
+  // (P3-5b) Include out-of-list values loaded from an existing profile.
+  const brandOptions: Array<string> = [...NAV_BRAND_OPTIONS];
+  if (form.nav_brand !== null && !brandOptions.includes(form.nav_brand)) {
+    brandOptions.push(form.nav_brand);
+  }
+  const dmOptions: Array<number> = [...DEVICE_MEMORY_OPTIONS];
+  if (form.device_memory !== null && !dmOptions.includes(form.device_memory)) {
+    dmOptions.push(form.device_memory);
+    dmOptions.sort((a, b) => a - b);
   }
 
   return (
@@ -299,6 +312,113 @@ export function FingerprintTab({ form, set }: FingerprintTabProps) {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Navigator (P3-5b) */}
+      <div>
+        <span className="label">{t("pform.navSection")}</span>
+        <p className="mb-2 text-xs text-fg-muted">{t("pform.navSectionHint")}</p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label className="label" htmlFor="pf-nav-brand">{t("pform.navBrand")}</label>
+            <select
+              id="pf-nav-brand"
+              className="input"
+              value={form.nav_brand ?? ""}
+              onChange={(e) => set("nav_brand", e.target.value || null)}
+            >
+              <option value="">{t("pform.autoDefault")}</option>
+              {brandOptions.map((b) => (
+                <option key={b} value={b}>{b}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label" htmlFor="pf-nav-brand-ver">{t("pform.navBrandVersion")}</label>
+            <input
+              id="pf-nav-brand-ver"
+              className="input"
+              value={form.nav_brand_version ?? ""}
+              onChange={(e) => set("nav_brand_version", e.target.value || null)}
+              placeholder={t("pform.autoDefault")}
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="pf-platform-ver">{t("pform.platformVersion")}</label>
+            <input
+              id="pf-platform-ver"
+              className="input"
+              value={form.platform_version ?? ""}
+              onChange={(e) => set("platform_version", e.target.value || null)}
+              placeholder={t("pform.platformVersionPlaceholder")}
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="pf-device-mem">{t("pform.deviceMemory")}</label>
+            <select
+              id="pf-device-mem"
+              className="input"
+              value={form.device_memory ?? ""}
+              onChange={(e) =>
+                set("device_memory", e.target.value ? Number(e.target.value) : null)
+              }
+            >
+              <option value="">{t("pform.autoDefault")}</option>
+              {dmOptions.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Fonts (P3-5b) */}
+      <div>
+        <span className="label">{t("pform.fontsSection")}</span>
+        <div className="space-y-3">
+          <div>
+            <label className="label" htmlFor="pf-fonts-dir">{t("pform.fontsDir")}</label>
+            <input
+              id="pf-fonts-dir"
+              className="input font-mono text-xs"
+              value={form.fonts_dir ?? ""}
+              onChange={(e) => set("fonts_dir", e.target.value || null)}
+              placeholder={t("pform.fontsDirPlaceholder")}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <label htmlFor="pf-win-fonts" className="text-sm text-fg cursor-pointer">
+              {t("pform.windowsFontMetrics")}
+            </label>
+            <Toggle
+              id="pf-win-fonts"
+              checked={form.windows_font_metrics}
+              onChange={(v) => set("windows_font_metrics", v)}
+              label={t("pform.windowsFontMetrics")}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Storage (P3-5b) */}
+      <div>
+        <span className="label">{t("pform.storageSection")}</span>
+        <label className="label" htmlFor="pf-storage-quota">{t("pform.storageQuota")}</label>
+        <input
+          id="pf-storage-quota"
+          className="input no-spin"
+          type="number"
+          min={1}
+          value={form.storage_quota ?? ""}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            set(
+              "storage_quota",
+              e.target.value !== "" && Number.isFinite(n) && n > 0 ? n : null,
+            );
+          }}
+          placeholder={t("pform.autoDefault")}
+        />
       </div>
     </div>
   );

@@ -72,6 +72,13 @@ function initialState(profile: Profile | null, defaultName: string): FormState {
       store_passwords: profile.store_passwords ?? true,
       store_sw_cache: profile.store_sw_cache ?? true,
       extensions: profile.extensions ?? [],
+      nav_brand: profile.nav_brand ?? null,
+      nav_brand_version: profile.nav_brand_version ?? null,
+      platform_version: profile.platform_version ?? null,
+      device_memory: profile.device_memory ?? null,
+      fonts_dir: profile.fonts_dir ?? null,
+      windows_font_metrics: profile.windows_font_metrics ?? false,
+      storage_quota: profile.storage_quota ?? null,
     };
   }
   return {
@@ -106,6 +113,13 @@ function initialState(profile: Profile | null, defaultName: string): FormState {
     store_passwords: true,
     store_sw_cache: true,
     extensions: [],
+    nav_brand: null,
+    nav_brand_version: null,
+    platform_version: null,
+    device_memory: null,
+    fonts_dir: null,
+    windows_font_metrics: false,
+    storage_quota: null,
   };
 }
 
@@ -308,6 +322,13 @@ export function ProfileForm({
     store_passwords: form.store_passwords,
     store_sw_cache: form.store_sw_cache,
     extensions: form.extensions,
+    nav_brand: form.nav_brand?.trim() || null,
+    nav_brand_version: form.nav_brand_version?.trim() || null,
+    platform_version: form.platform_version?.trim() || null,
+    device_memory: form.device_memory,
+    fonts_dir: form.fonts_dir?.trim() || null,
+    windows_font_metrics: form.windows_font_metrics,
+    storage_quota: form.storage_quota,
   });
 
   // (W20b) Fill the form from a template (create mode). Name is kept as typed;
@@ -349,6 +370,13 @@ export function ProfileForm({
       store_passwords: c.store_passwords ?? true,
       store_sw_cache: c.store_sw_cache ?? true,
       extensions: c.extensions ?? [],
+      nav_brand: c.nav_brand ?? null,
+      nav_brand_version: c.nav_brand_version ?? null,
+      platform_version: c.platform_version ?? null,
+      device_memory: c.device_memory ?? null,
+      fonts_dir: c.fonts_dir ?? null,
+      windows_font_metrics: c.windows_font_metrics ?? false,
+      storage_quota: c.storage_quota ?? null,
     }));
     setArgsText(
       c.launch_args && c.launch_args.length > 0
