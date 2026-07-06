@@ -2078,14 +2078,38 @@ impl Db {
         Ok(conn.last_insert_rowid())
     }
 
-    /// Đọc audit log mới nhất trước, tối đa `limit` dòng.
-    pub fn list_audit(&self, limit: u32) -> Result<Vec<AuditEntry>> {
+    /// (W26a) Đọc audit log mới nhất trước, tối đa `limit` dòng (clamp 1..=200).
+    /// Filter tuỳ chọn: `action_prefix` (LIKE 'prefix%' có escape), `target_id`
+    /// exact, `before_id` = cursor phân trang (chỉ trả `id < before_id`).
+    /// SQL build động nhưng THAM SỐ HOÁ hoàn toàn — như `search_profiles`.
+    pub fn list_audit(
+        &self,
+        action_prefix: Option<&str>,
+        target_id: Option<&str>,
+        before_id: Option<i64>,
+        limit: u32,
+    ) -> Result<Vec<AuditEntry>> {
+        let limit = limit.clamp(1, 200);
         let conn = self.lock();
-        let mut stmt = conn.prepare(
-            "SELECT id, ts, action, target_id, meta FROM audit ORDER BY id DESC LIMIT ?1",
-        )?;
+        let mut sql = String::from("SELECT id, ts, action, target_id, meta FROM audit WHERE 1=1");
+        let mut values: Vec<SqlValue> = Vec::new();
+        if let Some(prefix) = action_prefix.filter(|p| !p.is_empty()) {
+            values.push(sql_text(format!("{}%", escape_like(prefix))));
+            sql.push_str(&format!(" AND action LIKE ?{} ESCAPE '\\'", values.len()));
+        }
+        if let Some(tid) = target_id.filter(|t| !t.is_empty()) {
+            values.push(sql_text(tid.to_string()));
+            sql.push_str(&format!(" AND target_id = ?{}", values.len()));
+        }
+        if let Some(before) = before_id {
+            values.push(sql_int(before));
+            sql.push_str(&format!(" AND id < ?{}", values.len()));
+        }
+        values.push(sql_int(limit as i64));
+        sql.push_str(&format!(" ORDER BY id DESC LIMIT ?{}", values.len()));
+        let mut stmt = conn.prepare(&sql)?;
         let rows = stmt
-            .query_map(params![limit], |r| {
+            .query_map(rusqlite::params_from_iter(values), |r| {
                 let meta_raw: Option<String> = r.get(4)?;
                 Ok(AuditEntry {
                     id: r.get(0)?,
@@ -3402,10 +3426,71 @@ mod tests {
         .unwrap();
         db.insert_audit("profile.launch", Some(&p.id), None)
             .unwrap();
-        let log = db.list_audit(10).unwrap();
+        let log = db.list_audit(None, None, None, 10).unwrap();
         assert_eq!(log.len(), 2);
         assert_eq!(log[0].action, "profile.launch"); // mới nhất trước
         assert_eq!(log[1].meta, Some(serde_json::json!({"n": 1})));
+    }
+
+    /// (W26a) list_audit: filter action-prefix (có escape LIKE), target_id
+    /// exact, cursor before_id và clamp limit 1..=200.
+    #[test]
+    fn list_audit_filters_cursor_and_limit_clamp() {
+        let (db, _guard) = temp_db();
+
+        db.insert_audit("profile.create", Some("p1"), None).unwrap();
+        db.insert_audit("profile.launch", Some("p1"), None).unwrap();
+        db.insert_audit("proxy.create", Some("x1"), None).unwrap();
+        db.insert_audit("profile.stop", Some("p2"), None).unwrap();
+        // Action chứa ký tự đặc biệt LIKE — prefix "a%b" phải match literal.
+        db.insert_audit("a%b.weird", None, None).unwrap();
+
+        // Filter theo action-prefix.
+        let profile_only = db.list_audit(Some("profile."), None, None, 50).unwrap();
+        assert_eq!(profile_only.len(), 3);
+        assert!(profile_only.iter().all(|e| e.action.starts_with("profile.")));
+
+        // Escape LIKE: "a%b" KHÔNG được match "a<anything>b", chỉ literal "a%b…".
+        let escaped = db.list_audit(Some("a%b"), None, None, 50).unwrap();
+        assert_eq!(escaped.len(), 1);
+        assert_eq!(escaped[0].action, "a%b.weird");
+        assert!(db.list_audit(Some("a_b"), None, None, 50).unwrap().is_empty());
+
+        // Filter target_id exact (không prefix-match).
+        let p1 = db.list_audit(None, Some("p1"), None, 50).unwrap();
+        assert_eq!(p1.len(), 2);
+        assert!(db.list_audit(None, Some("p"), None, 50).unwrap().is_empty());
+
+        // Kết hợp prefix + target_id.
+        let combo = db.list_audit(Some("profile."), Some("p2"), None, 50).unwrap();
+        assert_eq!(combo.len(), 1);
+        assert_eq!(combo[0].action, "profile.stop");
+
+        // Cursor: trang 1 (limit 2) rồi trang 2 nối tiếp bằng before_id, không trùng.
+        let all = db.list_audit(None, None, None, 50).unwrap();
+        assert_eq!(all.len(), 5);
+        let page1 = db.list_audit(None, None, None, 2).unwrap();
+        assert_eq!(page1.len(), 2);
+        assert!(page1[0].id > page1[1].id); // mới nhất trước
+        let page2 = db
+            .list_audit(None, None, Some(page1[1].id), 2)
+            .unwrap();
+        assert_eq!(page2.len(), 2);
+        assert!(page2[0].id < page1[1].id);
+        let ids: Vec<i64> = page1.iter().chain(&page2).map(|e| e.id).collect();
+        assert_eq!(ids, {
+            let mut sorted = ids.clone();
+            sorted.sort_unstable_by(|a, b| b.cmp(a));
+            sorted
+        }); // giảm dần, không trùng
+
+        // Clamp limit: 0 → 1 dòng; 1000 → tối đa 200.
+        assert_eq!(db.list_audit(None, None, None, 0).unwrap().len(), 1);
+        for i in 0..210 {
+            db.insert_audit("bulk.insert", Some(&format!("t{i}")), None)
+                .unwrap();
+        }
+        assert_eq!(db.list_audit(None, None, None, 1000).unwrap().len(), 200);
     }
 
     #[test]

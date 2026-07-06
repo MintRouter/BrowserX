@@ -519,6 +519,23 @@
     "cancel": "Huỷ",
     "close": "Đóng"
   },
+  "audit": {
+    "title": "Nhật ký hành động",
+    "hint": "Ghi lại cục bộ mọi hành động thay đổi dữ liệu (tạo, khởi chạy, xoá…). Chỉ lưu trên máy này.",
+    "filterLabel": "Lọc theo hành động",
+    "filterAll": "Tất cả hành động",
+    "colTime": "Thời gian",
+    "colAction": "Hành động",
+    "colTarget": "Đối tượng",
+    "colMeta": "Chi tiết",
+    "metaExpand": "Xem chi tiết đầy đủ",
+    "metaCollapse": "Thu gọn chi tiết",
+    "empty": "Chưa có bản ghi nào.",
+    "loadMore": "Tải thêm",
+    "loading": "Đang tải…",
+    "loadFailed": "Không tải được nhật ký hành động",
+    "desktopOnly": "Nhật ký hành động chỉ có trong ứng dụng desktop."
+  },
   "engine": {
     "downloading": "Đang chuẩn bị engine trình duyệt",
     "phase": {

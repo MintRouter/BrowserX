@@ -405,6 +405,30 @@ export interface CookieRobotProgressEvent {
   error: string | null;
 }
 
+/** (W26a) One audit-log row — append-only trail of every state-changing action. */
+export interface AuditEntry {
+  id: number;
+  /** RFC3339 UTC timestamp. */
+  ts: string;
+  /** Dotted action name, e.g. "profile.create", "proxy.check". */
+  action: string;
+  target_id: string | null;
+  /** Free-form JSON details (never credentials); null when the action has none. */
+  meta: unknown;
+}
+
+/** (W26a) Query for listAudit — cursor pagination via beforeId (newest first). */
+export interface AuditQuery {
+  /** Only actions starting with this prefix (e.g. "profile."). */
+  actionPrefix?: string | null;
+  /** Exact target id match. */
+  targetId?: string | null;
+  /** Only rows with id < beforeId — pass the last row's id to load the next page. */
+  beforeId?: number | null;
+  /** Page size; backend clamps to 1..=200 (default 50). */
+  limit?: number;
+}
+
 /** Settings key: auto-clear a profile's cache when its session stops ("true"/"false"). */
 export const AUTO_CLEAR_CACHE_SETTING = "auto_clear_cache_on_stop";
 
@@ -582,6 +606,15 @@ export const api = {
     invoke<void>("assign_extensions", { profileId, extIds }),
   getProfileExtensions: (profileId: string) =>
     invoke<Extension[]>("get_profile_extensions", { profileId }),
+
+  // Audit log (W26a) — newest first, cursor pagination by id.
+  listAudit: (query?: AuditQuery) =>
+    invoke<AuditEntry[]>("list_audit", {
+      actionPrefix: query?.actionPrefix ?? null,
+      targetId: query?.targetId ?? null,
+      beforeId: query?.beforeId ?? null,
+      limit: query?.limit ?? 50,
+    }),
 };
 
 // --- Events ---

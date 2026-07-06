@@ -525,6 +525,23 @@
     "cancel": "Cancel",
     "close": "Close"
   },
+  "audit": {
+    "title": "Audit log",
+    "hint": "Local record of every state-changing action (create, launch, delete…). Stored only on this machine.",
+    "filterLabel": "Filter by action",
+    "filterAll": "All actions",
+    "colTime": "Time",
+    "colAction": "Action",
+    "colTarget": "Target",
+    "colMeta": "Details",
+    "metaExpand": "Show full details",
+    "metaCollapse": "Collapse details",
+    "empty": "No audit entries yet.",
+    "loadMore": "Load more",
+    "loading": "Loading…",
+    "loadFailed": "Failed to load the audit log",
+    "desktopOnly": "The audit log is only available in the desktop app."
+  },
   "engine": {
     "downloading": "Setting up browser engine",
     "phase": {

@@ -1770,6 +1770,29 @@ pub fn get_profile_extensions(
     state.db.get_profile_extensions(&profile_id)
 }
 
+// ---------------------------------------------------------------------------
+// Audit log (W26a)
+// ---------------------------------------------------------------------------
+
+/// (W26a) Đọc audit log — mới nhất trước. Filter tuỳ chọn theo action-prefix
+/// + target_id; phân trang cursor bằng `before_id` (id nhỏ dần, không offset).
+/// `limit` mặc định 50, backend clamp 1..=200.
+#[tauri::command]
+pub fn list_audit(
+    state: State<'_, AppState>,
+    action_prefix: Option<String>,
+    target_id: Option<String>,
+    before_id: Option<i64>,
+    limit: Option<u32>,
+) -> Result<Vec<db::AuditEntry>> {
+    state.db.list_audit(
+        action_prefix.as_deref(),
+        target_id.as_deref(),
+        before_id,
+        limit.unwrap_or(50),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -149,6 +149,7 @@ pub fn run() {
             commands::set_extension_enabled,
             commands::assign_extensions,
             commands::get_profile_extensions,
+            commands::list_audit,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

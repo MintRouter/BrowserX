@@ -4,6 +4,7 @@ import { SUPPORTED_LOCALES, setLocale } from "../i18n";
 import { AUTO_CLEAR_CACHE_SETTING, api, isTauri } from "../lib/api";
 import { useTheme } from "../lib/theme";
 import { Toggle } from "./profile-form/controls";
+import { AuditLog } from "./settings/AuditLog";
 import { BackupDialog } from "./settings/BackupDialog";
 import { ThemeCards } from "./settings/ThemeCards";
 
@@ -181,6 +182,11 @@ export function SettingsView() {
                 {t("backup.restoreButton")}
               </button>
             </SettingRow>
+          </Section>
+
+          <Section title={t("audit.title")}>
+            <p className="text-xs text-fg-muted">{t("audit.hint")}</p>
+            <AuditLog />
           </Section>
 
           <Section title={t("settings.support")}>
