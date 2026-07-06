@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, type Folder, type Profile } from "../lib/api";
 import { CookieDialog } from "./CookieDialog";
+import { toProfileFilter, type ProfileFilters } from "./FilterPanel";
 import { ProfilesToolbar } from "./ProfilesToolbar";
 import {
   DEFAULT_COLUMNS,
@@ -54,6 +55,11 @@ export function ProfileList(props: ProfileListProps) {
   } = props;
   const { t } = useTranslation();
   const [sort, setSort] = useState<ProfilesSort>({ key: "updated", dir: "desc" });
+  // (P3-2b) Advanced filters. os/proxy/tag/folder run through the backend
+  // search_profiles (allowed-ID set, selective fetch — no loadAll); the
+  // runtime criterion is FE-only (matched against runningIds below).
+  const [filters, setFilters] = useState<ProfileFilters>({});
+  const [allowedIds, setAllowedIds] = useState<Set<string> | null>(null);
   const [columns, setColumns] = useState<ColumnVisibility>(DEFAULT_COLUMNS);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(100);
@@ -71,9 +77,36 @@ export function ProfileList(props: ProfileListProps) {
   const folderName = (id: string | null) =>
     id ? (folders.find((f) => f.id === id)?.name ?? "") : "";
 
+  // (P3-2b) Backend criteria (os/proxy/tag/folder) → search_profiles returns
+  // the matching ID set; only that call runs, nothing else is refetched.
+  const backendFilter = toProfileFilter(filters);
+  const hasBackendFilter = Object.values(backendFilter).some(
+    (v) => v !== undefined,
+  );
+  const backendKey = JSON.stringify(backendFilter);
+  useEffect(() => {
+    if (!hasBackendFilter) {
+      setAllowedIds(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .searchProfiles("", JSON.parse(backendKey))
+      .then((res) => {
+        if (!cancelled) setAllowedIds(new Set(res.map((p) => p.id)));
+      })
+      .catch(() => {
+        if (!cancelled) setAllowedIds(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backendKey, hasBackendFilter, profiles]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const list = q
+    let list = q
       ? profiles.filter(
           (p) =>
             p.name.toLowerCase().includes(q) ||
@@ -83,6 +116,13 @@ export function ProfileList(props: ProfileListProps) {
             folderName(p.folder_id).toLowerCase().includes(q),
         )
       : [...profiles];
+    // (P3-2b) Intersect with the backend filter result, then apply the
+    // FE-only runtime criterion (running state is not a DB column).
+    if (allowedIds) list = list.filter((p) => allowedIds.has(p.id));
+    if (filters.runtime)
+      list = list.filter(
+        (p) => runningIds.has(p.id) === (filters.runtime === "running"),
+      );
     list.sort((a, b) => {
       const cmp =
         sort.key === "name"
@@ -92,11 +132,11 @@ export function ProfileList(props: ProfileListProps) {
     });
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profiles, search, sort, folders]);
+  }, [profiles, search, sort, folders, allowedIds, filters.runtime, runningIds]);
 
   useEffect(() => {
     setPage(0);
-  }, [search, rowsPerPage, profiles.length]);
+  }, [search, rowsPerPage, profiles.length, filters]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / rowsPerPage));
   const safePage = Math.min(page, totalPages - 1);
@@ -344,6 +384,8 @@ export function ProfileList(props: ProfileListProps) {
         <ProfilesToolbar
           search={search}
           onSearchChange={props.onSearchChange}
+          filters={filters}
+          onFiltersChange={setFilters}
           selectedCount={selected.size}
           hasRunningSelected={hasRunningSelected}
           folders={folders}

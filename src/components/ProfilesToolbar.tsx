@@ -22,12 +22,16 @@ import {
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Folder } from "../lib/api";
+import { countActiveFilters, FilterPanel, type ProfileFilters } from "./FilterPanel";
 import { FolderPanel, MenuItem, Popover, TagPanel } from "./Popover";
 import type { ProfilesSort } from "./ProfileTable";
 
 interface ProfilesToolbarProps {
   search: string;
   onSearchChange: (value: string) => void;
+  /** (P3-2b) Advanced filters (tune button next to search). */
+  filters: ProfileFilters;
+  onFiltersChange: (filters: ProfileFilters) => void;
   selectedCount: number;
   hasRunningSelected: boolean;
   folders: Folder[];
@@ -54,7 +58,7 @@ interface ProfilesToolbarProps {
   moveSignal?: number;
 }
 
-type MenuKey = "create" | "tags" | "move" | "sort" | "more" | null;
+type MenuKey = "create" | "tags" | "move" | "sort" | "more" | "filter" | null;
 
 function ToolButton({
   label,
@@ -103,6 +107,7 @@ export function ProfilesToolbar(props: ProfilesToolbarProps) {
   } = props;
   const none = selectedCount === 0;
   const notSingle = selectedCount !== 1;
+  const activeFilters = countActiveFilters(props.filters);
 
   // (W20a) Shortcut ⌘/Ctrl+Shift+M bumps moveSignal → open the move popover.
   const { moveSignal } = props;
@@ -384,15 +389,48 @@ export function ProfilesToolbar(props: ProfilesToolbarProps) {
             aria-label={t("toolbar.searchPlaceholder")}
             className="h-9 w-full rounded-md border border-border bg-surface-2 pl-9 pr-9 text-sm text-fg placeholder:text-fg-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/50"
           />
-          <button
-            type="button"
-            disabled
-            aria-label={t("toolbar.filters")}
-            title={t("toolbar.comingSoon")}
-            className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-full text-fg-muted disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
-          </button>
+          {/* (P3-2b) Tune button → advanced filter panel; badge = active filter count */}
+          <div className="absolute right-2 top-1/2 -translate-y-1/2">
+            <Popover
+              open={menu === "filter"}
+              onClose={close}
+              label={t("toolbar.filters")}
+              align="end"
+              trigger={
+                <button
+                  type="button"
+                  aria-label={
+                    activeFilters > 0
+                      ? `${t("toolbar.filters")} (${t("toolbar.filtersActive", { count: activeFilters })})`
+                      : t("toolbar.filters")
+                  }
+                  title={t("toolbar.filters")}
+                  aria-haspopup="dialog"
+                  aria-expanded={menu === "filter"}
+                  onClick={() => toggle("filter")}
+                  className={`relative grid h-6 w-6 place-items-center rounded-full transition-colors hover:bg-surface-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
+                    activeFilters > 0 ? "text-accent" : "text-fg-muted"
+                  }`}
+                >
+                  <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+                  {activeFilters > 0 && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute -right-0.5 -top-0.5 grid h-3.5 w-3.5 place-items-center rounded-full bg-accent text-[9px] font-semibold leading-none text-white"
+                    >
+                      {activeFilters}
+                    </span>
+                  )}
+                </button>
+              }
+            >
+              <FilterPanel
+                filters={props.filters}
+                folders={props.folders}
+                onChange={props.onFiltersChange}
+              />
+            </Popover>
+          </div>
         </div>
       </div>
 

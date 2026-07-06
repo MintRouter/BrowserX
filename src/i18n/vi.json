@@ -76,6 +76,16 @@
     "clearSelection": "Bỏ chọn tất cả",
     "searchPlaceholder": "Tìm profile…",
     "filters": "Bộ lọc",
+    "filtersActive_other": "{{count}} bộ lọc đang bật",
+    "filterOs": "Hệ điều hành",
+    "filterProxy": "Proxy",
+    "filterWithProxy": "Có proxy",
+    "filterWithoutProxy": "Không có proxy",
+    "filterTag": "Thẻ",
+    "filterFolder": "Thư mục",
+    "filterStatus": "Trạng thái",
+    "filterAny": "Tất cả",
+    "filterClear": "Xoá bộ lọc",
     "confirmTrash_other": "Chuyển {{count}} profile vào thùng rác?"
   },
   "table": {
