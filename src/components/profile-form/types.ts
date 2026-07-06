@@ -56,6 +56,8 @@ export interface FormState {
   storage_quota: number | null;
   /** (W42) Auto-rotate the assigned proxy on each launch. */
   rotate_on_launch: boolean;
+  /** (W44) Taskbar height in px. Null = binary default (Win 48 / Mac 95 / Linux 0). */
+  taskbar_height: number | null;
 }
 
 /** True when `raw` parses as an http(s) URL (startup URL validation). */

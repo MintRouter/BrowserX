@@ -302,6 +302,8 @@
     "storageSection": "Lưu trữ",
     "storageQuota": "Hạn mức lưu trữ (MB)",
     "autoDefault": "Tự động",
+    "taskbarHeight": "Chiều cao taskbar (px)",
+    "taskbarHeightPlaceholder": "Tự động (Win 48 / Mac 95 / Linux 0)",
     "headless": "Headless (chạy không cửa sổ)",
     "geoip": "GeoIP tự khớp (múi giờ/locale theo IP proxy)",
     "launchArgs": "Cờ khởi chạy",

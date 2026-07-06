@@ -90,6 +90,8 @@ export interface Profile {
   storage_quota: number | null;
   /** (W42) Auto-rotate the assigned proxy (round-robin) on each launch. */
   rotate_on_launch: boolean;
+  /** (W44) Taskbar height in px (affects screen.availHeight). Null = binary default (Win 48 / Mac 95 / Linux 0). → --fingerprint-taskbar-height. */
+  taskbar_height: number | null;
 }
 
 export interface Folder {
@@ -160,6 +162,8 @@ export interface ProfileInput {
   storage_quota?: number | null;
   /** (W42) Auto-rotate the assigned proxy on each launch. Default: false. */
   rotate_on_launch?: boolean;
+  /** (W44) Taskbar height in px. Null/omitted = binary default (Win 48 / Mac 95 / Linux 0). */
+  taskbar_height?: number | null;
   /**
    * Target folder. NOTE: the Rust ProfileInput/ProfileUpdate structs do not
    * (yet) read this field — serde ignores it. Callers must follow up with

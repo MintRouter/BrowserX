@@ -100,6 +100,9 @@ pub struct Profile {
     /// (W42) Tự xoay proxy (round-robin pool healthy) mỗi lần launch — chỉ có
     /// tác dụng khi profile đang gán proxy. Best-effort: xoay lỗi không chặn launch.
     pub rotate_on_launch: bool,
+    /// (W44) Chiều cao taskbar (px), ảnh hưởng `screen.availHeight`. None = default
+    /// binary theo platform (Win 48 / Mac 95 / Linux 0). → `--fingerprint-taskbar-height`.
+    pub taskbar_height: Option<u32>,
 }
 
 /// (P3-1a) Extension trong kho trung tâm (bảng `extensions`), gán N-N với

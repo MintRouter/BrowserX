@@ -304,6 +304,8 @@
     "storageSection": "Storage",
     "storageQuota": "Storage quota (MB)",
     "autoDefault": "Auto",
+    "taskbarHeight": "Taskbar height (px)",
+    "taskbarHeightPlaceholder": "Auto (Win 48 / Mac 95 / Linux 0)",
     "headless": "Headless (run without a window)",
     "geoip": "GeoIP auto-match (timezone/locale from proxy IP)",
     "launchArgs": "Launch args",

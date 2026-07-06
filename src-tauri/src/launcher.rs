@@ -179,6 +179,10 @@ pub fn build_args(
     if let Some(q) = profile.storage_quota.filter(|q| *q > 0) {
         args.set(format!("--fingerprint-storage-quota={}", q));
     }
+    // (W44) Chiều cao taskbar (px) — 0 hợp lệ (Linux default), chỉ None mới bỏ qua.
+    if let Some(h) = profile.taskbar_height {
+        args.set(format!("--fingerprint-taskbar-height={}", h));
+    }
 
     // (W19c) Fingerprint controls nâng cao — flag thật của CloakBrowser binary.
     // Noise injection (canvas/WebGL/audio/client-rects) bật mặc định trong binary;
@@ -349,6 +353,7 @@ pub(crate) fn test_profile() -> Profile {
         windows_font_metrics: false,
         storage_quota: None,
         rotate_on_launch: false,
+        taskbar_height: None,
     }
 }
 
@@ -705,6 +710,26 @@ mod tests {
         assert!(args
             .iter()
             .any(|a| a == "--fingerprint-windows-font-metrics"));
+    }
+
+    // (W44) taskbar_height: None → không emit; Some → emit (kể cả 0 — Linux default).
+    #[test]
+    fn taskbar_height_flag_emitted_only_when_set() {
+        let mut p = base_profile();
+        assert_eq!(
+            count_key(&build_args(&p, None, 1), "--fingerprint-taskbar-height"),
+            0
+        );
+        p.taskbar_height = Some(48);
+        assert_eq!(
+            value_of(&build_args(&p, None, 1), "--fingerprint-taskbar-height"),
+            Some("48")
+        );
+        p.taskbar_height = Some(0);
+        assert_eq!(
+            value_of(&build_args(&p, None, 1), "--fingerprint-taskbar-height"),
+            Some("0")
+        );
     }
 
     // ------------------------------------------------------------------

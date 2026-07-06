@@ -420,6 +420,26 @@ export function FingerprintTab({ form, set }: FingerprintTabProps) {
           placeholder={t("pform.autoDefault")}
         />
       </div>
+
+      {/* Taskbar height (W44) */}
+      <div>
+        <label className="label" htmlFor="pf-taskbar-height">{t("pform.taskbarHeight")}</label>
+        <input
+          id="pf-taskbar-height"
+          className="input no-spin"
+          type="number"
+          min={0}
+          value={form.taskbar_height ?? ""}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            set(
+              "taskbar_height",
+              e.target.value !== "" && Number.isFinite(n) && n >= 0 ? n : null,
+            );
+          }}
+          placeholder={t("pform.taskbarHeightPlaceholder")}
+        />
+      </div>
     </div>
   );
 }
