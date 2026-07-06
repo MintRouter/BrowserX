@@ -188,6 +188,58 @@ pub struct ProxyUpdate {
     pub clear_credentials: bool,
 }
 
+/// (P3-3a) Bản ghi proxy template trong DB (bảng `proxy_templates`): cấu hình
+/// proxy dùng lại được. Credential là BLOB **đã mã hoá** bởi `crypto` như
+/// `proxies`. `sticky_session`/`traffic_saver` là metadata theo ngữ nghĩa
+/// NHÀ CUNG CẤP proxy (điều khiển qua username/host convention riêng từng
+/// nhà cung cấp) — KHÔNG map ra flag launch.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProxyTemplateRecord {
+    pub id: String,
+    pub name: String,
+    /// "http" | "https" | "socks5".
+    pub protocol: String,
+    pub host: String,
+    pub port: u16,
+    pub username_enc: Option<Vec<u8>>,
+    pub password_enc: Option<Vec<u8>>,
+    pub sticky_session: bool,
+    pub traffic_saver: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// (P3-3a) Input tạo proxy template mới (credential đã mã hoá sẵn).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProxyTemplateInput {
+    pub name: String,
+    pub protocol: String,
+    pub host: String,
+    pub port: u16,
+    pub username_enc: Option<Vec<u8>>,
+    pub password_enc: Option<Vec<u8>>,
+    #[serde(default)]
+    pub sticky_session: bool,
+    #[serde(default)]
+    pub traffic_saver: bool,
+}
+
+/// (P3-3a) Update proxy template từng phần; `clear_credentials=true` xoá cả 2
+/// blob về NULL (giống [`ProxyUpdate`]).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProxyTemplateUpdate {
+    pub name: Option<String>,
+    pub protocol: Option<String>,
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    pub username_enc: Option<Vec<u8>>,
+    pub password_enc: Option<Vec<u8>>,
+    pub sticky_session: Option<bool>,
+    pub traffic_saver: Option<bool>,
+    #[serde(default)]
+    pub clear_credentials: bool,
+}
+
 /// Một tag + màu (bảng `tags`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TagInfo {
@@ -210,7 +262,7 @@ pub struct AuditEntry {
 // ---------------------------------------------------------------------------
 
 /// Schema version hiện tại (PRAGMA user_version).
-const SCHEMA_VERSION: i64 = 9;
+const SCHEMA_VERSION: i64 = 10;
 
 const SCHEMA_V1: &str = "
 CREATE TABLE IF NOT EXISTS profiles (
@@ -391,6 +443,30 @@ CREATE TABLE IF NOT EXISTS profile_extensions (
 CREATE INDEX IF NOT EXISTS idx_profile_extensions_ext ON profile_extensions(extension_id);
 ";
 
+/// Migration v9→v10 (P3-3a): proxy templates — cấu hình proxy dùng lại được
+/// (protocol/host/port + credential BLOB mã hoá bởi `crypto` như `proxies`).
+/// `sticky_session`/`traffic_saver` là ngữ nghĩa NHÀ CUNG CẤP proxy (điều
+/// khiển qua username/host suffix theo convention riêng từng nhà cung cấp,
+/// KHÔNG có flag Chromium/CloakBrowser tương ứng) → chỉ lưu metadata,
+/// không áp vào launch.
+const SCHEMA_V10: &str = "
+CREATE TABLE IF NOT EXISTS proxy_templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    protocol TEXT NOT NULL DEFAULT 'http',
+    host TEXT NOT NULL,
+    port INTEGER NOT NULL,
+    username_enc BLOB,
+    password_enc BLOB,
+    sticky_session INTEGER NOT NULL DEFAULT 0,
+    traffic_saver INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_proxy_templates_name ON proxy_templates(name);
+";
+
 /// Kết nối SQLite của app. `Mutex<Connection>` để dùng được trong `tauri::State`
 /// (single-process, mọi thao tác tuần tự qua lock — đủ cho local app).
 pub struct Db {
@@ -567,6 +643,10 @@ fn migrate_inner(conn: &Connection, checkpoint: impl Fn(i64) -> Result<()>) -> R
         if version < 9 {
             conn.execute_batch(SCHEMA_V9)?;
             checkpoint(9)?;
+        }
+        if version < 10 {
+            conn.execute_batch(SCHEMA_V10)?;
+            checkpoint(10)?;
         }
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         Ok(())
@@ -1587,6 +1667,225 @@ impl Db {
 }
 
 // ---------------------------------------------------------------------------
+// Proxy templates (P3-3a)
+// ---------------------------------------------------------------------------
+
+/// Map một row của bảng `proxy_templates` → [`ProxyTemplateRecord`].
+fn row_to_proxy_template(row: &Row) -> rusqlite::Result<ProxyTemplateRecord> {
+    Ok(ProxyTemplateRecord {
+        id: row.get("id")?,
+        name: row.get("name")?,
+        protocol: row.get("protocol")?,
+        host: row.get("host")?,
+        port: row.get("port")?,
+        username_enc: row.get("username_enc")?,
+        password_enc: row.get("password_enc")?,
+        sticky_session: row.get("sticky_session")?,
+        traffic_saver: row.get("traffic_saver")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+    })
+}
+
+impl Db {
+    /// Tạo proxy template mới. Credential đã mã hoá sẵn bởi `crypto` (như
+    /// [`Db::create_proxy`]). Tên trim, không rỗng; validate protocol/host
+    /// giống proxies.
+    pub fn create_proxy_template(&self, input: ProxyTemplateInput) -> Result<ProxyTemplateRecord> {
+        let name = input.name.trim().to_string();
+        if name.is_empty() {
+            return Err(AppError::InvalidInput(
+                "proxy template name must not be empty".into(),
+            ));
+        }
+        if input.host.trim().is_empty() {
+            return Err(AppError::InvalidInput(
+                "proxy host must not be empty".into(),
+            ));
+        }
+        if !matches!(input.protocol.as_str(), "http" | "https" | "socks5") {
+            return Err(AppError::InvalidInput(format!(
+                "unsupported proxy protocol: {}",
+                input.protocol
+            )));
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        let ts = now();
+        {
+            let conn = self.lock();
+            conn.execute(
+                "INSERT INTO proxy_templates (
+                    id, name, protocol, host, port, username_enc, password_enc,
+                    sticky_session, traffic_saver, created_at, updated_at
+                ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+                params![
+                    id,
+                    name,
+                    input.protocol,
+                    input.host,
+                    input.port,
+                    input.username_enc,
+                    input.password_enc,
+                    input.sticky_session,
+                    input.traffic_saver,
+                    ts,
+                    ts,
+                ],
+            )?;
+        }
+        self.get_proxy_template(&id)
+    }
+
+    /// Đọc 1 proxy template. `NotFound` nếu không tồn tại.
+    pub fn get_proxy_template(&self, id: &str) -> Result<ProxyTemplateRecord> {
+        let conn = self.lock();
+        conn.query_row(
+            "SELECT * FROM proxy_templates WHERE id = ?1",
+            params![id],
+            row_to_proxy_template,
+        )
+        .optional()?
+        .ok_or_else(|| AppError::NotFound(format!("proxy template {id}")))
+    }
+
+    /// Danh sách toàn bộ proxy template, mới cập nhật trước.
+    pub fn list_proxy_templates(&self) -> Result<Vec<ProxyTemplateRecord>> {
+        let conn = self.lock();
+        let mut stmt =
+            conn.prepare("SELECT * FROM proxy_templates ORDER BY updated_at DESC, name")?;
+        let rows = stmt
+            .query_map([], row_to_proxy_template)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Update proxy template từng phần; `clear_credentials=true` xoá cả 2 blob
+    /// về NULL (giống [`Db::update_proxy`]).
+    pub fn update_proxy_template(
+        &self,
+        id: &str,
+        input: ProxyTemplateUpdate,
+    ) -> Result<ProxyTemplateRecord> {
+        let mut cols: Vec<&str> = Vec::new();
+        let mut values: Vec<SqlValue> = Vec::new();
+        if let Some(v) = input.name {
+            let v = v.trim().to_string();
+            if v.is_empty() {
+                return Err(AppError::InvalidInput(
+                    "proxy template name must not be empty".into(),
+                ));
+            }
+            cols.push("name");
+            values.push(sql_text(v));
+        }
+        if let Some(v) = input.protocol {
+            if !matches!(v.as_str(), "http" | "https" | "socks5") {
+                return Err(AppError::InvalidInput(format!(
+                    "unsupported proxy protocol: {v}"
+                )));
+            }
+            cols.push("protocol");
+            values.push(sql_text(v));
+        }
+        if let Some(v) = input.host {
+            cols.push("host");
+            values.push(sql_text(v));
+        }
+        if let Some(v) = input.port {
+            cols.push("port");
+            values.push(sql_int(v as i64));
+        }
+        if let Some(v) = input.sticky_session {
+            cols.push("sticky_session");
+            values.push(sql_bool(v));
+        }
+        if let Some(v) = input.traffic_saver {
+            cols.push("traffic_saver");
+            values.push(sql_bool(v));
+        }
+        if input.clear_credentials {
+            cols.push("username_enc");
+            values.push(SqlValue::Null);
+            cols.push("password_enc");
+            values.push(SqlValue::Null);
+        } else {
+            if let Some(v) = input.username_enc {
+                cols.push("username_enc");
+                values.push(SqlValue::Blob(v));
+            }
+            if let Some(v) = input.password_enc {
+                cols.push("password_enc");
+                values.push(SqlValue::Blob(v));
+            }
+        }
+
+        {
+            let conn = self.lock();
+            let exists = conn
+                .query_row(
+                    "SELECT 1 FROM proxy_templates WHERE id = ?1",
+                    params![id],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_some();
+            if !exists {
+                return Err(AppError::NotFound(format!("proxy template {id}")));
+            }
+            if !cols.is_empty() {
+                let assignments: Vec<String> = cols
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| format!("{c} = ?{}", i + 1))
+                    .collect();
+                let sql = format!(
+                    "UPDATE proxy_templates SET {}, updated_at = ?{} WHERE id = ?{}",
+                    assignments.join(", "),
+                    cols.len() + 1,
+                    cols.len() + 2,
+                );
+                values.push(sql_text(now()));
+                values.push(sql_text(id.to_string()));
+                conn.execute(&sql, rusqlite::params_from_iter(values))?;
+            }
+        }
+        self.get_proxy_template(id)
+    }
+
+    /// Xoá proxy template. Trả `true` nếu có xoá (không đụng proxy đã tạo từ template).
+    pub fn delete_proxy_template(&self, id: &str) -> Result<bool> {
+        let conn = self.lock();
+        let n = conn.execute("DELETE FROM proxy_templates WHERE id = ?1", params![id])?;
+        Ok(n > 0)
+    }
+
+    /// Tạo proxy mới từ template: copy protocol/host/port + credential blob
+    /// nguyên vẹn (cùng master key, blob `[nonce][ct+tag]` tự chứa nên tái
+    /// dùng được — không cần giải mã/mã hoá lại). `name` None/rỗng → dùng tên
+    /// template. `sticky_session`/`traffic_saver` là metadata của template,
+    /// bảng `proxies` không có cột tương ứng nên không copy.
+    pub fn create_proxy_from_template(
+        &self,
+        template_id: &str,
+        name: Option<&str>,
+    ) -> Result<ProxyRecord> {
+        let tpl = self.get_proxy_template(template_id)?;
+        let name = match name.map(str::trim) {
+            Some(n) if !n.is_empty() => n.to_string(),
+            _ => tpl.name,
+        };
+        self.create_proxy(ProxyInput {
+            name,
+            protocol: tpl.protocol,
+            host: tpl.host,
+            port: tpl.port,
+            username_enc: tpl.username_enc,
+            password_enc: tpl.password_enc,
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tags, settings, audit
 // ---------------------------------------------------------------------------
 
@@ -2479,6 +2778,160 @@ mod tests {
         ));
         // Profile đã tạo từ template không bị ảnh hưởng.
         assert_eq!(db.list_profiles().unwrap().len(), 2);
+    }
+
+    /// (P3-3a) Migration v10: DB cũ v1 upgrade thẳng → bảng proxy_templates
+    /// dùng được ngay; mở lại idempotent, dữ liệu còn.
+    #[test]
+    fn migration_v10_proxy_templates_table() {
+        let dir = std::env::temp_dir().join(format!("browserx-db-test-{}", uuid::Uuid::new_v4()));
+        let _guard = TempDir(dir.clone());
+        std::fs::create_dir_all(&dir).unwrap();
+        {
+            let conn = Connection::open(dir.join("browserx.db")).unwrap();
+            conn.execute_batch(SCHEMA_V1).unwrap();
+            conn.pragma_update(None, "user_version", 1).unwrap();
+        }
+
+        let db = Db::open_at_dir(&dir).unwrap();
+        {
+            let version: i64 = db
+                .lock()
+                .pragma_query_value(None, "user_version", |r| r.get(0))
+                .unwrap();
+            assert_eq!(version, SCHEMA_VERSION);
+        }
+        assert!(db.list_proxy_templates().unwrap().is_empty());
+        let tpl = db
+            .create_proxy_template(ProxyTemplateInput {
+                name: "resi".into(),
+                protocol: "http".into(),
+                host: "gw.example.com".into(),
+                port: 8000,
+                sticky_session: true,
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(tpl.sticky_session);
+        assert!(!tpl.traffic_saver);
+        // Mở lại → migrate idempotent, dữ liệu còn nguyên.
+        drop(db);
+        let db = Db::open_at_dir(&dir).unwrap();
+        assert_eq!(db.list_proxy_templates().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn proxy_template_crud_and_create_proxy_from_template() {
+        let (db, _guard) = temp_db();
+
+        // Validate: tên rỗng / host rỗng / protocol lạ → InvalidInput.
+        let base = ProxyTemplateInput {
+            name: "T1".into(),
+            protocol: "socks5".into(),
+            host: "1.2.3.4".into(),
+            port: 1080,
+            username_enc: Some(vec![1, 2, 3]),
+            password_enc: Some(vec![4, 5, 6]),
+            sticky_session: true,
+            traffic_saver: false,
+        };
+        assert!(matches!(
+            db.create_proxy_template(ProxyTemplateInput {
+                name: "  ".into(),
+                ..base.clone()
+            }),
+            Err(AppError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            db.create_proxy_template(ProxyTemplateInput {
+                host: " ".into(),
+                ..base.clone()
+            }),
+            Err(AppError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            db.create_proxy_template(ProxyTemplateInput {
+                protocol: "ftp".into(),
+                ..base.clone()
+            }),
+            Err(AppError::InvalidInput(_))
+        ));
+
+        // Create → đọc lại đúng, credential blob giữ nguyên at-rest.
+        let tpl = db.create_proxy_template(base).unwrap();
+        assert_eq!(tpl.name, "T1");
+        assert_eq!(tpl.protocol, "socks5");
+        assert_eq!(tpl.port, 1080);
+        assert_eq!(tpl.username_enc.as_deref(), Some(&[1u8, 2, 3][..]));
+        assert!(tpl.sticky_session);
+        assert!(!tpl.traffic_saver);
+        assert_eq!(db.list_proxy_templates().unwrap().len(), 1);
+
+        // Update từng phần: chỉ field gửi lên thay đổi.
+        let up = db
+            .update_proxy_template(
+                &tpl.id,
+                ProxyTemplateUpdate {
+                    name: Some("T1b".into()),
+                    traffic_saver: Some(true),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(up.name, "T1b");
+        assert!(up.sticky_session);
+        assert!(up.traffic_saver);
+        assert_eq!(up.username_enc.as_deref(), Some(&[1u8, 2, 3][..]));
+        assert!(matches!(
+            db.update_proxy_template(
+                &tpl.id,
+                ProxyTemplateUpdate {
+                    protocol: Some("ftp".into()),
+                    ..Default::default()
+                }
+            ),
+            Err(AppError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            db.update_proxy_template("missing-id", ProxyTemplateUpdate::default()),
+            Err(AppError::NotFound(_))
+        ));
+
+        // Tạo proxy từ template → copy config + credential blob nguyên vẹn.
+        let px = db
+            .create_proxy_from_template(&tpl.id, Some("từ template"))
+            .unwrap();
+        assert_eq!(px.name, "từ template");
+        assert_eq!(px.protocol, "socks5");
+        assert_eq!(px.host, "1.2.3.4");
+        assert_eq!(px.port, 1080);
+        assert_eq!(px.username_enc.as_deref(), Some(&[1u8, 2, 3][..]));
+        assert_eq!(px.password_enc.as_deref(), Some(&[4u8, 5, 6][..]));
+        // name None → dùng tên template.
+        let px2 = db.create_proxy_from_template(&tpl.id, None).unwrap();
+        assert_eq!(px2.name, "T1b");
+
+        // clear_credentials xoá cả 2 blob về NULL.
+        let cleared = db
+            .update_proxy_template(
+                &tpl.id,
+                ProxyTemplateUpdate {
+                    clear_credentials: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(cleared.username_enc.is_none());
+        assert!(cleared.password_enc.is_none());
+
+        // Delete + NotFound; proxy đã tạo từ template không bị ảnh hưởng.
+        assert!(db.delete_proxy_template(&tpl.id).unwrap());
+        assert!(!db.delete_proxy_template(&tpl.id).unwrap());
+        assert!(matches!(
+            db.create_proxy_from_template(&tpl.id, None),
+            Err(AppError::NotFound(_))
+        ));
+        assert_eq!(db.list_proxies().unwrap().len(), 2);
     }
 
     #[test]

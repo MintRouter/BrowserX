@@ -1,6 +1,8 @@
 //! Tauri commands (invoke handlers) — theo Hợp đồng command trong spec:
 //! - Profiles: list_profiles, get_profile, create_profile, update_profile, delete_profile, search_profiles
 //! - Proxies: list_proxies, create_proxy, update_proxy, delete_proxy, assign_proxy, check_proxy
+//! - Proxy templates (P3-3a): list_proxy_templates, create_proxy_template,
+//!   update_proxy_template, delete_proxy_template, create_proxy_from_template
 //! - Session: launch_profile, stop_profile, list_running, bring_to_front (W20a),
 //!   get_cdp_ws_url (W24c)
 //! - Binary: ensure_binary (emit `binary://progress`)
@@ -28,7 +30,9 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::db::{self, Db, ProfileFilter, ProfileInput, ProfileUpdate, TagInfo};
 use crate::error::{AppError, Result};
-use crate::models::{Extension, Folder, Profile, ProfileTemplate, Proxy, RunningSession};
+use crate::models::{
+    Extension, Folder, Profile, ProfileTemplate, Proxy, ProxyTemplate, RunningSession,
+};
 use crate::process::ProcessManager;
 use crate::proxy_check::{self, ProxyCheckResult};
 use crate::{binary, cdp, cookies, crypto, extensions, launcher, storage};
@@ -384,6 +388,186 @@ pub fn assign_proxy(
         Some(&json!({ "proxy_id": proxy_id })),
     )?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Proxy templates (P3-3a) — cấu hình proxy dùng lại được, credential mã hoá
+// như proxies. sticky_session/traffic_saver là metadata ngữ nghĩa NHÀ CUNG CẤP
+// proxy (username/host convention riêng từng nhà cung cấp — KHÔNG có flag
+// Chromium/CloakBrowser) nên không áp vào launch.
+// ---------------------------------------------------------------------------
+
+/// ProxyTemplateRecord (credential mã hoá) → models::ProxyTemplate trả về FE.
+/// Cùng chính sách W5c/W23b với `proxy_to_model`: username masked, password
+/// chỉ trả `has_password`, decrypt fail → degrade `credentials_invalid`.
+fn proxy_template_to_model(rec: db::ProxyTemplateRecord) -> ProxyTemplate {
+    let mut credentials_invalid = false;
+    let masked_username = match rec.username_enc.as_deref().map(crypto::decrypt_secret) {
+        Some(Ok(u)) => Some(mask_username(&u)),
+        Some(Err(_)) => {
+            credentials_invalid = true;
+            None
+        }
+        None => None,
+    };
+    if let Some(p) = rec.password_enc.as_deref() {
+        if crypto::open(p).is_err() {
+            credentials_invalid = true;
+        }
+    }
+    if credentials_invalid {
+        tracing::warn!(
+            "proxy template {} credentials cannot be decrypted (master key changed?); password must be re-entered",
+            rec.id
+        );
+    }
+    ProxyTemplate {
+        id: rec.id,
+        name: rec.name,
+        protocol: rec.protocol,
+        host: rec.host,
+        port: rec.port,
+        masked_username,
+        has_password: rec.password_enc.is_some(),
+        credentials_invalid,
+        sticky_session: rec.sticky_session,
+        traffic_saver: rec.traffic_saver,
+        created_at: rec.created_at,
+        updated_at: rec.updated_at,
+    }
+}
+
+/// Input tạo proxy template từ FE (credential plaintext — mã hoá trước khi lưu).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ProxyTemplateCreate {
+    pub name: String,
+    pub protocol: String,
+    pub host: String,
+    pub port: u16,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    #[serde(default)]
+    pub sticky_session: bool,
+    #[serde(default)]
+    pub traffic_saver: bool,
+}
+
+/// Update proxy template từng phần từ FE (credential plaintext).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ProxyTemplatePatch {
+    pub name: Option<String>,
+    pub protocol: Option<String>,
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub sticky_session: Option<bool>,
+    pub traffic_saver: Option<bool>,
+    #[serde(default)]
+    pub clear_credentials: bool,
+}
+
+#[tauri::command]
+pub fn list_proxy_templates(state: State<'_, AppState>) -> Result<Vec<ProxyTemplate>> {
+    Ok(state
+        .db
+        .list_proxy_templates()?
+        .into_iter()
+        .map(proxy_template_to_model)
+        .collect())
+}
+
+#[tauri::command]
+pub fn create_proxy_template(
+    state: State<'_, AppState>,
+    input: ProxyTemplateCreate,
+) -> Result<ProxyTemplate> {
+    let rec = state.db.create_proxy_template(db::ProxyTemplateInput {
+        name: input.name,
+        protocol: input.protocol,
+        host: input.host,
+        port: input.port,
+        username_enc: input
+            .username
+            .as_deref()
+            .map(crypto::encrypt_secret)
+            .transpose()?,
+        password_enc: input
+            .password
+            .as_deref()
+            .map(crypto::encrypt_secret)
+            .transpose()?,
+        sticky_session: input.sticky_session,
+        traffic_saver: input.traffic_saver,
+    })?;
+    state
+        .db
+        .insert_audit("proxy_template.create", Some(&rec.id), None)?;
+    Ok(proxy_template_to_model(rec))
+}
+
+#[tauri::command]
+pub fn update_proxy_template(
+    state: State<'_, AppState>,
+    id: String,
+    input: ProxyTemplatePatch,
+) -> Result<ProxyTemplate> {
+    let rec = state.db.update_proxy_template(
+        &id,
+        db::ProxyTemplateUpdate {
+            name: input.name,
+            protocol: input.protocol,
+            host: input.host,
+            port: input.port,
+            username_enc: input
+                .username
+                .as_deref()
+                .map(crypto::encrypt_secret)
+                .transpose()?,
+            password_enc: input
+                .password
+                .as_deref()
+                .map(crypto::encrypt_secret)
+                .transpose()?,
+            sticky_session: input.sticky_session,
+            traffic_saver: input.traffic_saver,
+            clear_credentials: input.clear_credentials,
+        },
+    )?;
+    state
+        .db
+        .insert_audit("proxy_template.update", Some(&id), None)?;
+    Ok(proxy_template_to_model(rec))
+}
+
+#[tauri::command]
+pub fn delete_proxy_template(state: State<'_, AppState>, id: String) -> Result<bool> {
+    let deleted = state.db.delete_proxy_template(&id)?;
+    if deleted {
+        state
+            .db
+            .insert_audit("proxy_template.delete", Some(&id), None)?;
+    }
+    Ok(deleted)
+}
+
+/// Tạo proxy mới từ template (copy config + credential mã hoá nguyên vẹn —
+/// không giải mã trong quá trình copy). `name` None/rỗng → dùng tên template.
+#[tauri::command]
+pub fn create_proxy_from_template(
+    state: State<'_, AppState>,
+    template_id: String,
+    name: Option<String>,
+) -> Result<Proxy> {
+    let rec = state
+        .db
+        .create_proxy_from_template(&template_id, name.as_deref())?;
+    state.db.insert_audit(
+        "proxy.create_from_template",
+        Some(&rec.id),
+        Some(&json!({ "template_id": template_id })),
+    )?;
+    Ok(proxy_to_model(rec))
 }
 
 // ---------------------------------------------------------------------------

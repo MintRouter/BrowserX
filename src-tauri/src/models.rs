@@ -151,6 +151,36 @@ pub struct Proxy {
     pub updated_at: String,
 }
 
+/// (P3-3a) Proxy template — cấu hình proxy dùng lại được (bảng `proxy_templates`),
+/// tạo proxy mới qua `create_proxy_from_template`. Credential mã hoá at-rest như
+/// `Proxy`; qua IPC chỉ trả bản masked. `sticky_session`/`traffic_saver` là
+/// metadata theo ngữ nghĩa NHÀ CUNG CẤP proxy (điều khiển qua username/host
+/// convention riêng từng nhà cung cấp) — KHÔNG có flag Chromium/CloakBrowser
+/// tương ứng nên không áp vào launch.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProxyTemplate {
+    /// UUID v4.
+    pub id: String,
+    pub name: String,
+    /// "http" | "https" | "socks5".
+    pub protocol: String,
+    pub host: String,
+    pub port: u16,
+    /// (W5c) Username KHÔNG trả plaintext qua IPC — chỉ bản đã che (ký tự đầu + "***").
+    pub masked_username: Option<String>,
+    /// Password KHÔNG bao giờ trả plaintext qua IPC — chỉ báo đã lưu hay chưa.
+    pub has_password: bool,
+    /// (W23b) Credential không giải mã được bằng master key hiện tại.
+    #[serde(default)]
+    pub credentials_invalid: bool,
+    /// Giữ IP exit cố định giữa các request (proxy provider hỗ trợ) — metadata.
+    pub sticky_session: bool,
+    /// Chế độ tiết kiệm băng thông của proxy provider — metadata.
+    pub traffic_saver: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 /// Một phiên browser đang chạy (trả về từ `launch_profile` / `list_running`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunningSession {
