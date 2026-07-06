@@ -57,6 +57,7 @@
     "refresh": "Tải lại",
     "editSelected": "Sửa",
     "rotateProxy": "Xoay proxy",
+    "rotateProxyAppliesNextLaunch": "Đã xoay proxy. Profile đang chạy sẽ dùng proxy mới ở lần khởi chạy sau.",
     "addTags": "Thêm thẻ",
     "tagsPlaceholder": "Nhập thẻ, nhấn Enter…",
     "removeTag": "Xoá thẻ",

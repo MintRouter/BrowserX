@@ -388,6 +388,11 @@ export default function App() {
     setActionError(null);
     try {
       await api.rotateProxies([...selected]);
+      // (W41) Rotation only takes effect on the next launch — tell the user
+      // when at least one selected profile is currently running.
+      if ([...selected].some((id) => runningIds.has(id))) {
+        setActionError(t("toolbar.rotateProxyAppliesNextLaunch"));
+      }
     } catch (err) {
       setActionError(errMsg(err));
     }
@@ -399,6 +404,10 @@ export default function App() {
     setActionError(null);
     try {
       await api.rotateProxy(p.id);
+      // (W41) Same next-launch notice as handleRotateProxies.
+      if (runningIds.has(p.id)) {
+        setActionError(t("toolbar.rotateProxyAppliesNextLaunch"));
+      }
     } catch (err) {
       setActionError(errMsg(err));
     }

@@ -57,6 +57,7 @@
     "refresh": "Refresh",
     "editSelected": "Edit",
     "rotateProxy": "Rotate proxy",
+    "rotateProxyAppliesNextLaunch": "Proxy rotated. Running profiles use the new proxy on next launch.",
     "addTags": "Add tags",
     "tagsPlaceholder": "Type a tag, press Enter…",
     "removeTag": "Remove tag",
