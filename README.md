@@ -9,7 +9,17 @@
 
 ## Trạng thái
 
-Pha 1 — MVP local (đang phát triển). Cấu trúc: frontend ở root (pnpm + Vite), core Rust ở `src-tauri/`.
+Pha 3 — hoàn thiện & phân phối. Các tính năng chính đã xong:
+
+- Fingerprint sâu, proxy per-profile + templates, cookie import/export qua CDP.
+- Extensions per-profile, CookieRobot (warm-up cookie tự động), audit log, metrics.
+- Hiệu năng: 10k profiles load <500ms, bulk create 500 profiles/62ms.
+- Draft release **v0.1.0**: installer unsigned cho 3 OS (dmg / msi / nsis / AppImage / deb).
+- Chưa ký code; auto-updater đang chờ key ký.
+
+**Tải bản dùng thử:** [GitHub Releases](https://github.com/MintRouter/BrowserX/releases) — installer **unsigned**; trên macOS cần chạy `xattr -dr com.apple.quarantine /Applications/BrowserX.app` sau khi cài.
+
+Cấu trúc: frontend ở root (pnpm + Vite), core Rust ở `src-tauri/`.
 
 ```bash
 pnpm install
