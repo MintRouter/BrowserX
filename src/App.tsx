@@ -381,6 +381,19 @@ export default function App() {
     if (quick.length > 0) setQuickStop(quick);
   };
 
+  // (W39) Rotate the assigned proxy for every selected profile. The backend
+  // rejects profiles without a pool or with no healthy candidate — surface
+  // that as an action error, then refresh assignments + health flags.
+  const handleRotateProxies = async () => {
+    setActionError(null);
+    try {
+      await api.rotateProxies([...selected]);
+    } catch (err) {
+      setActionError(errMsg(err));
+    }
+    await refetch(refetchProfiles(), refetchProxies());
+  };
+
   /** Resolve the quick-stop dialog: keep data as a regular profile or purge everything. */
   const resolveQuickStop = async (action: "save" | "delete") => {
     if (!quickStop) return;
@@ -705,6 +718,7 @@ export default function App() {
               onStop={handleStop}
               onLaunchSelected={handleLaunchSelected}
               onStopSelected={handleStopSelected}
+              onRotateProxies={handleRotateProxies}
               onRefresh={loadAll}
               onImported={async () => {
                 await refetch(refetchProfiles(), refetchFolders());

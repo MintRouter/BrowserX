@@ -56,6 +56,7 @@
     "stopSelected": "Stop selected",
     "refresh": "Refresh",
     "editSelected": "Edit",
+    "rotateProxy": "Rotate proxy",
     "addTags": "Add tags",
     "tagsPlaceholder": "Type a tag, press Enter…",
     "removeTag": "Remove tag",

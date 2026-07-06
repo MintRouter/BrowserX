@@ -12,6 +12,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Shuffle,
   SlidersHorizontal,
   Square,
   Tag,
@@ -44,6 +45,8 @@ interface ProfilesToolbarProps {
   onStopSelected: () => void;
   onRefresh: () => void;
   onEditSelected: () => void;
+  /** (W39) Rotate the assigned proxy for every selected profile. */
+  onRotateProxies: () => void;
   onAddTags: (tags: string[]) => void;
   onMoveToFolder: (folderId: string | null) => void;
   onCloneSelected: () => void;
@@ -207,6 +210,13 @@ export function ProfilesToolbar(props: ProfilesToolbarProps) {
             onClick={props.onEditSelected}
           >
             <Pencil className="h-4 w-4" aria-hidden="true" />
+          </ToolButton>
+          <ToolButton
+            label={t("toolbar.rotateProxy")}
+            disabled={none}
+            onClick={props.onRotateProxies}
+          >
+            <Shuffle className="h-4 w-4" aria-hidden="true" />
           </ToolButton>
 
           <Popover

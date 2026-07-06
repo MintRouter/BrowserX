@@ -474,6 +474,11 @@ export const api = {
   deleteProxy: (id: string) => invoke<void>("delete_proxy", { id }),
   assignProxy: (profileId: string, proxyId?: string | null) =>
     invoke<void>("assign_proxy", { profileId, proxyId: proxyId ?? null }),
+  /** (W39) Rotate to the next healthy proxy in the profile's pool. */
+  rotateProxy: (profileId: string) =>
+    invoke<Proxy>("rotate_proxy", { profileId }),
+  rotateProxies: (profileIds: string[]) =>
+    invoke<Proxy[]>("rotate_proxies", { profileIds }),
   checkProxy: (input: ProxyCheckInput) =>
     invoke<ProxyCheckResult>("check_proxy", { input }),
 

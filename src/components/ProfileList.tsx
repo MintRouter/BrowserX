@@ -33,6 +33,8 @@ interface ProfileListProps {
   onStop: (id: string) => Promise<void>;
   onLaunchSelected: () => Promise<void>;
   onStopSelected: () => Promise<void>;
+  /** (W39) Rotate the assigned proxy for every selected profile. */
+  onRotateProxies: () => Promise<void>;
   onRefresh: () => Promise<void>;
   /** (F1a) Selective refetch after import — profiles + folder counts (W23d pattern). */
   onImported: () => Promise<void>;
@@ -401,6 +403,7 @@ export function ProfileList(props: ProfileListProps) {
           onStopSelected={() => void props.onStopSelected()}
           onRefresh={() => void props.onRefresh()}
           onEditSelected={() => singleSelected && props.onEdit(singleSelected)}
+          onRotateProxies={() => void props.onRotateProxies()}
           onAddTags={(tags) => void props.onAddTags(selectedIds, tags)}
           onMoveToFolder={(folderId) => void props.onMove(selectedIds, folderId)}
           onCloneSelected={() => singleSelected && void props.onClone(singleSelected)}
