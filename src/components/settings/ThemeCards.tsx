@@ -9,7 +9,7 @@ const PALETTE = {
   dark: { bg: "#0B0D10", card: "#14171C", line: "#2C323B" },
 } as const;
 
-const ACCENT = "#2563EB";
+const ACCENT = "#055FF0";
 
 /** Mini app mock (sidebar + content card with text bars) in the given scheme. */
 function Pane({ dark }: { dark: boolean }) {

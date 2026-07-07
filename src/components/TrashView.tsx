@@ -11,6 +11,7 @@ import {
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Folder, Profile } from "../lib/api";
+import { Checkbox } from "./Checkbox";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { TableFooter } from "./TableFooter";
 
@@ -172,19 +173,19 @@ export function TrashView({
     return t("trash.confirmPurgeMany", { count: purgeConfirm?.length ?? 0 });
   };
 
-  const th = "h-10 px-3 text-left align-middle text-xs font-medium text-fg";
+  const th = "h-10 pl-2 pr-4 text-left align-middle text-xs font-medium text-fg";
 
   return (
-    <div className="flex h-full flex-col p-4">
+    <div className="flex h-full flex-col pb-4 pl-2 pr-4 pt-0">
       {/* Toolbar lives inside the table's white card (standard shell, F1a) */}
       <div className="card flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="flex min-h-[60px] flex-wrap items-center gap-3 p-3">
-          {/* MLX: "Empty trash bin" accent-outline pill, always visible */}
+          {/* (W50H) MLX: "Empty trash bin" filled primary, radius 6, ~146×36 */}
           <button
             type="button"
             onClick={() => setPurgeConfirm("all")}
             disabled={busy || items.length === 0}
-            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-accent px-3.5 text-sm font-medium text-accent transition-colors hover:bg-accent/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+            className="btn-primary h-9 shrink-0 px-3.5"
           >
             <Trash2 className="h-4 w-4" aria-hidden="true" />
             <span>{t("trash.emptyTrashBin")}</span>
@@ -204,7 +205,7 @@ export function TrashView({
             <Trash2 className="h-4 w-4" aria-hidden="true" />
           </ToolButton>
 
-          <div className="relative ml-auto w-[225px]">
+          <div className="relative ml-auto w-[329px]">
             <Search
               className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted"
               aria-hidden="true"
@@ -232,19 +233,15 @@ export function TrashView({
           </div>
         ) : (
           <div className="flex-1 overflow-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-xs">
               <thead className="sticky top-0 z-10 border-b border-border bg-surface-2">
                 <tr className="h-10 border-b border-border">
-                  <th scope="col" className="w-10 px-3 align-middle">
-                    <input
-                      type="checkbox"
-                      aria-label={t("table.selectAll")}
+                  <th scope="col" className="w-10 pl-2 pr-4 align-middle">
+                    <Checkbox
+                      ariaLabel={t("table.selectAll")}
                       checked={allChecked}
-                      ref={(el) => {
-                        if (el) el.indeterminate = someChecked && !allChecked;
-                      }}
+                      indeterminate={someChecked && !allChecked}
                       onChange={() => togglePage(!allChecked)}
-                      className="h-4 w-4 cursor-pointer rounded border-border accent-accent"
                     />
                   </th>
                   <th scope="col" className="w-10 px-1 align-middle">
@@ -283,16 +280,14 @@ export function TrashView({
                     <tr
                       key={p.id}
                       className={`h-[49px] border-b border-border transition-colors [&>td]:align-middle ${
-                        isSelected ? "bg-[#F0F6FF]" : "hover:bg-accent/[0.03]"
+                        isSelected ? "bg-[#F0F6FF]" : "hover:bg-[#F0F6FF]"
                       }`}
                     >
-                      <td className="px-3 py-2">
-                        <input
-                          type="checkbox"
-                          aria-label={`${t("table.selectRow")}: ${p.name}`}
+                      <td className="pl-2 pr-4 py-2">
+                        <Checkbox
+                          ariaLabel={`${t("table.selectRow")}: ${p.name}`}
                           checked={isSelected}
                           onChange={() => toggleRow(p.id)}
-                          className="h-4 w-4 cursor-pointer rounded border-border accent-accent"
                         />
                       </td>
                       <td className="px-1 py-2">
@@ -303,33 +298,33 @@ export function TrashView({
                           />
                         </span>
                       </td>
-                      <td className="max-w-0 px-3 py-2">
+                      <td className="max-w-0 pl-2 pr-4 py-2">
                         <span className="block truncate font-medium text-fg" title={p.name}>
                           {p.name}
                         </span>
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2 text-fg-muted">
+                      <td className="whitespace-nowrap pl-2 pr-4 py-2 text-fg-muted">
                         <span
                           className="inline-flex items-center gap-1.5"
                           title={t("table.local")}
                         >
-                          <Cloud className="h-4 w-4" aria-hidden="true" />
+                          <Cloud className="h-5 w-5 text-accent" aria-hidden="true" />
                           {t("table.local")}
                         </span>
                       </td>
-                      <td className="max-w-0 truncate px-3 py-2 text-fg-muted">
+                      <td className="max-w-0 truncate pl-2 pr-4 py-2 text-fg-muted">
                         {folderName(p.folder_id)}
                       </td>
                       <td
-                        className="whitespace-nowrap px-3 py-2 text-fg-muted"
+                        className="whitespace-nowrap pl-2 pr-4 py-2 text-fg-muted"
                         title={new Date(deletedAt(p)).toLocaleString(i18n.language)}
                       >
                         {fmtDate(deletedAt(p))}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2 text-fg-muted">
+                      <td className="whitespace-nowrap pl-2 pr-4 py-2 text-fg-muted">
                         {fmtDate(p.created_at)}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2 text-right">
+                      <td className="whitespace-nowrap pl-2 pr-4 py-2 text-right">
                         {/* MLX: always-visible inline Restore text button per row */}
                         <button
                           type="button"

@@ -128,12 +128,12 @@ export function ProfilesToolbar(props: ProfilesToolbarProps) {
 
   return (
     <div className="flex min-h-[60px] flex-wrap items-center gap-3 p-3">
-      {/* Split "+ Create" */}
-      <div className="inline-flex">
+      {/* (W50H) "+ Create" — one solid 118×36 block, thin divider inside (MLX parity). */}
+      <div className="inline-flex h-9 w-[118px] overflow-hidden rounded-md">
         <button
           type="button"
           onClick={props.onNewProfile}
-          className="btn-primary h-9 rounded-r-none py-1.5"
+          className="btn-primary h-full flex-1 rounded-none px-2 py-1.5"
         >
           <Plus className="h-4 w-4" aria-hidden="true" />
           <span>{t("toolbar.create")}</span>
@@ -149,7 +149,7 @@ export function ProfilesToolbar(props: ProfilesToolbarProps) {
               aria-haspopup="menu"
               aria-expanded={menu === "create"}
               onClick={() => toggle("create")}
-              className="btn-primary h-9 rounded-l-none border-l border-white/30 px-1.5 py-1.5"
+              className="btn-primary h-full rounded-none border-l border-white/30 px-1.5 py-1.5"
             >
               <ChevronDown className="h-4 w-4" aria-hidden="true" />
             </button>
@@ -185,97 +185,100 @@ export function ProfilesToolbar(props: ProfilesToolbarProps) {
         <span>{t("toolbar.quick")}</span>
       </button>
 
-      {/* Action icons only appear while rows are selected (ML parity, 1.2) */}
+      {/* (W50H) 8 bulk-action icons always visible, disabled while nothing is
+          selected (MLX parity — toolbar never looks empty). */}
+      <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+
+      <ToolButton
+        label={t("toolbar.launchSelected")}
+        disabled={none}
+        onClick={props.onLaunchSelected}
+      >
+        <Play className="h-4 w-4" aria-hidden="true" />
+      </ToolButton>
+      <ToolButton
+        label={t("toolbar.stopSelected")}
+        disabled={!hasRunningSelected}
+        onClick={props.onStopSelected}
+      >
+        <Square className="h-4 w-4" aria-hidden="true" />
+      </ToolButton>
+      {/* (W50B) Bulk proxy check — MLX search_check_2 slot */}
+      <ToolButton
+        label={t("toolbar.checkProxies")}
+        disabled={none}
+        onClick={props.onCheckProxiesSelected}
+      >
+        <SearchCheck className="h-4 w-4" aria-hidden="true" />
+      </ToolButton>
+      <ToolButton
+        label={t("toolbar.rotateProxy")}
+        disabled={none}
+        onClick={props.onRotateProxies}
+      >
+        <Shuffle className="h-4 w-4" aria-hidden="true" />
+      </ToolButton>
+      <ToolButton
+        label={t("toolbar.editSelected")}
+        disabled={notSingle}
+        onClick={props.onEditSelected}
+      >
+        <Pencil className="h-4 w-4" aria-hidden="true" />
+      </ToolButton>
+
+      <Popover
+        open={menu === "tags"}
+        onClose={close}
+        label={t("toolbar.addTags")}
+        trigger={
+          <ToolButton
+            label={t("toolbar.addTags")}
+            disabled={none}
+            expanded={menu === "tags"}
+            onClick={() => toggle("tags")}
+          >
+            <Tag className="h-4 w-4" aria-hidden="true" />
+          </ToolButton>
+        }
+      >
+        <TagPanel
+          onApply={(tags) => {
+            close();
+            props.onAddTags(tags);
+          }}
+        />
+      </Popover>
+
+      <Popover
+        open={menu === "move"}
+        onClose={close}
+        label={t("toolbar.moveToFolder")}
+        trigger={
+          <ToolButton
+            label={t("toolbar.moveToFolder")}
+            disabled={none}
+            expanded={menu === "move"}
+            onClick={() => toggle("move")}
+          >
+            <FolderInput className="h-4 w-4" aria-hidden="true" />
+          </ToolButton>
+        }
+      >
+        <FolderPanel
+          folders={props.folders}
+          onPick={(folderId) => {
+            close();
+            props.onMoveToFolder(folderId);
+          }}
+        />
+      </Popover>
+
+      {/* Secondary actions still appear only with a selection (ML parity, 1.2) */}
       {selectedCount > 0 && (
         <>
-          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-
-          <ToolButton
-            label={t("toolbar.launchSelected")}
-            disabled={none}
-            onClick={props.onLaunchSelected}
-          >
-            <Play className="h-4 w-4" aria-hidden="true" />
-          </ToolButton>
-          <ToolButton
-            label={t("toolbar.stopSelected")}
-            disabled={!hasRunningSelected}
-            onClick={props.onStopSelected}
-          >
-            <Square className="h-4 w-4" aria-hidden="true" />
-          </ToolButton>
-          {/* (W50B) Bulk proxy check — MLX search_check_2 slot */}
-          <ToolButton
-            label={t("toolbar.checkProxies")}
-            disabled={none}
-            onClick={props.onCheckProxiesSelected}
-          >
-            <SearchCheck className="h-4 w-4" aria-hidden="true" />
-          </ToolButton>
           <ToolButton label={t("toolbar.refresh")} onClick={props.onRefresh}>
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
           </ToolButton>
-          <ToolButton
-            label={t("toolbar.rotateProxy")}
-            disabled={none}
-            onClick={props.onRotateProxies}
-          >
-            <Shuffle className="h-4 w-4" aria-hidden="true" />
-          </ToolButton>
-          <ToolButton
-            label={t("toolbar.editSelected")}
-            disabled={notSingle}
-            onClick={props.onEditSelected}
-          >
-            <Pencil className="h-4 w-4" aria-hidden="true" />
-          </ToolButton>
-
-          <Popover
-            open={menu === "tags"}
-            onClose={close}
-            label={t("toolbar.addTags")}
-            trigger={
-              <ToolButton
-                label={t("toolbar.addTags")}
-                disabled={none}
-                expanded={menu === "tags"}
-                onClick={() => toggle("tags")}
-              >
-                <Tag className="h-4 w-4" aria-hidden="true" />
-              </ToolButton>
-            }
-          >
-            <TagPanel
-              onApply={(tags) => {
-                close();
-                props.onAddTags(tags);
-              }}
-            />
-          </Popover>
-
-          <Popover
-            open={menu === "move"}
-            onClose={close}
-            label={t("toolbar.moveToFolder")}
-            trigger={
-              <ToolButton
-                label={t("toolbar.moveToFolder")}
-                disabled={none}
-                expanded={menu === "move"}
-                onClick={() => toggle("move")}
-              >
-                <FolderInput className="h-4 w-4" aria-hidden="true" />
-              </ToolButton>
-            }
-          >
-            <FolderPanel
-              folders={props.folders}
-              onPick={(folderId) => {
-                close();
-                props.onMoveToFolder(folderId);
-              }}
-            />
-          </Popover>
 
           <Popover
             open={menu === "sort"}
@@ -403,7 +406,7 @@ export function ProfilesToolbar(props: ProfilesToolbarProps) {
           </MenuItem>
         </Popover>
 
-        <div className="relative w-[225px]">
+        <div className="relative w-[329px]">
           <Search
             className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted"
             aria-hidden="true"
@@ -455,6 +458,7 @@ export function ProfilesToolbar(props: ProfilesToolbarProps) {
                 filters={props.filters}
                 folders={props.folders}
                 onChange={props.onFiltersChange}
+                onClose={close}
               />
             </Popover>
           </div>

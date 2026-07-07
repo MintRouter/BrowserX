@@ -169,7 +169,7 @@ export function ExtensionsView({
   const th = "h-10 px-3 text-left align-middle text-xs font-medium text-fg";
 
   return (
-    <div className="flex h-full flex-col p-4">
+    <div className="flex h-full flex-col pb-4 pl-2 pr-4 pt-0">
       <div className="card flex min-h-0 flex-1 flex-col overflow-hidden">
         {error && (
           <p

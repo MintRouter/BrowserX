@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Info } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Info } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, isTauri, onBinaryProgress } from "../lib/api";
@@ -103,9 +103,9 @@ export function TableFooter({
               aria-haspopup="dialog"
               aria-expanded={infoOpen}
               onClick={() => setInfoOpen((v) => !v)}
-              className="inline-flex items-center gap-1.5 rounded-md bg-[#F0F6FF] px-2.5 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-[#E0EDFF] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+              className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[#F0F6FF] px-3 text-sm font-medium text-accent transition-colors hover:bg-[#E0EDFF] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
             >
-              <Info className="h-3.5 w-3.5" aria-hidden="true" />
+              <Info className="h-4 w-4" aria-hidden="true" />
               <span>{t("footer.info")}</span>
             </button>
           }
@@ -131,7 +131,7 @@ export function TableFooter({
           <span
             role="status"
             aria-live="polite"
-            className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium ${ENGINE_PILL_CLASS[engine]}`}
+            className={`inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-sm font-medium ${ENGINE_PILL_CLASS[engine]}`}
           >
             <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
             <span>{t(ENGINE_PILL_KEY[engine])}</span>
@@ -141,18 +141,25 @@ export function TableFooter({
 
       <div className="flex items-center gap-4">
         <label className="flex items-center gap-2">
-          <span>{t("footer.rowsPerPage")}</span>
-          <select
-            value={rowsPerPage}
-            onChange={(e) => onRowsPerPageChange(Number(e.target.value))}
-            className="rounded-md border border-border bg-surface-1 px-1.5 py-1 text-xs text-fg focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/50"
-          >
-            {ROWS_PER_PAGE_OPTIONS.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
+          <span className="text-sm">{t("footer.rowsPerPage")}</span>
+          {/* (W50H) Gray pill select with chevron (MLX parity — no native look) */}
+          <span className="relative inline-flex items-center">
+            <select
+              value={rowsPerPage}
+              onChange={(e) => onRowsPerPageChange(Number(e.target.value))}
+              className="h-7 cursor-pointer appearance-none rounded-full bg-surface-3 pl-3 pr-7 text-xs font-medium text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+            >
+              {ROWS_PER_PAGE_OPTIONS.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+            <ChevronDown
+              className="pointer-events-none absolute right-2 h-3.5 w-3.5 text-fg-muted"
+              aria-hidden="true"
+            />
+          </span>
         </label>
         <span className="tabular-nums" aria-live="polite">
           {t("footer.range", { from, to, total })}

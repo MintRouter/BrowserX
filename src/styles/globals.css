@@ -11,8 +11,8 @@
   --color-surface-4: 229 225 225; /* #e5e1e1 */
   --color-border: 241 237 237; /* #f1eded */
   --color-border-hover: 224 220 220; /* #e0dcdc */
-  --color-accent: 37 99 235; /* #2563eb */
-  --color-accent-hover: 29 78 216; /* #1d4ed8 */
+  --color-accent: 5 95 240; /* #055ff0 */
+  --color-accent-hover: 4 76 192; /* #044cc0 */
   --color-text: 28 26 26; /* #1c1a1a */
   --color-text-muted: 147 144 144; /* #939090 */
   --color-danger: 179 35 24; /* #b32318 */
@@ -28,8 +28,8 @@
   --color-surface-4: 44 50 59; /* #2c323b */
   --color-border: 44 50 59; /* #2c323b */
   --color-border-hover: 58 65 76; /* #3a414c */
-  --color-accent: 96 165 250; /* #60a5fa */
-  --color-accent-hover: 147 197 253; /* #93c5fd */
+  --color-accent: 96 141 255; /* #608dff */
+  --color-accent-hover: 130 163 255; /* #82a3ff */
   --color-text: 229 231 235; /* #e5e7eb */
   --color-text-muted: 156 163 175; /* #9ca3af */
   --color-danger: 248 113 113; /* #f87171 */
@@ -94,7 +94,7 @@
     @apply block text-xs font-medium text-[#1D192B] dark:text-fg mb-1;
   }
   .card {
-    @apply bg-surface-1 rounded-lg border border-border;
+    @apply bg-surface-1 rounded-lg;
   }
   .no-spin::-webkit-inner-spin-button,
   .no-spin::-webkit-outer-spin-button {

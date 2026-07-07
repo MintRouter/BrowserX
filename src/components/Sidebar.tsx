@@ -146,7 +146,7 @@ export function Sidebar({
   if (view === "templates") {
     return (
       <nav
-        className="card my-4 ml-4 flex w-[270px] shrink-0 flex-col overflow-y-auto p-3"
+        className="card mb-4 ml-4 mt-0 flex w-[270px] shrink-0 flex-col overflow-y-auto p-3"
         aria-label={t("sidebar.templates")}
       >
         <div className="space-y-0.5">
@@ -167,7 +167,7 @@ export function Sidebar({
   if (view === "extensions") {
     return (
       <nav
-        className="card my-4 ml-4 flex w-[270px] shrink-0 flex-col overflow-y-auto p-3"
+        className="card mb-4 ml-4 mt-0 flex w-[270px] shrink-0 flex-col overflow-y-auto p-3"
         aria-label={t("sidebar.extensions")}
       >
         <div className="space-y-0.5">
@@ -189,7 +189,7 @@ export function Sidebar({
   if (view === "proxies" || view === "proxyTemplates") {
     return (
       <nav
-        className="card my-4 ml-4 flex w-[270px] shrink-0 flex-col overflow-y-auto p-3"
+        className="card mb-4 ml-4 mt-0 flex w-[270px] shrink-0 flex-col overflow-y-auto p-3"
         aria-label={t("sidebar.proxies")}
       >
         <div className="space-y-0.5">
@@ -215,7 +215,7 @@ export function Sidebar({
 
   return (
     <nav
-      className="card my-4 ml-4 flex w-[270px] shrink-0 flex-col overflow-y-auto p-3"
+      className="card mb-4 ml-4 mt-0 flex w-[270px] shrink-0 flex-col overflow-y-auto p-3"
       aria-label={t("sidebar.folders")}
     >
       <div className="flex h-9 shrink-0 rounded-lg bg-surface-3 p-1" role="group" aria-label={t("sidebar.deviceType")}>

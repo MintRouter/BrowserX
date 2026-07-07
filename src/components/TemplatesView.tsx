@@ -148,7 +148,7 @@ export function TemplatesView(props: TemplatesViewProps) {
   const th = "h-10 px-3 text-left align-middle text-xs font-medium text-fg";
 
   return (
-    <div className="flex h-full flex-col p-4">
+    <div className="flex h-full flex-col pb-4 pl-2 pr-4 pt-0">
       {/* Toolbar lives inside the table's white card (ML table-header parity, F2b) */}
       <div className="card flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="flex min-h-[60px] flex-wrap items-center gap-3 p-3">

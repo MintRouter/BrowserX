@@ -91,7 +91,7 @@ export function SettingsView() {
     : "en";
 
   return (
-    <div className="flex h-full min-h-0 gap-4 p-4">
+    <div className="flex h-full min-h-0 gap-2 pb-4 pl-2 pr-4 pt-0">
       {/* Account sidebar: item h=36 r6, selected #F0F6FF/#055FF0 14/500 (audit R6 màn 5) */}
       <nav
         aria-label={t("settings.title")}

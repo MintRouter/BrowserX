@@ -94,6 +94,12 @@
     "filterStatus": "Trạng thái",
     "filterAny": "Tất cả",
     "filterClear": "Xoá bộ lọc",
+    "filterName": "Tên",
+    "filterEnterText": "Nhập nội dung",
+    "filterAdd": "Thêm bộ lọc",
+    "filterRemove": "Xoá bộ lọc này",
+    "filterReset": "Đặt lại",
+    "filterOk": "OK",
     "confirmTrash_other": "Chuyển {{count}} profile vào thùng rác?"
   },
   "table": {

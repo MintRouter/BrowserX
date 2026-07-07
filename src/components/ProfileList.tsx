@@ -127,8 +127,12 @@ export function ProfileList(props: ProfileListProps) {
         )
       : [...profiles];
     // (P3-2b) Intersect with the backend filter result, then apply the
-    // FE-only runtime criterion (running state is not a DB column).
+    // FE-only criteria (name text + running state are matched here).
     if (allowedIds) list = list.filter((p) => allowedIds.has(p.id));
+    if (filters.name) {
+      const nq = filters.name.trim().toLowerCase();
+      if (nq) list = list.filter((p) => p.name.toLowerCase().includes(nq));
+    }
     if (filters.runtime)
       list = list.filter(
         (p) => runningIds.has(p.id) === (filters.runtime === "running"),
@@ -142,7 +146,7 @@ export function ProfileList(props: ProfileListProps) {
     });
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profiles, search, sort, folders, allowedIds, filters.runtime, runningIds]);
+  }, [profiles, search, sort, folders, allowedIds, filters.name, filters.runtime, runningIds]);
 
   useEffect(() => {
     setPage(0);
@@ -408,7 +412,7 @@ export function ProfileList(props: ProfileListProps) {
   const selectedIds = [...selected];
 
   return (
-    <div className="flex h-full flex-col p-4">
+    <div className="flex h-full flex-col pb-4 pl-2 pr-4 pt-0">
       {/* Toolbar lives inside the table's white card (ML table-header, 1.1) */}
       <div className="card flex min-h-0 flex-1 flex-col overflow-hidden">
         <ProfilesToolbar

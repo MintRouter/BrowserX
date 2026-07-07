@@ -32,6 +32,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Folder, Platform, Profile } from "../lib/api";
 import { detectHostPlatform } from "../lib/host";
+import { Checkbox } from "./Checkbox";
 import { ExtensionsPanel, FolderPanel, MenuDivider, MenuItem, Popover, TagPanel } from "./Popover";
 
 export type ProfilesSort = { key: "name" | "updated"; dir: "asc" | "desc" };
@@ -355,9 +356,9 @@ function RowMenu({
           aria-haspopup="menu"
           aria-expanded={open}
           onClick={() => (open ? close() : openMenu())}
-          className="grid h-8 w-8 place-items-center rounded-md text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+          className="grid h-8 w-8 place-items-center rounded-md text-[#4F4D4D] transition-colors hover:bg-surface-2 hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
         >
-          <EllipsisVertical className="h-4 w-4" aria-hidden="true" />
+          <EllipsisVertical className="h-5 w-5" aria-hidden="true" />
         </button>
       }
     >
@@ -658,7 +659,7 @@ export function ProfileTable({
       dir: sort.key === "name" && sort.dir === "asc" ? "desc" : "asc",
     });
 
-  const th = "h-10 px-3 text-left align-middle text-xs font-medium text-fg";
+  const th = "h-10 pl-2 pr-4 text-left align-middle text-xs font-medium text-fg";
 
   return (
     <div
@@ -666,19 +667,15 @@ export function ProfileTable({
       onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
       className="min-h-0 flex-1 overflow-auto"
     >
-    <table className="w-full text-sm">
+    <table className="w-full text-xs">
       <thead className="sticky top-0 z-10 border-b border-border bg-surface-2">
         <tr className="h-10 border-b border-border">
-          <th scope="col" className="w-10 px-3 align-middle">
-            <input
-              type="checkbox"
-              aria-label={t("table.selectAll")}
+          <th scope="col" className="w-10 pl-2 pr-4 align-middle">
+            <Checkbox
+              ariaLabel={t("table.selectAll")}
               checked={allChecked}
-              ref={(el) => {
-                if (el) el.indeterminate = someChecked && !allChecked;
-              }}
+              indeterminate={someChecked && !allChecked}
               onChange={() => onTogglePage(pageIds, !allChecked)}
-              className="h-4 w-4 cursor-pointer rounded border-border accent-accent"
             />
           </th>
           <th scope="col" className="w-9 px-1 align-middle">
@@ -779,16 +776,14 @@ export function ProfileTable({
             <tr
               key={p.id}
               className={`h-[49px] border-b border-border transition-colors [&>td]:align-middle ${
-                isSelected ? "bg-[#F0F6FF]" : "hover:bg-accent/[0.03]"
+                isSelected ? "bg-[#F0F6FF]" : "hover:bg-[#F0F6FF]"
               }`}
             >
-              <td className="px-3 py-2">
-                <input
-                  type="checkbox"
-                  aria-label={`${t("table.selectRow")}: ${p.name}`}
+              <td className="pl-2 pr-4 py-2">
+                <Checkbox
+                  ariaLabel={`${t("table.selectRow")}: ${p.name}`}
                   checked={isSelected}
                   onChange={() => onToggleRow(p.id)}
-                  className="h-4 w-4 cursor-pointer rounded border-border accent-accent"
                 />
               </td>
               <td className="px-1 py-2">
@@ -797,10 +792,10 @@ export function ProfileTable({
                   aria-label={`${p.favorite ? t("table.unfavorite") : t("table.favorite")}: ${p.name}`}
                   aria-pressed={p.favorite}
                   onClick={() => onToggleFavorite(p)}
-                  className="grid h-8 w-8 place-items-center rounded-full bg-transparent text-fg-muted transition-colors hover:bg-surface-2 hover:text-[#F5A623] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                  className="grid h-10 w-10 place-items-center rounded-full bg-transparent text-[#ADA9A9] transition-colors hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
                 >
                   <Star
-                    className={`h-4 w-4 ${p.favorite ? "fill-[#F5A623] text-[#F5A623]" : ""}`}
+                    className={`h-5 w-5 ${p.favorite ? "fill-[#F5A623] text-[#F5A623]" : ""}`}
                     aria-hidden="true"
                   />
                 </button>
@@ -813,7 +808,7 @@ export function ProfileTable({
                   onStop={() => onStop(p.id)}
                 />
               </td>
-              <td className="max-w-0 px-3 py-2">
+              <td className="max-w-0 pl-2 pr-4 py-2">
                 {renamingId === p.id ? (
                   <RenameInput
                     initial={p.name}
@@ -844,7 +839,7 @@ export function ProfileTable({
                 )}
               </td>
               {columns.app && (
-                <td className="whitespace-nowrap px-3 py-2 text-fg-muted">
+                <td className="whitespace-nowrap pl-2 pr-4 py-2 text-fg-muted">
                   <span className="inline-flex items-center gap-1.5" title="Chromium">
                     <ChromiumIcon className="h-4 w-4" />
                     Chromium
@@ -853,12 +848,12 @@ export function ProfileTable({
               )}
               {columns.serialNo && (
                 /* (W50A) MLX uses a backend serial; no such field yet, so 1-based index within the page. */
-                <td className="whitespace-nowrap px-3 py-2 text-fg-muted">
+                <td className="whitespace-nowrap pl-2 pr-4 py-2 text-fg-muted">
                   {start + i + 1}
                 </td>
               )}
               {columns.profileId && (
-                <td className="whitespace-nowrap px-3 py-2 text-fg-muted">
+                <td className="whitespace-nowrap pl-2 pr-4 py-2 text-fg-muted">
                   <button
                     type="button"
                     title={p.id}
@@ -872,14 +867,14 @@ export function ProfileTable({
               )}
               {columns.folder && (
                 <td
-                  className="max-w-[14rem] truncate px-3 py-2 text-fg-muted"
+                  className="max-w-[14rem] truncate pl-2 pr-4 py-2 text-fg-muted"
                   title={folderName(p.folder_id)}
                 >
                   {folderName(p.folder_id)}
                 </td>
               )}
               {columns.tags && (
-                <td className="px-3 py-2">
+                <td className="pl-2 pr-4 py-2">
                   <span
                     className="flex max-w-[14rem] items-center gap-1 overflow-hidden"
                     title={p.tags.join(", ") || undefined}
@@ -896,24 +891,24 @@ export function ProfileTable({
                 </td>
               )}
               {columns.storage && (
-                <td className="whitespace-nowrap px-3 py-2 text-fg-muted">
+                <td className="whitespace-nowrap pl-2 pr-4 py-2 text-fg-muted">
                   <span
                     className="inline-flex items-center gap-1.5"
                     title={t("table.local")}
                   >
-                    <Cloud className="h-4 w-4" aria-hidden="true" />
+                    <Cloud className="h-5 w-5 text-accent" aria-hidden="true" />
                     {sizes[p.id] !== undefined ? formatBytes(sizes[p.id] ?? 0) : "—"}
                     <span className="sr-only">{t("table.local")}</span>
                   </span>
                 </td>
               )}
               {columns.notes && (
-                <td className="max-w-[14rem] truncate px-3 py-2 text-fg-muted" title={p.notes ?? undefined}>
+                <td className="max-w-[14rem] truncate pl-2 pr-4 py-2 text-fg-muted" title={p.notes ?? undefined}>
                   {p.notes ?? ""}
                 </td>
               )}
               {columns.os && (
-                <td className="px-3 py-2">
+                <td className="pl-2 pr-4 py-2">
                   <span className="inline-flex items-center" title={OS_LABEL[p.platform]}>
                     <OsIcon platform={p.platform} />
                     <span className="sr-only">{OS_LABEL[p.platform]}</span>
@@ -922,7 +917,7 @@ export function ProfileTable({
               )}
               {columns.lastStart && (
                 <td
-                  className="whitespace-nowrap px-3 py-2 text-fg-muted"
+                  className="whitespace-nowrap pl-2 pr-4 py-2 text-fg-muted"
                   title={
                     p.last_start_at
                       ? new Date(p.last_start_at).toLocaleString(i18n.language)

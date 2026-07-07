@@ -48,7 +48,7 @@ export function Popover({
         <div
           role="dialog"
           aria-label={label}
-          className={`absolute top-full z-30 mt-1 min-w-[180px] card p-1 text-sm ${
+          className={`absolute top-full z-30 mt-1 min-w-[180px] card py-1 text-sm shadow-[0_0_2px_rgba(32,33,44,0.1),0_4px_10px_rgba(32,33,44,0.1)] ${
             align === "end" ? "right-0" : "left-0"
           } ${panelClassName}`}
         >
@@ -78,7 +78,7 @@ export function MenuItem({ icon, children, onClick, disabled, danger, title, sho
       disabled={disabled}
       title={title}
       onClick={onClick}
-      className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-40 ${
+      className={`flex h-9 w-full items-center gap-2 rounded-none px-3 text-left text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-40 ${
         danger ? "text-danger hover:bg-danger/10" : "text-fg hover:bg-surface-2"
       }`}
     >
