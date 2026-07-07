@@ -1,6 +1,6 @@
-//! Dọn & nén profile (W16): đo dung lượng user_data_dir + dọn cache an toàn.
+//! Dọn & nén profile (W16, mở rộng W49): đo dung lượng user_data_dir + dọn cache an toàn.
 //!
-//! Chỉ xoá các thư mục cache Chromium tự tạo lại được (`CACHE_DIRS`) — TUYỆT ĐỐI
+//! Chỉ xoá các entry cache/tạm Chromium tự tạo lại được (`CACHE_DIRS`) — TUYỆT ĐỐI
 //! không đụng Cookies/Local Storage/IndexedDB/History/Bookmarks để giữ session
 //! đăng nhập. REFUSE dọn khi profile đang chạy (check `ProcessManager`).
 
@@ -15,21 +15,65 @@ use crate::process::ProcessManager;
 /// Key setting bật tự dọn cache khi phiên dừng (default: tắt — chưa có key).
 pub const AUTO_CLEAR_SETTING: &str = "auto_clear_cache_on_stop";
 
-/// Thư mục cache an toàn để xoá trong user_data_dir (Chromium tự tạo lại).
+/// (W49) Entry cache/tạm an toàn để xoá trong user_data_dir (Chromium tự tạo lại).
+/// Danh sách mở rộng theo cơ chế sanitize của GoLogin (dọn cache khi stop profile),
+/// gồm cả dir lẫn file, ở 2 cấp: root user_data_dir và `Default/`.
+///
+/// KHÁC GoLogin ở 2 điểm chủ đích:
+/// - KHÔNG xoá `Default/IndexedDB` — chứa dữ liệu web app của session đăng nhập.
+/// - KHÔNG xoá `Default/Extensions` — do hệ thống extension riêng quản lý (P3-1a).
+///
+/// Ngoài ra KHÔNG xoá nguyên `Default/Service Worker` (chỉ CacheStorage/ScriptCache);
+/// cả thư mục chỉ bị dọn qua `SW_CACHE_PATHS` khi profile tắt `store_sw_cache`.
+/// Các path bảo toàn session khác (Cookies, Login Data, History, Bookmarks, Web Data,
+/// Local Storage, Preferences, Local State) TUYỆT ĐỐI không có trong danh sách này.
 pub const CACHE_DIRS: &[&str] = &[
+    // Root-level của user_data_dir
     "Cache",
     "Code Cache",
     "GPUCache",
     "ShaderCache",
     "GrShaderCache",
+    "GraphiteDawnCache",
     "DawnCache",
+    "Dictionaries",
+    "fonts",
+    "component_crx_cache",
+    "component_cache",
+    "Subresource Filter",
+    "MEIPreload",
+    "OptimizationHints",
+    "OnDeviceHeadSuggestModel",
+    "pnacl",
+    "swiftshader",
+    "Crashpad",
+    "Safe Browsing",
+    // Trong Default/
     "Default/Cache",
     "Default/Code Cache",
     "Default/GPUCache",
+    "Default/DawnCache",
+    "Default/GraphiteDawnCache",
+    "Default/DawnGraphiteCache",
+    "Default/DawnWebGPUCache",
+    "Default/blob_storage",
+    "Default/File System",
+    "Default/Sessions",
+    "Default/Network Persistent State",
+    "Default/Reporting and NEL",
+    // Chromium ≥M91 chuyển 2 file trên vào Default/Network/ — dọn cả 2 layout.
+    // ⚠️ KHÔNG thêm nguyên "Default/Network": layout mới chứa Cookies trong đó.
+    "Default/Network/Network Persistent State",
+    "Default/Network/Reporting and NEL",
+    "Default/Site Characteristics Database",
+    "Default/Segmentation Platform",
+    "Default/shared_proto_db",
+    "Default/fonts_config",
+    "Default/optimization_guide_hint_cache_store",
+    "Default/optimization_guide_model_and_features_store",
+    "Default/optimization_guide_model_store",
     "Default/Service Worker/CacheStorage",
     "Default/Service Worker/ScriptCache",
-    "Crashpad",
-    "Safe Browsing",
 ];
 
 /// (W20b) File/dir lịch sử duyệt web — xoá khi phiên dừng nếu profile tắt
@@ -99,8 +143,9 @@ pub fn dir_size(path: &Path) -> u64 {
     entries.flatten().map(|e| dir_size(&e.path())).sum()
 }
 
-/// Xoá các `CACHE_DIRS` trong `user_data_dir`, trả về số bytes giải phóng.
-/// Dir con không tồn tại hoặc là symlink → bỏ qua; `user_data_dir` chưa tồn tại
+/// Xoá các entry `CACHE_DIRS` (dir hoặc file — W49 có cả file như
+/// `Network Persistent State`) trong `user_data_dir`, trả về số bytes giải phóng.
+/// Entry không tồn tại hoặc là symlink → bỏ qua; `user_data_dir` chưa tồn tại
 /// (profile chưa từng launch) → `Ok(0)`.
 pub fn clear_cache(user_data_dir: &Path) -> Result<u64> {
     if !user_data_dir.is_dir() {
@@ -108,16 +153,21 @@ pub fn clear_cache(user_data_dir: &Path) -> Result<u64> {
     }
     let mut freed = 0u64;
     for rel in CACHE_DIRS {
-        let dir = user_data_dir.join(rel);
-        let Ok(meta) = fs::symlink_metadata(&dir) else {
+        let path = user_data_dir.join(rel);
+        let Ok(meta) = fs::symlink_metadata(&path) else {
             continue;
         };
-        if meta.file_type().is_symlink() || !meta.is_dir() {
+        if meta.file_type().is_symlink() {
             continue;
         }
-        let size = dir_size(&dir);
-        fs::remove_dir_all(&dir)?;
-        freed += size;
+        if meta.is_dir() {
+            let size = dir_size(&path);
+            fs::remove_dir_all(&path)?;
+            freed += size;
+        } else {
+            freed += meta.len();
+            fs::remove_file(&path)?;
+        }
     }
     Ok(freed)
 }
@@ -225,31 +275,62 @@ mod tests {
         write(root, "Cache/Cache_Data/f_0001", 100);
         write(root, "Code Cache/js/index", 50);
         write(root, "GPUCache/data_0", 10);
+        write(root, "GrShaderCache/GPUCache/data_0", 25);
+        write(root, "Dictionaries/en-US.bdic", 35);
+        write(root, "component_crx_cache/abc.crx", 12);
         write(root, "Default/Cache/Cache_Data/f_0002", 200);
         write(root, "Default/Code Cache/wasm/index", 30);
+        write(root, "Default/DawnGraphiteCache/data", 18);
+        write(root, "Default/blob_storage/uuid/blob0", 22);
+        write(root, "Default/File System/000/t/00/00000000", 14);
+        write(root, "Default/Sessions/Session_123", 16);
+        // W49: 2 entry cache dạng FILE (không phải dir).
+        write(root, "Default/Network Persistent State", 9);
+        write(root, "Default/Reporting and NEL", 7);
+        // W49b: layout Chromium ≥M91 — 2 file nằm trong Default/Network/.
+        write(root, "Default/Network/Network Persistent State", 6);
+        write(root, "Default/Network/Reporting and NEL", 5);
+        write(root, "Default/Site Characteristics Database/000003.log", 11);
+        write(root, "Default/shared_proto_db/metadata/000003.log", 13);
+        write(root, "Default/optimization_guide_hint_cache_store/000003.log", 8);
         write(root, "Default/Service Worker/CacheStorage/abc/index", 40);
         write(root, "Default/Service Worker/ScriptCache/index", 20);
         write(root, "Crashpad/pending/dump.dmp", 60);
         write(root, "Safe Browsing/store", 15);
-        let cache = 100 + 50 + 10 + 200 + 30 + 40 + 20 + 60 + 15;
+        let cache = 100 + 50 + 10 + 25 + 35 + 12 + 200 + 30 + 18 + 22 + 14 + 16 + 9 + 7
+            + 6 + 5 + 11 + 13 + 8 + 40 + 20 + 60 + 15;
 
         write(root, "Default/Cookies", 500);
+        // W49b: layout ≥M91 đặt Cookies trong Default/Network — không được xoá.
+        write(root, "Default/Network/Cookies", 400);
         write(root, "Default/Local Storage/leveldb/000003.log", 300);
+        write(root, "Default/Session Storage/000003.log", 150);
         write(root, "Default/IndexedDB/https_example.com_0/1.sqlite", 250);
         write(root, "Default/History", 120);
         write(root, "Default/Bookmarks", 80);
+        write(root, "Default/Web Data", 90);
+        write(root, "Default/Preferences", 70);
+        write(root, "Default/Login Data", 60);
+        write(root, "Default/Extensions/abcdef/1.0/manifest.json", 55);
         write(root, "Local State", 45);
-        let keep = 500 + 300 + 250 + 120 + 80 + 45;
+        let keep = 500 + 400 + 300 + 150 + 250 + 120 + 80 + 90 + 70 + 60 + 55 + 45;
         (cache, keep)
     }
 
-    /// Danh sách file nhạy cảm phải còn nguyên sau clear (giữ session đăng nhập).
+    /// Danh sách file nhạy cảm phải còn nguyên sau clear (giữ session đăng nhập
+    /// + IndexedDB/Extensions — 2 mục GoLogin xoá nhưng BrowserX chủ đích giữ).
     const SENSITIVE: &[&str] = &[
         "Default/Cookies",
+        "Default/Network/Cookies",
         "Default/Local Storage/leveldb/000003.log",
+        "Default/Session Storage/000003.log",
         "Default/IndexedDB/https_example.com_0/1.sqlite",
         "Default/History",
         "Default/Bookmarks",
+        "Default/Web Data",
+        "Default/Preferences",
+        "Default/Login Data",
+        "Default/Extensions/abcdef/1.0/manifest.json",
         "Local State",
     ];
 
@@ -270,6 +351,37 @@ mod tests {
         assert_eq!(dir_size(&root.join("missing")), 0);
         fs::remove_dir_all(&root).unwrap();
         fs::remove_file(&outside).unwrap();
+    }
+
+    /// (W49) Không entry nào trong CACHE_DIRS trùng/chứa path bảo toàn session.
+    #[test]
+    fn cache_dirs_never_touch_preserved_paths() {
+        const PRESERVED: &[&str] = &[
+            "Default/Cookies",
+            "Default/Network/Cookies",
+            "Default/Login Data",
+            "Default/History",
+            "Default/Bookmarks",
+            "Default/Web Data",
+            "Default/Local Storage",
+            "Default/Session Storage",
+            "Default/IndexedDB",
+            "Default/Preferences",
+            "Default/Extensions",
+            "Local State",
+        ];
+        for rel in CACHE_DIRS {
+            for kept in PRESERVED {
+                assert!(
+                    rel != kept && !kept.starts_with(&format!("{rel}/")),
+                    "CACHE_DIRS entry {rel:?} đụng path bảo toàn {kept:?}"
+                );
+            }
+            assert!(
+                *rel != "Default/Service Worker",
+                "không được xoá nguyên Default/Service Worker qua CACHE_DIRS"
+            );
+        }
     }
 
     #[test]
