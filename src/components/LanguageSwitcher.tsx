@@ -24,7 +24,7 @@ export function LanguageSwitcher() {
           aria-haspopup="menu"
           aria-expanded={open}
           onClick={() => setOpen((v) => !v)}
-          className="inline-flex h-9 items-center gap-1 rounded-md px-2 text-fg/80 transition-colors hover:bg-surface-3 hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+          className="inline-flex h-10 items-center gap-1 rounded-md bg-surface-1 px-2.5 text-fg/80 transition-colors hover:bg-surface-2 hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
         >
           <Globe className="h-[18px] w-[18px]" aria-hidden="true" />
           <span className="text-xs font-semibold uppercase">{current}</span>

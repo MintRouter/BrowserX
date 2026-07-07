@@ -1,8 +1,10 @@
 import {
   ChevronDown,
+  Globe,
   HelpCircle,
   Laptop,
   LifeBuoy,
+  type LucideIcon,
   MonitorSmartphone,
   Network,
   Puzzle,
@@ -25,28 +27,40 @@ interface TopBarProps {
   onNavigate?: (view: MainView) => void;
 }
 
-const iconBtn =
-  "inline-flex h-9 w-9 items-center justify-center rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60";
-const iconIdle = "text-fg/80 hover:bg-surface-3 hover:text-fg";
-const iconActive = "bg-accent/10 text-accent";
+/* (W50I) MLX pixel audit §2: icon-pill 44×28, radius 8, icon 20px;
+ * active = #F0F6FF bg + accent icon, idle = gray icon + light hover. */
+const pillBtn =
+  "inline-flex h-7 w-11 shrink-0 items-center justify-center rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60";
+const pillIdle = "text-fg/70 hover:bg-surface-1 hover:text-fg";
+const pillActive = "bg-[#F0F6FF] text-accent";
+
+/** Icon-pill row — one pill per top-level view (MLX app-switcher parity). */
+const PILLS: {
+  view: MainView;
+  icon: LucideIcon;
+  labelKey: string;
+  /** Sidebar sub-views that keep this pill highlighted. */
+  match: MainView[];
+}[] = [
+  {
+    view: "profiles",
+    icon: MonitorSmartphone,
+    labelKey: "topbar.profiles",
+    match: ["profiles", "running", "cloudSync", "favorites", "trash"],
+  },
+  { view: "proxies", icon: Globe, labelKey: "topbar.proxies", match: ["proxies"] },
+  { view: "proxyTemplates", icon: Network, labelKey: "topbar.proxyTemplates", match: ["proxyTemplates"] },
+  { view: "templates", icon: Laptop, labelKey: "topbar.profileTemplates", match: ["templates"] },
+  { view: "extensions", icon: Puzzle, labelKey: "topbar.extensions", match: ["extensions"] },
+  { view: "settings", icon: Settings, labelKey: "topbar.settings", match: ["settings"] },
+];
 
 export function TopBar(props: TopBarProps) {
   const { view, onNavigate } = props;
   const { t } = useTranslation();
-  const [appsOpen, setAppsOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const initial = t("app.name").charAt(0).toUpperCase();
-  /** Views reachable from the app-switcher dropdown (ML parity, GAP 1/2). */
-  const appsActive =
-    view === "proxyTemplates" ||
-    view === "templates" ||
-    view === "extensions" ||
-    view === "settings";
-
-  const go = (v: MainView) => {
-    setAppsOpen(false);
-    onNavigate?.(v);
-  };
 
   const menuIcon = "h-4 w-4 shrink-0 text-fg-muted";
 
@@ -58,7 +72,6 @@ export function TopBar(props: TopBarProps) {
         onClick={() => onNavigate?.("profiles")}
         aria-label={t("topbar.profiles")}
         title={t("topbar.profiles")}
-        aria-current={!appsActive ? "page" : undefined}
         className="flex h-10 items-center gap-2.5 rounded-lg bg-surface-1 px-2.5 transition-colors hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
       >
         <span
@@ -72,82 +85,77 @@ export function TopBar(props: TopBarProps) {
         </span>
       </button>
 
-      {/* App-switcher dropdown (devices icon + chevron) replaces the flat icon row. */}
-      <Popover
-        open={appsOpen}
-        onClose={() => setAppsOpen(false)}
-        label={t("topbar.appSwitcher")}
-        trigger={
-          <button
-            type="button"
-            aria-label={t("topbar.appSwitcher")}
-            title={t("topbar.appSwitcher")}
-            aria-haspopup="menu"
-            aria-expanded={appsOpen}
-            onClick={() => setAppsOpen((v) => !v)}
-            className={`flex h-10 items-center gap-1 rounded-lg px-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
-              appsActive ? iconActive : "bg-surface-1 text-fg/80 hover:bg-surface-2 hover:text-fg"
-            }`}
-          >
-            <MonitorSmartphone className="h-5 w-5" strokeWidth={2} aria-hidden="true" />
-            <ChevronDown className="h-4 w-4" aria-hidden="true" />
-          </button>
-        }
-      >
-        <div role="menu" className="w-52">
-          <MenuItem
-            icon={<Network className={menuIcon} aria-hidden="true" />}
-            onClick={() => go("proxyTemplates")}
-          >
-            {t("topbar.proxyTemplates")}
-          </MenuItem>
-          <MenuItem
-            icon={<Laptop className={menuIcon} aria-hidden="true" />}
-            onClick={() => go("templates")}
-          >
-            {t("topbar.profileTemplates")}
-          </MenuItem>
-          <MenuItem
-            icon={<Puzzle className={menuIcon} aria-hidden="true" />}
-            onClick={() => go("extensions")}
-          >
-            {t("topbar.extensions")}
-          </MenuItem>
-          <MenuItem
-            icon={<Users className={menuIcon} aria-hidden="true" />}
-            disabled
-            title={t("toolbar.comingSoon")}
-          >
-            {t("topbar.team")}
-          </MenuItem>
-          {/* (W50F) Docs link — opens externally via the opener plugin. */}
-          <MenuItem
-            icon={<HelpCircle className={menuIcon} aria-hidden="true" />}
-            onClick={() => {
-              setAppsOpen(false);
-              openExternal(DOCS_URL);
-            }}
-          >
-            {t("topbar.help")}
-          </MenuItem>
-          <MenuItem
-            icon={<Settings className={menuIcon} aria-hidden="true" />}
-            onClick={() => go("settings")}
-          >
-            {t("topbar.accountSettings")}
-          </MenuItem>
-        </div>
-      </Popover>
+      {/* (W50I) Direct icon-pill row (MLX audit §2) — one pill per main view. */}
+      <nav className="flex items-center gap-1" aria-label={t("topbar.appSwitcher")}>
+        {PILLS.map(({ view: v, icon: Icon, labelKey, match }) => {
+          const active = view !== undefined && match.includes(view);
+          return (
+            <button
+              key={v}
+              type="button"
+              onClick={() => onNavigate?.(v)}
+              aria-label={t(labelKey)}
+              title={t(labelKey)}
+              aria-current={active ? "page" : undefined}
+              className={`${pillBtn} ${active ? pillActive : pillIdle}`}
+            >
+              <Icon className="h-5 w-5" aria-hidden="true" />
+            </button>
+          );
+        })}
 
-      <div className="ml-auto flex h-11 items-center gap-2 rounded-lg bg-surface-1 px-2">
+        {/* Chevron dropdown — only secondary items without a dedicated view. */}
+        <Popover
+          open={moreOpen}
+          onClose={() => setMoreOpen(false)}
+          label={t("topbar.appSwitcher")}
+          trigger={
+            <button
+              type="button"
+              aria-label={t("topbar.appSwitcher")}
+              title={t("topbar.appSwitcher")}
+              aria-haspopup="menu"
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen((v) => !v)}
+              className={`${pillBtn} !w-7 ${moreOpen ? pillActive : pillIdle}`}
+            >
+              <ChevronDown className="h-4 w-4" aria-hidden="true" />
+            </button>
+          }
+          panelClassName="w-[252px]"
+        >
+          <div role="menu">
+            <MenuItem
+              icon={<Users className={menuIcon} aria-hidden="true" />}
+              disabled
+              title={t("toolbar.comingSoon")}
+            >
+              {t("topbar.team")}
+            </MenuItem>
+            {/* (W50F) Docs link — opens externally via the opener plugin. */}
+            <MenuItem
+              icon={<HelpCircle className={menuIcon} aria-hidden="true" />}
+              onClick={() => {
+                setMoreOpen(false);
+                openExternal(DOCS_URL);
+              }}
+            >
+              {t("topbar.help")}
+            </MenuItem>
+          </div>
+        </Popover>
+      </nav>
+
+      {/* (W50I) Right cluster — separate white islands (MLX audit §2). */}
+      <div className="ml-auto flex items-center gap-2">
         <LanguageSwitcher />
-        {/* Support slot (ML parity) — opens the docs/support page (W50F). */}
+        {/* Support island 40×40 radius 6 — opens the docs/support page (W50F). */}
         <button
           type="button"
           onClick={() => openExternal(DOCS_URL)}
           aria-label={t("topbar.support")}
           title={t("topbar.support")}
-          className={`${iconBtn} ${iconIdle}`}
+          className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-surface-1 text-fg/80 transition-colors hover:bg-surface-2 hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
         >
           <LifeBuoy className="h-[18px] w-[18px]" aria-hidden="true" />
         </button>
@@ -164,7 +172,7 @@ export function TopBar(props: TopBarProps) {
               aria-haspopup="menu"
               aria-expanded={accountOpen}
               onClick={() => setAccountOpen((v) => !v)}
-              className="flex items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-surface-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+              className="flex h-10 min-w-[76px] items-center justify-center gap-1 rounded-md bg-surface-1 px-2 transition-colors hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
             >
               <span
                 className="grid h-8 w-8 place-items-center rounded-full bg-accent text-xs font-semibold text-white"
