@@ -94,6 +94,10 @@ pub fn gpu_platform_mismatch(platform: &str, vendor: &str, renderer: &str) -> Op
             "Platform Linux nhưng GPU {v} dùng Direct3D/D3D11 (\"{renderer}\") — \
              combo bất khả thi (Linux dùng OpenGL/Vulkan). Chất lượng fingerprint giảm."
         )),
+        "linux" if is_metal => Some(format!(
+            "Platform Linux nhưng GPU {v} dùng Metal (\"{renderer}\") — \
+             combo bất khả thi (Metal chỉ có trên macOS). Chất lượng fingerprint giảm."
+        )),
         _ => None,
     }
 }
@@ -155,6 +159,7 @@ mod tests {
         .is_some());
         assert!(gpu_platform_mismatch("windows", "Apple", "ANGLE Metal Renderer: Apple M1").is_some());
         assert!(gpu_platform_mismatch("linux", "Google Inc.", "... D3D11 ...").is_some());
+        assert!(gpu_platform_mismatch("linux", "Apple", "ANGLE Metal Renderer: Apple M1").is_some());
         // Combo hợp lệ → None.
         assert!(gpu_platform_mismatch("macos", "Apple", "ANGLE Metal Renderer: Apple M1").is_none());
         assert!(gpu_platform_mismatch("windows", "Google Inc. (NVIDIA)", "ANGLE (NVIDIA ... Direct3D11 ...)").is_none());

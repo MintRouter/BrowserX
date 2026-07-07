@@ -105,6 +105,7 @@ export function CloudSyncView({
 
   // (W52-C C6) Per-part progress of cloud uploads/downloads.
   useEffect(() => {
+    let disposed = false;
     let unlisten: (() => void) | undefined;
     void onCloudProgress((e) => {
       const done = e.partIndex >= e.partCount && e.bytesDone >= e.bytesTotal;
@@ -116,9 +117,13 @@ export function CloudSyncView({
       });
       if (done) void refresh();
     }).then((f) => {
-      unlisten = f;
+      if (disposed) f();
+      else unlisten = f;
     });
-    return () => unlisten?.();
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, [refresh]);
 
   // While a transfer is in flight, refresh periodically so upload states stay

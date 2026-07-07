@@ -1182,6 +1182,10 @@ pub async fn backup_now(
 /// Lõi `backup_now` tách khỏi `State`/`AppHandle` để unit-test được guard +
 /// full flow (test truyền `api_base` stub loopback; production None → Bot API
 /// thật). `app = None` → không emit progress.
+///
+/// TOCTOU chấp nhận được: giữa check `is_running` và bước nén có cửa sổ nhỏ —
+/// profile có thể được launch giữa chừng. Hệ quả xấu nhất là archive snapshot
+/// hơi cũ (không hỏng dữ liệu), nên không cần lock chặt hơn.
 pub(crate) async fn backup_now_impl(
     app: Option<&AppHandle>,
     db: &Arc<Db>,
