@@ -16,6 +16,11 @@
 //! reorder lẫn truncate. Khoá derive Argon2id từ MASTER KEY trong keystore
 //! (crypto.rs — cùng hạ tầng mã hoá proxy credential), KHÔNG cần passphrase.
 //!
+//! (W52-A1) Cache dirs Chromium tự tạo lại được ([`storage::CACHE_DIRS`] —
+//! cùng nguồn với sanitize W49) bị LOẠI khỏi zip: giảm mạnh kích thước `.bxa`
+//! mà không mất dữ liệu phiên (Cookies/Local Storage/IndexedDB/Login Data…
+//! không nằm trong danh sách đó — có guard test cả 2 phía).
+//!
 //! Dirty-check fast-skip: không file dữ liệu chính nào (Cookies/Login Data/
 //! History/Bookmarks/Web Data) mới hơn archive VÀ archive <30 ngày → skip nén.
 //! Caller (commands.rs) chạy archive BEST-EFFORT trong background sau stop,
@@ -35,6 +40,7 @@ use zip::{ZipArchive, ZipWriter};
 
 use crate::crypto;
 use crate::error::{AppError, Result};
+use crate::storage;
 
 /// Magic 4 byte đầu file — nhận diện container `.bxa`.
 pub const MAGIC: &[u8; 4] = b"BXA1";
@@ -180,8 +186,26 @@ fn build_zip(user_data_dir: &Path) -> Result<Vec<u8>> {
     Ok(cursor.into_inner())
 }
 
+/// (W52-A1) `rel` (path `/`-separated, tương đối user_data_dir) có bị LOẠI
+/// khỏi archive không. Nguồn duy nhất = [`storage::CACHE_DIRS`] (sanitize W49):
+/// đã an toàn để XOÁ khỏi run-dir thì chắc chắn an toàn để không backup —
+/// Chromium tự tạo lại. Match theo ranh giới path: entry `Default/Cache` loại
+/// cả cây con nhưng KHÔNG đụng `Default/CacheX`; entry file như
+/// `Default/Network/Network Persistent State` match đúng file, GIỮ nguyên
+/// `Default/Network/Cookies` bên cạnh.
+fn is_archive_excluded(rel: &str) -> bool {
+    storage::CACHE_DIRS.iter().any(|ex| {
+        rel == *ex
+            || rel
+                .strip_prefix(ex)
+                .is_some_and(|rest| rest.starts_with('/'))
+    })
+}
+
 /// Thêm đệ quy mọi FILE thường trong `dir` vào zip, tên entry là đường dẫn
 /// tương đối so với `base` (dùng `/` — chuẩn zip, cross-platform khi restore).
+/// Entry cache ([`is_archive_excluded`]) bị bỏ qua — cây dir loại trừ không
+/// được đệ quy vào (khỏi tốn IO đọc hàng nghìn file cache).
 fn zip_dir(
     zip: &mut ZipWriter<Cursor<Vec<u8>>>,
     base: &Path,
@@ -195,17 +219,20 @@ fn zip_dir(
         if ft.is_symlink() {
             continue;
         }
+        let rel = path
+            .strip_prefix(base)
+            .map_err(|e| AppError::Crypto(format!("zip path outside base: {e}")))?;
+        let name = rel
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/");
+        if is_archive_excluded(&name) {
+            continue;
+        }
         if ft.is_dir() {
             zip_dir(zip, base, &path, opts)?;
         } else if ft.is_file() {
-            let rel = path
-                .strip_prefix(base)
-                .map_err(|e| AppError::Crypto(format!("zip path outside base: {e}")))?;
-            let name = rel
-                .components()
-                .map(|c| c.as_os_str().to_string_lossy())
-                .collect::<Vec<_>>()
-                .join("/");
             zip.start_file(&name, opts).map_err(zip_err("zip entry"))?;
             zip.write_all(&fs::read(&path)?)?;
         }
@@ -455,6 +482,102 @@ mod tests {
             fs::read(udd.join("Default/IndexedDB/big.sqlite")).unwrap()
         );
         fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// (W52-A1) Cache dirs bị loại khỏi archive; dữ liệu phiên GIỮ nguyên.
+    #[test]
+    fn archive_excludes_cache_dirs_keeps_session_data() {
+        crate::crypto::install_test_master_key();
+        let base = tmp_root();
+        let udd = base.join("run");
+        fake_profile(&udd);
+        // Cache Chromium tự tạo lại — KHÔNG được vào archive.
+        write(&udd, "Default/Cache/Cache_Data/data_1", &[b'c'; 4096]);
+        write(&udd, "Default/Code Cache/js/index", b"jscache");
+        write(&udd, "Default/GPUCache/data_0", b"gpucache");
+        write(&udd, "Default/Service Worker/CacheStorage/x/1_0", b"sw-cache");
+        write(&udd, "Default/Service Worker/ScriptCache/index", b"sw-script");
+        write(&udd, "Default/Network/Network Persistent State", b"nps");
+        // Session data cạnh cache — PHẢI giữ (kể cả trong Service Worker/,
+        // Network/ nơi có entry cache bị loại ngay bên cạnh).
+        write(&udd, "Default/Service Worker/Database/000003.log", b"sw-reg");
+        // Bẫy prefix: tên CHỈ GIỐNG cache dir ở phần đầu — phải giữ.
+        write(&udd, "Default/CacheX/keep.txt", b"not-a-cache-dir");
+
+        archive_profile(&udd, "p9").unwrap();
+        let restored = base.join("restored");
+        fs::rename(
+            archive_path(&udd, "p9").unwrap(),
+            archive_path(&restored, "p9").unwrap(),
+        )
+        .unwrap();
+        restore_archive(&restored, "p9").unwrap();
+
+        for gone in [
+            "Default/Cache",
+            "Default/Code Cache",
+            "Default/GPUCache",
+            "Default/Service Worker/CacheStorage",
+            "Default/Service Worker/ScriptCache",
+            "Default/Network/Network Persistent State",
+        ] {
+            assert!(!restored.join(gone).exists(), "cache lọt vào archive: {gone}");
+        }
+        for kept in [
+            "First Run",
+            "Default/Cookies",
+            "Default/Network/Cookies",
+            "Default/Login Data",
+            "Default/Local Storage/leveldb/000003.log",
+            "Default/IndexedDB/big.sqlite",
+            "Default/Service Worker/Database/000003.log",
+            "Default/CacheX/keep.txt",
+        ] {
+            assert_eq!(
+                fs::read(restored.join(kept)).unwrap(),
+                fs::read(udd.join(kept)).unwrap(),
+                "mất dữ liệu phiên: {kept}"
+            );
+        }
+        // Run-dir không bị đụng — cache vẫn nằm nguyên trên đĩa.
+        assert!(udd.join("Default/Cache/Cache_Data/data_1").is_file());
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// (W52-A1) Guard: matcher loại trừ không bao giờ đụng path session,
+    /// và match đúng ranh giới path (không nuốt prefix).
+    #[test]
+    fn archive_exclusion_never_covers_session_paths() {
+        for kept in [
+            "First Run",
+            "Default/Cookies",
+            "Default/Network/Cookies",
+            "Default/Network/TransportSecurity",
+            "Default/Login Data",
+            "Default/History",
+            "Default/Bookmarks",
+            "Default/Web Data",
+            "Default/Preferences",
+            "Default/Local Storage/leveldb/000003.log",
+            "Default/Session Storage/000003.log",
+            "Default/IndexedDB/https_example.com_0/1.sqlite",
+            "Default/Extensions/abcdef/1.0/manifest.json",
+            "Default/Service Worker/Database/000003.log",
+            "Default/CacheX/keep.txt",
+        ] {
+            assert!(!is_archive_excluded(kept), "loại nhầm session path: {kept}");
+        }
+        for gone in [
+            "Default/Cache",
+            "Default/Cache/Cache_Data/data_1",
+            "Default/Code Cache/js/index",
+            "Default/GPUCache/data_0",
+            "Default/Service Worker/CacheStorage/x/1_0",
+            "Default/Service Worker/ScriptCache/index",
+            "Default/Network/Network Persistent State",
+        ] {
+            assert!(is_archive_excluded(gone), "cache không bị loại: {gone}");
+        }
     }
 
     #[test]
