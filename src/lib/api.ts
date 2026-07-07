@@ -507,6 +507,12 @@ export const AUTO_CLEAR_CACHE_SETTING = "auto_clear_cache_on_stop";
 /** (F2b) Settings key: template id pre-selected as the default one. */
 export const DEFAULT_TEMPLATE_SETTING = "default_template_id";
 
+/** (W52-D) Consistent GPU pair suggested from the embedded WebGL pool. */
+export interface GpuSuggestion {
+  vendor: string;
+  renderer: string;
+}
+
 // --- Commands ---
 
 export const api = {
@@ -732,6 +738,22 @@ export const api = {
     invoke<void>("retry_cloud_upload", { profileId }),
   /** (W52-B C5) Sync now: archive immediately (skips dirty-check) + upload. Profile must be stopped. */
   backupNow: (profileId: string) => invoke<void>("backup_now", { profileId }),
+
+  // GPU pool (W52-D/E2) — suggest a platform-consistent vendor/renderer pair.
+  /** Weighted-deterministic pick by seed; null when the platform has no pool entry. */
+  suggestGpu: (platform: Platform, seed: number) =>
+    invoke<GpuSuggestion | null>("suggest_gpu", { platform, seed }),
+  /** Warning message when the platform ↔ GPU combo is impossible; null when consistent. */
+  checkGpuConsistency: (
+    platform: Platform,
+    gpuVendor: string | null,
+    gpuRenderer: string | null,
+  ) =>
+    invoke<string | null>("check_gpu_consistency", {
+      platform,
+      gpuVendor,
+      gpuRenderer,
+    }),
 };
 
 // --- Events ---
@@ -798,4 +820,23 @@ export const DOCS_URL = "https://github.com/MintRouter/BrowserX";
 export function openExternal(url: string): void {
   if (isTauri()) void openUrl(url).catch(() => {});
   else window.open(url, "_blank", "noopener");
+}
+
+// --- (W52-E1) Recovery Key — standalone wrappers appended at the end of the
+// file on purpose (a parallel task edits the `api` object above). ---
+
+/** Result of import_recovery_key. */
+export interface RecoveryImportResult {
+  /** true = imported key differs from this machine's previous key → locally stored secrets (proxy passwords, bot token) must be re-entered. */
+  changed: boolean;
+}
+
+/** (W52-E1) Export the master key as a one-time `BXRK1-…` recovery key string. Show once — never log or persist it. */
+export function exportRecoveryKey(): Promise<string> {
+  return invoke<string>("export_recovery_key");
+}
+
+/** (W52-E1) Import a recovery key on a new machine so cloud `.bxa` backups can be decrypted. */
+export function importRecoveryKey(key: string): Promise<RecoveryImportResult> {
+  return invoke<RecoveryImportResult>("import_recovery_key", { key });
 }

@@ -292,6 +292,8 @@
     "gpuVendor": "GPU vendor",
     "gpuRenderer": "GPU renderer",
     "autoFromSeed": "Auto (from seed)",
+    "autoGpu": "Suggest a GPU matching the OS (from seed)",
+    "gpuPlatformMismatch": "⚠ This GPU is impossible on the selected OS (e.g. Direct3D is Windows-only, Metal is macOS-only). Fingerprint quality will degrade.",
     "hardwareConcurrency": "Hardware concurrency",
     "colorScheme": "Color scheme",
     "system": "System",
@@ -607,6 +609,22 @@
     "testOk": "Connected as @{{bot}} — test message sent.",
     "lastBackup": "Last backup: {{date}} · {{size}}",
     "noBackups": "No cloud backups yet."
+  },
+  "recoveryKey": {
+    "sectionTitle": "Recovery Key",
+    "hint": "Cloud backups (.bxa) are encrypted with this machine's master key. Export a Recovery Key and store it OFFLINE (paper or a password manager) — it is the only way to restore your backups on a new machine.",
+    "exportButton": "Export Recovery Key",
+    "exportWarning": "Anyone with this key can decrypt ALL your backups. It is shown only now — never store it in the cloud, never share it, and clear your clipboard after saving it.",
+    "copyButton": "Copy",
+    "copied": "Copied ✓",
+    "hideButton": "Hide",
+    "importLabel": "Import Recovery Key",
+    "importPlaceholder": "BXRK1-XXXX-XXXX-…",
+    "importButton": "Import",
+    "importing": "Importing…",
+    "imported": "Recovery key imported. Cloud backups made with this key can now be restored on this machine.",
+    "importedChanged": "Recovery key imported — it replaced this machine's previous key. Locally saved credentials (proxy passwords, bot token) can no longer be decrypted and must be re-entered.",
+    "importHint": "On a new machine: import the Recovery Key from the old machine, then use \"Restore from cloud\"."
   },
   "cloudSync": {
     "title": "Cloud sync profiles",

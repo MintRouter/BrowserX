@@ -1,6 +1,13 @@
+import { useEffect, useState } from "react";
 import { Dice5 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { GeolocationMode, Platform, WebrtcMode } from "../../lib/api";
+import {
+  type GeolocationMode,
+  type Platform,
+  type WebrtcMode,
+  api,
+  isTauri,
+} from "../../lib/api";
 import { Segmented, Toggle } from "./controls";
 import {
   DEVICE_MEMORY_OPTIONS,
@@ -16,8 +23,53 @@ interface FingerprintTabProps {
   set: SetField;
 }
 
+/** (W52-E2) Map the profile's fingerprint seed to the u64 `suggest_gpu` expects:
+ *  numeric string as-is, other strings FNV-1a hashed, empty/null → random. */
+function seedToNumber(seed: string | null): number {
+  const s = (seed ?? "").trim();
+  if (/^\d+$/.test(s)) return Number(s);
+  if (s) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return h;
+  }
+  return Math.floor(Math.random() * 0xffffffff);
+}
+
 export function FingerprintTab({ form, set }: FingerprintTabProps) {
   const { t } = useTranslation();
+
+  // (W52-E2) Warn (non-blocking) when the platform ↔ GPU combo is impossible.
+  const [gpuWarning, setGpuWarning] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isTauri()) return;
+    let stale = false;
+    api
+      .checkGpuConsistency(form.platform, form.gpu_vendor, form.gpu_renderer)
+      .then((w) => {
+        if (!stale) setGpuWarning(w);
+      })
+      .catch(() => {});
+    return () => {
+      stale = true;
+    };
+  }, [form.platform, form.gpu_vendor, form.gpu_renderer]);
+
+  const autoGpu = () => {
+    if (!isTauri()) return;
+    api
+      .suggestGpu(form.platform, seedToNumber(form.fingerprint_seed))
+      .then((s) => {
+        if (s) {
+          set("gpu_vendor", s.vendor);
+          set("gpu_renderer", s.renderer);
+        }
+      })
+      .catch(() => {});
+  };
 
   const presetLabel =
     RESOLUTION_PRESETS.find(
@@ -153,28 +205,46 @@ export function FingerprintTab({ form, set }: FingerprintTabProps) {
         </div>
       </div>
 
-      {/* GPU */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <label className="label" htmlFor="pf-gpu-v">{t("pform.gpuVendor")}</label>
-          <input
-            id="pf-gpu-v"
-            className="input"
-            value={form.gpu_vendor ?? ""}
-            onChange={(e) => set("gpu_vendor", e.target.value || null)}
-            placeholder={t("pform.autoFromSeed")}
-          />
+      {/* GPU (W52-E2): auto-suggest a platform-consistent pair from the pool. */}
+      <div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label className="label" htmlFor="pf-gpu-v">{t("pform.gpuVendor")}</label>
+            <input
+              id="pf-gpu-v"
+              className="input"
+              value={form.gpu_vendor ?? ""}
+              onChange={(e) => set("gpu_vendor", e.target.value || null)}
+              placeholder={t("pform.autoFromSeed")}
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="pf-gpu-r">{t("pform.gpuRenderer")}</label>
+            <div className="flex gap-2">
+              <input
+                id="pf-gpu-r"
+                className="input flex-1"
+                value={form.gpu_renderer ?? ""}
+                onChange={(e) => set("gpu_renderer", e.target.value || null)}
+                placeholder={t("pform.autoFromSeed")}
+              />
+              <button
+                type="button"
+                onClick={autoGpu}
+                className="btn-secondary px-2.5"
+                aria-label={t("pform.autoGpu")}
+                title={t("pform.autoGpu")}
+              >
+                <Dice5 className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
         </div>
-        <div>
-          <label className="label" htmlFor="pf-gpu-r">{t("pform.gpuRenderer")}</label>
-          <input
-            id="pf-gpu-r"
-            className="input"
-            value={form.gpu_renderer ?? ""}
-            onChange={(e) => set("gpu_renderer", e.target.value || null)}
-            placeholder={t("pform.autoFromSeed")}
-          />
-        </div>
+        {gpuWarning && (
+          <p role="alert" className="mt-1.5 text-xs text-danger">
+            {t("pform.gpuPlatformMismatch")}
+          </p>
+        )}
       </div>
 
       {/* Hardware concurrency + Color scheme */}

@@ -290,6 +290,8 @@
     "gpuVendor": "GPU vendor",
     "gpuRenderer": "GPU renderer",
     "autoFromSeed": "Tự động (theo seed)",
+    "autoGpu": "Gợi ý GPU khớp hệ điều hành (theo seed)",
+    "gpuPlatformMismatch": "⚠ GPU này bất khả thi trên hệ điều hành đã chọn (vd Direct3D chỉ có trên Windows, Metal chỉ có trên macOS). Chất lượng fingerprint giảm.",
     "hardwareConcurrency": "Số luồng CPU",
     "colorScheme": "Giao diện màu",
     "system": "Theo hệ thống",
@@ -599,6 +601,22 @@
     "testOk": "Đã kết nối @{{bot}} — đã gửi tin nhắn thử.",
     "lastBackup": "Sao lưu gần nhất: {{date}} · {{size}}",
     "noBackups": "Chưa có bản sao lưu cloud nào."
+  },
+  "recoveryKey": {
+    "sectionTitle": "Recovery Key",
+    "hint": "Bản sao lưu cloud (.bxa) được mã hoá bằng master key của máy này. Hãy export Recovery Key và lưu OFFLINE (giấy hoặc password manager) — đây là cách DUY NHẤT để khôi phục backup trên máy mới.",
+    "exportButton": "Export Recovery Key",
+    "exportWarning": "Ai có key này đều giải mã được TOÀN BỘ backup của bạn. Key chỉ hiển thị lúc này — đừng lưu lên cloud, đừng chia sẻ, và xoá clipboard sau khi lưu xong.",
+    "copyButton": "Sao chép",
+    "copied": "Đã chép ✓",
+    "hideButton": "Ẩn",
+    "importLabel": "Import Recovery Key",
+    "importPlaceholder": "BXRK1-XXXX-XXXX-…",
+    "importButton": "Import",
+    "importing": "Đang import…",
+    "imported": "Đã import recovery key. Máy này giờ khôi phục được các backup cloud mã hoá bằng key đó.",
+    "importedChanged": "Đã import recovery key — key cũ của máy này bị thay thế. Thông tin đã lưu local (mật khẩu proxy, bot token) không giải mã được nữa, cần nhập lại.",
+    "importHint": "Trên máy mới: import Recovery Key từ máy cũ, sau đó dùng \"Khôi phục từ cloud\"."
   },
   "cloudSync": {
     "title": "Profile đồng bộ cloud",
