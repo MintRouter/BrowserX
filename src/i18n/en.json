@@ -637,8 +637,8 @@
     "restore": "Restore from cloud",
     "delete": "Delete cloud backup",
     "restoreWhileRunning": "Stop the profile before restoring",
-    "confirmRestore": "Restore \"{{name}}\" from its latest cloud backup? Only possible when the local profile data is missing or broken.",
-    "confirmDelete": "Delete the latest cloud backup of \"{{name}}\" from Telegram? This cannot be undone.",
+    "confirmRestore": "Restore \"{{name}}\" from the cloud backup of {{date}}? Only possible when the local profile data is missing or broken.",
+    "confirmDelete": "Delete the cloud backup of \"{{name}}\" from {{date}} from Telegram? This cannot be undone.",
     "restoreDone": "\"{{name}}\" restored from cloud backup.",
     "deleteDone": "Cloud backup of \"{{name}}\" deleted.",
     "backupNow": "Sync now",
@@ -656,8 +656,7 @@
     "progressUpload": "Uploading part {{part}}/{{total}}…",
     "progressDownload": "Downloading part {{part}}/{{total}}…",
     "history": "Backup history",
-    "latest": "Latest",
-    "versionLatestOnly": "Only the latest backup can be restored or deleted"
+    "latest": "Latest"
   },
   "audit": {
     "title": "Audit log",

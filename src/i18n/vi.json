@@ -629,8 +629,8 @@
     "restore": "Khôi phục từ cloud",
     "delete": "Xoá bản sao lưu cloud",
     "restoreWhileRunning": "Dừng profile trước khi khôi phục",
-    "confirmRestore": "Khôi phục \"{{name}}\" từ bản sao lưu cloud mới nhất? Chỉ thực hiện được khi dữ liệu profile local thiếu hoặc hỏng.",
-    "confirmDelete": "Xoá bản sao lưu cloud mới nhất của \"{{name}}\" khỏi Telegram? Không thể hoàn tác.",
+    "confirmRestore": "Khôi phục \"{{name}}\" từ bản sao lưu cloud lúc {{date}}? Chỉ thực hiện được khi dữ liệu profile local thiếu hoặc hỏng.",
+    "confirmDelete": "Xoá bản sao lưu cloud lúc {{date}} của \"{{name}}\" khỏi Telegram? Không thể hoàn tác.",
     "restoreDone": "Đã khôi phục \"{{name}}\" từ bản sao lưu cloud.",
     "deleteDone": "Đã xoá bản sao lưu cloud của \"{{name}}\".",
     "backupNow": "Đồng bộ ngay",
@@ -648,8 +648,7 @@
     "progressUpload": "Đang upload part {{part}}/{{total}}…",
     "progressDownload": "Đang tải part {{part}}/{{total}}…",
     "history": "Lịch sử sao lưu",
-    "latest": "Mới nhất",
-    "versionLatestOnly": "Hiện chỉ khôi phục/xoá được bản sao lưu mới nhất"
+    "latest": "Mới nhất"
   },
   "audit": {
     "title": "Nhật ký hành động",

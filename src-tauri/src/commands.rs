@@ -1232,15 +1232,17 @@ pub(crate) async fn backup_now_impl(
     run_cloud_upload(app, db, profile_id, &bxa, &client).await
 }
 
-/// (W51-B2) Restore từ cloud: tải các part bản MỚI NHẤT → ghép → verify sha256
+/// (W51-B2) Restore từ cloud: tải các part 1 bản backup → ghép → verify sha256
 /// → ghi `.bxa` cạnh user_data_dir → archive.rs giải mã/giải nén (W51-B1).
 /// Cùng guard như restore local: profile phải dừng + run-dir thiếu/hỏng.
 /// (W52-B C6) Progress từng part emit `cloud://progress` phase "download".
+/// (W52-F) `uploaded_at = None` → bản MỚI NHẤT; Some → đúng bản version đó.
 #[tauri::command]
 pub async fn restore_from_cloud(
     app: AppHandle,
     state: State<'_, AppState>,
     profile_id: String,
+    uploaded_at: Option<String>,
 ) -> Result<()> {
     if state.procs.is_running(&profile_id).await {
         return Err(AppError::InvalidInput(format!(
@@ -1254,7 +1256,9 @@ pub async fn restore_from_cloud(
             "user_data_dir vẫn còn dữ liệu — chỉ restore khi run-dir thiếu/hỏng".into(),
         ));
     }
-    let parts = state.db.get_cloud_backup_parts(&profile_id, None)?;
+    let parts = state
+        .db
+        .get_cloud_backup_parts(&profile_id, uploaded_at.as_deref())?;
     if parts.is_empty() {
         return Err(AppError::NotFound(format!(
             "no cloud backup for profile {profile_id}"
@@ -1283,15 +1287,19 @@ pub async fn restore_from_cloud(
     Ok(())
 }
 
-/// (W51-B2) Xoá bản backup cloud MỚI NHẤT của profile (message Telegram +
-/// row DB).
+/// (W51-B2) Xoá 1 bản backup cloud của profile (message Telegram + row DB).
+/// (W52-F) `uploaded_at = None` → bản MỚI NHẤT; Some → đúng bản version đó.
 #[tauri::command]
-pub async fn delete_cloud_backup(state: State<'_, AppState>, profile_id: String) -> Result<()> {
+pub async fn delete_cloud_backup(
+    state: State<'_, AppState>,
+    profile_id: String,
+    uploaded_at: Option<String>,
+) -> Result<()> {
     let (token, chat_id) = telegram_sync::load_credentials(&state.db)?.ok_or_else(|| {
         AppError::InvalidInput("Telegram chưa cấu hình — nhập Bot Token + Chat ID trước".into())
     })?;
     let client = telegram_sync::TelegramClient::new(token, chat_id)?;
-    telegram_sync::delete_backup(&client, &state.db, &profile_id, None).await?;
+    telegram_sync::delete_backup(&client, &state.db, &profile_id, uploaded_at.as_deref()).await?;
     state
         .db
         .insert_audit("profile.cloud_backup_delete", Some(&profile_id), None)?;

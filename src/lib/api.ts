@@ -724,12 +724,14 @@ export const api = {
   /** getMe + test message to the chat — resolves with the bot username. */
   telegramTestConnection: () => invoke<string>("telegram_test_connection"),
   listCloudBackups: () => invoke<CloudBackupInfo[]>("list_cloud_backups"),
-  /** Download latest backup parts, verify sha256, then decrypt/unpack (W51-B1). */
-  restoreFromCloud: (profileId: string) =>
-    invoke<void>("restore_from_cloud", { profileId }),
-  /** Delete the latest cloud backup of a profile (Telegram messages + records). */
-  deleteCloudBackup: (profileId: string) =>
-    invoke<void>("delete_cloud_backup", { profileId }),
+  /** Download backup parts, verify sha256, then decrypt/unpack (W51-B1).
+   * (W52-F) `uploadedAt` omitted → latest; set → that specific version. */
+  restoreFromCloud: (profileId: string, uploadedAt?: string) =>
+    invoke<void>("restore_from_cloud", { profileId, uploadedAt }),
+  /** Delete one cloud backup of a profile (Telegram messages + records).
+   * (W52-F) `uploadedAt` omitted → latest; set → that specific version. */
+  deleteCloudBackup: (profileId: string, uploadedAt?: string) =>
+    invoke<void>("delete_cloud_backup", { profileId, uploadedAt }),
   /** (W52-B C1) Upload states of all profiles (status / last error / retry count). */
   listCloudUploadStates: () =>
     invoke<CloudUploadState[]>("list_cloud_upload_states"),

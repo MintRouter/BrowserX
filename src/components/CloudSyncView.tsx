@@ -44,9 +44,8 @@ function fmtBytes(bytes: number): string {
  * (`cloud_backups` records) or a cloud upload state. Standard card shell like
  * Running/Trash (W50E): toolbar + table + footer.
  * (W52-C) Adds: expandable per-profile version history with restore/delete
- * (backend commands act on the LATEST backup only — older versions are shown
- * read-only until per-version commands exist), upload status + retry (C1),
- * per-part progress from `cloud://progress` (C6), and Sync now (C5).
+ * per version (W52-F — commands accept `uploadedAt`), upload status + retry
+ * (C1), per-part progress from `cloud://progress` (C6), and Sync now (C5).
  */
 export function CloudSyncView({
   profiles,
@@ -65,8 +64,15 @@ export function CloudSyncView({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  const [restoreConfirm, setRestoreConfirm] = useState<string | null>(null);
+  /** (W52-F) Version target of the pending confirm — profile + uploaded_at. */
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    id: string;
+    uploadedAt: string;
+  } | null>(null);
+  const [restoreConfirm, setRestoreConfirm] = useState<{
+    id: string;
+    uploadedAt: string;
+  } | null>(null);
 
   const refresh = useCallback(async () => {
     if (!isTauri()) return;
@@ -196,24 +202,24 @@ export function CloudSyncView({
   };
 
   const confirmRestore = () => {
-    const id = restoreConfirm;
+    const target = restoreConfirm;
     setRestoreConfirm(null);
-    if (!id) return;
+    if (!target) return;
     void runAction(
-      id,
-      () => api.restoreFromCloud(id),
-      t("cloudSync.restoreDone", { name: profileName(id) }),
+      target.id,
+      () => api.restoreFromCloud(target.id, target.uploadedAt),
+      t("cloudSync.restoreDone", { name: profileName(target.id) }),
     );
   };
 
   const confirmDelete = () => {
-    const id = deleteConfirm;
+    const target = deleteConfirm;
     setDeleteConfirm(null);
-    if (!id) return;
+    if (!target) return;
     void runAction(
-      id,
-      () => api.deleteCloudBackup(id),
-      t("cloudSync.deleteDone", { name: profileName(id) }),
+      target.id,
+      () => api.deleteCloudBackup(target.id, target.uploadedAt),
+      t("cloudSync.deleteDone", { name: profileName(target.id) }),
     );
   };
 
@@ -465,15 +471,18 @@ export function CloudSyncView({
                                     <span className="ml-auto flex items-center">
                                       <button
                                         type="button"
-                                        disabled={busy || running || !isLatest}
+                                        disabled={busy || running}
                                         title={
-                                          !isLatest
-                                            ? t("cloudSync.versionLatestOnly")
-                                            : running
-                                              ? t("cloudSync.restoreWhileRunning")
-                                              : undefined
+                                          running
+                                            ? t("cloudSync.restoreWhileRunning")
+                                            : undefined
                                         }
-                                        onClick={() => setRestoreConfirm(p.id)}
+                                        onClick={() =>
+                                          setRestoreConfirm({
+                                            id: p.id,
+                                            uploadedAt: v.uploaded_at,
+                                          })
+                                        }
                                         className="mr-3 inline-flex items-center gap-1 rounded text-xs font-medium text-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-50"
                                       >
                                         <CloudDownload className="h-3.5 w-3.5" aria-hidden="true" />
@@ -481,11 +490,13 @@ export function CloudSyncView({
                                       </button>
                                       <button
                                         type="button"
-                                        disabled={busy || !isLatest}
-                                        title={
-                                          !isLatest ? t("cloudSync.versionLatestOnly") : undefined
+                                        disabled={busy}
+                                        onClick={() =>
+                                          setDeleteConfirm({
+                                            id: p.id,
+                                            uploadedAt: v.uploaded_at,
+                                          })
                                         }
-                                        onClick={() => setDeleteConfirm(p.id)}
                                         className="inline-flex items-center gap-1 rounded text-xs font-medium text-danger hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-50"
                                       >
                                         <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -520,7 +531,10 @@ export function CloudSyncView({
 
       {restoreConfirm && (
         <ConfirmDialog
-          message={t("cloudSync.confirmRestore", { name: profileName(restoreConfirm) })}
+          message={t("cloudSync.confirmRestore", {
+            name: profileName(restoreConfirm.id),
+            date: fmtDate(restoreConfirm.uploadedAt),
+          })}
           confirmLabel={t("cloudSync.restore")}
           onConfirm={confirmRestore}
           onCancel={() => setRestoreConfirm(null)}
@@ -528,7 +542,10 @@ export function CloudSyncView({
       )}
       {deleteConfirm && (
         <ConfirmDialog
-          message={t("cloudSync.confirmDelete", { name: profileName(deleteConfirm) })}
+          message={t("cloudSync.confirmDelete", {
+            name: profileName(deleteConfirm.id),
+            date: fmtDate(deleteConfirm.uploadedAt),
+          })}
           confirmLabel={t("cloudSync.delete")}
           onConfirm={confirmDelete}
           onCancel={() => setDeleteConfirm(null)}

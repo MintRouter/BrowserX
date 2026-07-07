@@ -599,6 +599,38 @@ mod tests {
         assert!(parts.windows(2).all(|w| w[0].part_index < w[1].part_index));
     }
 
+    /// (W52-F) `uploaded_at = Some(ts)` chọn đúng bản version đó (restore/delete
+    /// per-version); None vẫn là bản mới nhất; ts không tồn tại → rỗng.
+    #[test]
+    fn get_parts_by_specific_uploaded_at() {
+        let db = Db::open_in_memory().unwrap();
+        insert_backup(&db, "p1", "2026-01-01T00:00:00Z", 2);
+        insert_backup(&db, "p1", "2026-02-01T00:00:00Z", 1);
+
+        let old = db
+            .get_cloud_backup_parts("p1", Some("2026-01-01T00:00:00Z"))
+            .unwrap();
+        assert_eq!(old.len(), 2);
+        assert!(old.iter().all(|p| p.uploaded_at == "2026-01-01T00:00:00Z"));
+
+        let latest = db.get_cloud_backup_parts("p1", None).unwrap();
+        assert_eq!(latest.len(), 1);
+        assert_eq!(latest[0].uploaded_at, "2026-02-01T00:00:00Z");
+
+        assert!(db
+            .get_cloud_backup_parts("p1", Some("2026-03-01T00:00:00Z"))
+            .unwrap()
+            .is_empty());
+
+        // Xoá đúng bản cũ theo ts — bản mới nhất còn nguyên.
+        db.delete_cloud_backup("p1", "2026-01-01T00:00:00Z").unwrap();
+        assert!(db
+            .get_cloud_backup_parts("p1", Some("2026-01-01T00:00:00Z"))
+            .unwrap()
+            .is_empty());
+        assert_eq!(db.get_cloud_backup_parts("p1", None).unwrap().len(), 1);
+    }
+
     // -- HTTP flows qua server loopback (KHÔNG mạng thật) ------------------
 
     /// Server HTTP/1.1 tối giản trên loopback: map "METHOD /path-suffix" →
