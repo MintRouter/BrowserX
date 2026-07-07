@@ -2569,6 +2569,41 @@ pub async fn get_metrics(state: State<'_, AppState>) -> Result<MetricsSnapshot> 
     })
 }
 
+// ---------------------------------------------------------------------------
+// Fingerprint GPU (W52-D): gợi ý cặp vendor↔renderer CÓ THẬT theo platform +
+// cảnh báo combo bất khả thi. Pure — không dùng state. Xem `fingerprint_gpu`.
+// ---------------------------------------------------------------------------
+
+/// Gợi ý cặp GPU nhất quán với `platform` ("windows"|"macos"|"linux"), chọn
+/// weighted-deterministic theo `seed` (regenerate cùng seed → cùng kết quả).
+/// None nếu platform không có entry trong pool.
+#[tauri::command]
+pub fn suggest_gpu(platform: String, seed: u64) -> Option<crate::fingerprint_gpu::GpuSuggestion> {
+    crate::fingerprint_gpu::pick_gpu(&platform, seed).map(|e| {
+        crate::fingerprint_gpu::GpuSuggestion {
+            vendor: e.vendor.clone(),
+            renderer: e.renderer.clone(),
+        }
+    })
+}
+
+/// Kiểm tra nhất quán platform ↔ GPU do user set thủ công. Trả cảnh báo (không
+/// chặn) khi combo bất khả thi (vd macOS + Direct3D11, Windows + Metal); None
+/// khi hợp lệ hoặc chưa set renderer (auto theo seed).
+#[tauri::command]
+pub fn check_gpu_consistency(
+    platform: String,
+    gpu_vendor: Option<String>,
+    gpu_renderer: Option<String>,
+) -> Option<String> {
+    let renderer = gpu_renderer.unwrap_or_default();
+    if renderer.trim().is_empty() {
+        return None;
+    }
+    let vendor = gpu_vendor.unwrap_or_default();
+    crate::fingerprint_gpu::gpu_platform_mismatch(&platform, &vendor, &renderer)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

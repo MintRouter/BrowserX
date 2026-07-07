@@ -26,6 +26,7 @@ pub mod db;
 pub mod error;
 pub mod export;
 pub mod extensions;
+pub mod fingerprint_gpu;
 pub mod geoip;
 pub mod launcher;
 pub mod logging;
@@ -188,6 +189,8 @@ pub fn run() {
             commands::list_cloud_upload_states,
             commands::retry_cloud_upload,
             commands::backup_now,
+            commands::suggest_gpu,
+            commands::check_gpu_consistency,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
