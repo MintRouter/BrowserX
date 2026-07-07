@@ -1,8 +1,8 @@
 import {
+  ArrowUpDown,
   ChevronDown,
-  Globe,
+  ClipboardList,
   HelpCircle,
-  Laptop,
   LifeBuoy,
   type LucideIcon,
   MonitorSmartphone,
@@ -48,9 +48,9 @@ const PILLS: {
     labelKey: "topbar.profiles",
     match: ["profiles", "running", "cloudSync", "favorites", "trash"],
   },
-  { view: "proxies", icon: Globe, labelKey: "topbar.proxies", match: ["proxies"] },
+  { view: "proxies", icon: ArrowUpDown, labelKey: "topbar.proxies", match: ["proxies"] },
   { view: "proxyTemplates", icon: Network, labelKey: "topbar.proxyTemplates", match: ["proxyTemplates"] },
-  { view: "templates", icon: Laptop, labelKey: "topbar.profileTemplates", match: ["templates"] },
+  { view: "templates", icon: ClipboardList, labelKey: "topbar.profileTemplates", match: ["templates"] },
   { view: "extensions", icon: Puzzle, labelKey: "topbar.extensions", match: ["extensions"] },
 ];
 
@@ -83,11 +83,8 @@ export function TopBar(props: TopBarProps) {
           </span>
         </button>
 
-        {/* Thin vertical divider between logo and pills. */}
-        <span className="mx-2 h-5 w-px shrink-0 bg-border" aria-hidden="true" />
-
-        {/* (W50I) Direct icon-pill row (MLX audit §2) — one pill per main view. */}
-        <nav className="flex items-center gap-0.5" aria-label={t("topbar.appSwitcher")}>
+        {/* (W53c) Direct icon-pill row (MLX audit §2) — one pill per main view; spaced from the logo by margin, no divider. */}
+        <nav className="ml-3 flex items-center gap-1.5" aria-label={t("topbar.appSwitcher")}>
           {PILLS.map(({ view: v, icon: Icon, labelKey, match }) => {
             const active = view !== undefined && match.includes(view);
             return (
