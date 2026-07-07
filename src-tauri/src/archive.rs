@@ -100,6 +100,21 @@ pub fn archive_path(user_data_dir: &Path, profile_id: &str) -> Option<PathBuf> {
 /// `profile-<id>.bxa` cạnh user_data_dir. Run-dir KHÔNG bị đụng tới.
 /// Dirty-check fast-skip trước khi nén (xem doc module).
 pub fn archive_profile(user_data_dir: &Path, profile_id: &str) -> Result<ArchiveOutcome> {
+    archive_profile_inner(user_data_dir, profile_id, false)
+}
+
+/// (W52-B C5) Như [`archive_profile`] nhưng BỎ dirty-check fast-skip — dùng
+/// cho "Sync now": user chủ động yêu cầu snapshot mới nên luôn nén lại
+/// (vẫn skip khi không có `Default/`).
+pub fn archive_profile_forced(user_data_dir: &Path, profile_id: &str) -> Result<ArchiveOutcome> {
+    archive_profile_inner(user_data_dir, profile_id, true)
+}
+
+fn archive_profile_inner(
+    user_data_dir: &Path,
+    profile_id: &str,
+    force: bool,
+) -> Result<ArchiveOutcome> {
     if !user_data_dir.join("Default").is_dir() {
         return Ok(ArchiveOutcome::SkippedNoData);
     }
@@ -109,7 +124,7 @@ pub fn archive_profile(user_data_dir: &Path, profile_id: &str) -> Result<Archive
             user_data_dir.display()
         ))
     })?;
-    if archive_is_fresh(user_data_dir, &dest) {
+    if !force && archive_is_fresh(user_data_dir, &dest) {
         return Ok(ArchiveOutcome::SkippedClean);
     }
     let master = crypto::master_key_material()?;
@@ -597,6 +612,11 @@ mod tests {
             archive_profile(&udd, "p2").unwrap(),
             ArchiveOutcome::SkippedClean
         );
+        // (W52-B C5) Forced bỏ dirty-check: nén lại dù dữ liệu không đổi.
+        assert!(matches!(
+            archive_profile_forced(&udd, "p2").unwrap(),
+            ArchiveOutcome::Written { .. }
+        ));
 
         // Cookies mới hơn archive → dirty → nén lại.
         set_mtime(
