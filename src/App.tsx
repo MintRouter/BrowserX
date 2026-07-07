@@ -5,6 +5,7 @@ import {
   initialEngineState,
   type EngineState,
 } from "./components/EngineSetup";
+import { CloudSyncView } from "./components/CloudSyncView";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { ExtensionsView } from "./components/ExtensionsView";
 import { ProfileForm } from "./components/ProfileForm";
@@ -26,6 +27,7 @@ import {
   onBinaryProgress,
   onExitRequested,
   onProfileStatus,
+  type CloudBackupInfo,
   type Extension,
   type Folder,
   type Profile,
@@ -54,6 +56,8 @@ export default function App() {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [templates, setTemplates] = useState<ProfileTemplate[]>([]);
   const [extensions, setExtensions] = useState<Extension[]>([]);
+  /** (W51-B2) Telegram cloud backups — feeds the "Cloud sync profiles" view/count. */
+  const [cloudBackups, setCloudBackups] = useState<CloudBackupInfo[]>([]);
   const [settings, setSettings] = useState<Record<string, string> | null>(null);
   const [editing, setEditing] = useState<Profile | "new" | null>(null);
   const [loadError, setLoadError] = useState(false);
@@ -144,6 +148,9 @@ export default function App() {
   const refetchExtensions = useCallback(async () => {
     setExtensions(await api.listExtensions());
   }, []);
+  const refetchCloudBackups = useCallback(async () => {
+    setCloudBackups(await api.listCloudBackups());
+  }, []);
 
   /** Await the given refetches; a failed one keeps the last known state. */
   const refetch = (...tasks: Promise<void>[]) => Promise.allSettled(tasks);
@@ -160,10 +167,11 @@ export default function App() {
       refetchTemplates(),
       refetchExtensions(),
       refetchProxyTemplates(),
+      refetchCloudBackups(),
       api.getSettings().then(setSettings),
     ]);
     setLoadError([p, x, r].some((res) => res.status === "rejected"));
-  }, [refetchProfiles, refetchProxies, refetchRunning, refetchFolders, refetchTrash, refetchTemplates, refetchExtensions, refetchProxyTemplates]);
+  }, [refetchProfiles, refetchProxies, refetchRunning, refetchFolders, refetchTrash, refetchTemplates, refetchExtensions, refetchProxyTemplates, refetchCloudBackups]);
 
   useEffect(() => {
     void loadAll();
@@ -256,10 +264,17 @@ export default function App() {
     [folders],
   );
 
+  // (W51-B2) Profiles with at least one Telegram cloud backup.
+  const cloudSyncCount = useMemo(
+    () => new Set(cloudBackups.map((b) => b.profile_id)).size,
+    [cloudBackups],
+  );
+
   const sidebarCounts = useMemo(
     () => ({
       all: profiles.length,
       running: running.length,
+      cloudSync: cloudSyncCount,
       favorites: favoriteProfiles.length,
       trash: trash.length,
       proxies: proxies.length,
@@ -267,7 +282,7 @@ export default function App() {
       templates: templates.length,
       extensions: extensions.length,
     }),
-    [profiles.length, running.length, favoriteProfiles.length, trash.length, proxies.length, proxyTemplates.length, templates.length, extensions.length],
+    [profiles.length, running.length, cloudSyncCount, favoriteProfiles.length, trash.length, proxies.length, proxyTemplates.length, templates.length, extensions.length],
   );
 
   const navigate = (v: MainView) => {
@@ -795,6 +810,13 @@ export default function App() {
               onMove={handleMove}
               onAddTags={handleAddTags}
               onToggleFavorite={handleToggleFavorite}
+            />
+          ) : view === "cloudSync" ? (
+            <CloudSyncView
+              profiles={profiles}
+              runningIds={runningIds}
+              profileCount={profiles.length}
+              settings={settings}
             />
           ) : view === "proxies" ? (
             <ProxiesView

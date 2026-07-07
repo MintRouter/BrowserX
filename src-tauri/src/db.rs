@@ -326,12 +326,53 @@ pub struct AuditEntry {
     pub meta: Option<serde_json::Value>,
 }
 
+/// (W51-B2) Một PART của backup cloud trong bảng `cloud_backups` — mỗi part là
+/// 1 message Telegram riêng. 1 bản backup = nhóm row cùng (profile_id, uploaded_at).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CloudBackupPart {
+    pub id: i64,
+    pub profile_id: String,
+    /// message_id Telegram — dùng deleteMessage khi retention/xoá.
+    pub message_id: i64,
+    /// file_id Telegram — dùng getFile khi restore.
+    pub file_id: String,
+    /// Kích thước part (byte).
+    pub size: i64,
+    /// SHA-256 hex của TOÀN BỘ file `.bxa` (trước khi split).
+    pub sha256: String,
+    /// Thứ tự part 0-based.
+    pub part_index: i64,
+    pub part_count: i64,
+    /// RFC3339 UTC — chung cho mọi part của 1 bản backup.
+    pub uploaded_at: String,
+}
+
+/// (W51-B2) Input insert 1 part backup (id tự tăng).
+#[derive(Debug, Clone)]
+pub struct CloudBackupPartInput {
+    pub message_id: i64,
+    pub file_id: String,
+    pub size: i64,
+    pub part_index: i64,
+}
+
+/// (W51-B2) View tổng hợp 1 BẢN backup (gộp các part) trả về FE.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CloudBackupInfo {
+    pub profile_id: String,
+    /// Tổng byte của mọi part.
+    pub size: i64,
+    pub sha256: String,
+    pub part_count: i64,
+    pub uploaded_at: String,
+}
+
 // ---------------------------------------------------------------------------
 // Db: mở/khởi tạo + migration
 // ---------------------------------------------------------------------------
 
 /// Schema version hiện tại (PRAGMA user_version).
-const SCHEMA_VERSION: i64 = 13;
+const SCHEMA_VERSION: i64 = 14;
 
 const SCHEMA_V1: &str = "
 CREATE TABLE IF NOT EXISTS profiles (
@@ -573,6 +614,28 @@ const SCHEMA_V13: &str = "
 ALTER TABLE profiles ADD COLUMN taskbar_height INTEGER;
 ";
 
+/// Migration v13→v14 (W51-B2): bảng `cloud_backups` — metadata các part archive
+/// `.bxa` đã upload lên Telegram. MỖI ROW = 1 PART (mỗi part là 1 message
+/// Telegram riêng với message_id/file_id riêng); 1 "bản backup" = nhóm row cùng
+/// (profile_id, uploaded_at). `sha256` là hash của TOÀN BỘ file .bxa (trước
+/// split) — dùng verify sau khi ghép part lúc restore. Retention cloud 3
+/// bản/profile xử lý ở telegram_sync (xoá message qua deleteMessage rồi xoá row).
+const SCHEMA_V14: &str = "
+CREATE TABLE IF NOT EXISTS cloud_backups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id TEXT NOT NULL,
+    message_id INTEGER NOT NULL,
+    file_id TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    sha256 TEXT NOT NULL,
+    part_index INTEGER NOT NULL,
+    part_count INTEGER NOT NULL,
+    uploaded_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_cloud_backups_profile ON cloud_backups(profile_id, uploaded_at);
+";
+
 /// Kết nối SQLite của app. `Mutex<Connection>` để dùng được trong `tauri::State`
 /// (single-process, mọi thao tác tuần tự qua lock — đủ cho local app).
 pub struct Db {
@@ -765,6 +828,10 @@ fn migrate_inner(conn: &Connection, checkpoint: impl Fn(i64) -> Result<()>) -> R
         if version < 13 {
             conn.execute_batch(SCHEMA_V13)?;
             checkpoint(13)?;
+        }
+        if version < 14 {
+            conn.execute_batch(SCHEMA_V14)?;
+            checkpoint(14)?;
         }
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         Ok(())
@@ -2330,6 +2397,157 @@ impl Db {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
     }
+}
+
+// ---------------------------------------------------------------------------
+// Cloud backups (W51-B2 — Telegram sync)
+// ---------------------------------------------------------------------------
+
+impl Db {
+    /// (W51-B2) Ghi 1 bản backup mới (mọi part trong 1 transaction). `sha256`
+    /// là hash toàn file `.bxa`; `uploaded_at` chung cho mọi part.
+    pub fn insert_cloud_backup(
+        &self,
+        profile_id: &str,
+        sha256: &str,
+        uploaded_at: &str,
+        parts: &[CloudBackupPartInput],
+    ) -> Result<()> {
+        let part_count = parts.len() as i64;
+        let mut conn = self.lock();
+        let tx = conn.transaction()?;
+        for p in parts {
+            tx.execute(
+                "INSERT INTO cloud_backups
+                 (profile_id, message_id, file_id, size, sha256, part_index, part_count, uploaded_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    profile_id,
+                    p.message_id,
+                    p.file_id,
+                    p.size,
+                    sha256,
+                    p.part_index,
+                    part_count,
+                    uploaded_at
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// (W51-B2) Danh sách BẢN backup (gộp part, mới nhất trước). Lọc theo
+    /// `profile_id` khi Some — None = mọi profile (FE map view Cloud sync).
+    pub fn list_cloud_backups(&self, profile_id: Option<&str>) -> Result<Vec<CloudBackupInfo>> {
+        let conn = self.lock();
+        let mut sql = String::from(
+            "SELECT profile_id, SUM(size), sha256, part_count, uploaded_at
+             FROM cloud_backups",
+        );
+        let mut values: Vec<SqlValue> = Vec::new();
+        if let Some(pid) = profile_id {
+            values.push(sql_text(pid.to_string()));
+            sql.push_str(" WHERE profile_id = ?1");
+        }
+        sql.push_str(" GROUP BY profile_id, uploaded_at ORDER BY uploaded_at DESC");
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(values), |r| {
+                Ok(CloudBackupInfo {
+                    profile_id: r.get(0)?,
+                    size: r.get(1)?,
+                    sha256: r.get(2)?,
+                    part_count: r.get(3)?,
+                    uploaded_at: r.get(4)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// (W51-B2) Mọi part của 1 bản backup, theo thứ tự part_index — dùng khi
+    /// restore (tải từng part theo file_id) hoặc xoá (deleteMessage từng part).
+    /// `uploaded_at = None` → bản MỚI NHẤT của profile.
+    pub fn get_cloud_backup_parts(
+        &self,
+        profile_id: &str,
+        uploaded_at: Option<&str>,
+    ) -> Result<Vec<CloudBackupPart>> {
+        let conn = self.lock();
+        let ts: Option<String> = match uploaded_at {
+            Some(t) => Some(t.to_string()),
+            None => conn
+                .query_row(
+                    "SELECT MAX(uploaded_at) FROM cloud_backups WHERE profile_id = ?1",
+                    params![profile_id],
+                    |r| r.get(0),
+                )
+                .optional()?
+                .flatten(),
+        };
+        let Some(ts) = ts else {
+            return Ok(Vec::new());
+        };
+        let mut stmt = conn.prepare(
+            "SELECT id, profile_id, message_id, file_id, size, sha256, part_index, part_count, uploaded_at
+             FROM cloud_backups WHERE profile_id = ?1 AND uploaded_at = ?2
+             ORDER BY part_index ASC",
+        )?;
+        let rows = stmt
+            .query_map(params![profile_id, ts], row_to_cloud_part)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// (W51-B2) Các bản backup CŨ vượt quá `keep` bản mới nhất của profile —
+    /// trả mọi part của chúng để caller xoá message Telegram trước khi gọi
+    /// [`Db::delete_cloud_backup`].
+    pub fn cloud_backups_beyond_retention(
+        &self,
+        profile_id: &str,
+        keep: usize,
+    ) -> Result<Vec<CloudBackupPart>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id, profile_id, message_id, file_id, size, sha256, part_index, part_count, uploaded_at
+             FROM cloud_backups
+             WHERE profile_id = ?1 AND uploaded_at NOT IN (
+                 SELECT DISTINCT uploaded_at FROM cloud_backups
+                 WHERE profile_id = ?1 ORDER BY uploaded_at DESC LIMIT ?2
+             )
+             ORDER BY uploaded_at ASC, part_index ASC",
+        )?;
+        let rows = stmt
+            .query_map(params![profile_id, keep as i64], row_to_cloud_part)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// (W51-B2) Xoá mọi row của 1 bản backup (sau khi đã deleteMessage xong).
+    pub fn delete_cloud_backup(&self, profile_id: &str, uploaded_at: &str) -> Result<usize> {
+        let conn = self.lock();
+        let n = conn.execute(
+            "DELETE FROM cloud_backups WHERE profile_id = ?1 AND uploaded_at = ?2",
+            params![profile_id, uploaded_at],
+        )?;
+        Ok(n)
+    }
+}
+
+/// Map một row `cloud_backups` → [`CloudBackupPart`].
+fn row_to_cloud_part(r: &Row) -> rusqlite::Result<CloudBackupPart> {
+    Ok(CloudBackupPart {
+        id: r.get(0)?,
+        profile_id: r.get(1)?,
+        message_id: r.get(2)?,
+        file_id: r.get(3)?,
+        size: r.get(4)?,
+        sha256: r.get(5)?,
+        part_index: r.get(6)?,
+        part_count: r.get(7)?,
+        uploaded_at: r.get(8)?,
+    })
 }
 
 // ---------------------------------------------------------------------------

@@ -38,6 +38,7 @@ use crate::process::ProcessManager;
 use crate::proxy_check::{self, ProxyCheckResult};
 use crate::{
     archive, binary, cdp, cookierobot, cookies, crypto, extensions, geoip, launcher, storage,
+    telegram_sync,
 };
 
 /// State toàn app — khởi tạo trong `tauri::Builder::setup` (lib.rs) rồi `.manage()`.
@@ -889,7 +890,9 @@ pub(crate) fn archive_profile_after_stop(
         let _slot = archive::acquire_slot().await;
         emit_status(&app, &profile_id, "archiving", None, None);
         let id = profile_id.clone();
-        let res = tokio::task::spawn_blocking(move || archive::archive_profile(&dir, &id)).await;
+        let arch_dir = dir.clone();
+        let res =
+            tokio::task::spawn_blocking(move || archive::archive_profile(&arch_dir, &id)).await;
         match res {
             Ok(Ok(archive::ArchiveOutcome::Written { bytes })) => {
                 tracing::info!("archive {profile_id}: wrote {bytes} bytes to local .bxa");
@@ -898,6 +901,13 @@ pub(crate) fn archive_profile_after_stop(
                     Some(&profile_id),
                     Some(&json!({ "bytes": bytes })),
                 );
+                // (W51-B2) Cloud sync best-effort: upload .bxa lên Telegram khi
+                // setting bật + credential đủ. Fire-and-forget — lỗi chỉ log.
+                if telegram_sync::sync_ready(&db) {
+                    if let Some(bxa) = archive::archive_path(&dir, &profile_id) {
+                        drop(upload_archive_to_cloud(Arc::clone(&db), profile_id.clone(), bxa));
+                    }
+                }
             }
             Ok(Ok(archive::ArchiveOutcome::SkippedClean)) => {
                 tracing::info!("archive {profile_id}: skipped — data unchanged since last archive");
@@ -910,6 +920,146 @@ pub(crate) fn archive_profile_after_stop(
         }
         emit_status(&app, &profile_id, &final_status, None, None);
     })
+}
+
+/// (W51-B2) Upload `.bxa` lên Telegram trong background (semaphore 1 upload/
+/// lần). Best-effort: mọi lỗi log warn; thành công thì audit + retention prune
+/// chạy bên trong `telegram_sync::upload_archive`.
+pub(crate) fn upload_archive_to_cloud(
+    db: Arc<Db>,
+    profile_id: String,
+    bxa_path: PathBuf,
+) -> tauri::async_runtime::JoinHandle<()> {
+    tauri::async_runtime::spawn(async move {
+        let creds = match telegram_sync::load_credentials(&db) {
+            Ok(Some(c)) => c,
+            Ok(None) => return,
+            Err(e) => {
+                tracing::warn!("telegram upload {profile_id}: credentials unreadable: {e}");
+                return;
+            }
+        };
+        let client = match telegram_sync::TelegramClient::new(creds.0, creds.1) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!("telegram upload {profile_id}: client init failed: {e}");
+                return;
+            }
+        };
+        let _slot = telegram_sync::acquire_upload_slot().await;
+        match telegram_sync::upload_archive(&client, &db, &profile_id, &bxa_path).await {
+            Ok(()) => {
+                tracing::info!("telegram upload {profile_id}: archive uploaded");
+                let _ = db.insert_audit("profile.cloud_backup", Some(&profile_id), None);
+            }
+            Err(e) => tracing::warn!("telegram upload {profile_id} failed (best-effort): {e}"),
+        }
+    })
+}
+
+/// (W51-B2) Lưu Bot Token + Chat ID (mã hoá bằng crypto.rs như proxy
+/// credential). Chuỗi rỗng cả 2 → xoá credential.
+#[tauri::command]
+pub async fn telegram_set_credentials(
+    state: State<'_, AppState>,
+    bot_token: String,
+    chat_id: String,
+) -> Result<()> {
+    telegram_sync::save_credentials(&state.db, &bot_token, &chat_id)?;
+    state
+        .db
+        .insert_audit("telegram.set_credentials", None, None)?;
+    Ok(())
+}
+
+/// (W51-B2) FE cần biết đã cấu hình credential chưa (không trả plaintext).
+#[tauri::command]
+pub async fn telegram_credentials_status(state: State<'_, AppState>) -> Result<bool> {
+    Ok(telegram_sync::load_credentials(&state.db)?.is_some())
+}
+
+/// (W51-B2) Test kết nối: getMe (verify token) + gửi message thử vào chat.
+/// Trả username bot khi thành công.
+#[tauri::command]
+pub async fn telegram_test_connection(state: State<'_, AppState>) -> Result<String> {
+    let (token, chat_id) = telegram_sync::load_credentials(&state.db)?.ok_or_else(|| {
+        AppError::InvalidInput("Telegram chưa cấu hình — nhập Bot Token + Chat ID trước".into())
+    })?;
+    let client = telegram_sync::TelegramClient::new(token, chat_id)?;
+    let me = client.get_me().await?;
+    client
+        .send_message("BrowserX: Telegram cloud sync connected ✅")
+        .await?;
+    state
+        .db
+        .insert_audit("telegram.test_connection", None, None)?;
+    Ok(me.username.unwrap_or_default())
+}
+
+/// (W51-B2) Danh sách bản backup cloud (gộp part) — FE map view Cloud sync.
+#[tauri::command]
+pub async fn list_cloud_backups(
+    state: State<'_, AppState>,
+) -> Result<Vec<db::CloudBackupInfo>> {
+    state.db.list_cloud_backups(None)
+}
+
+/// (W51-B2) Restore từ cloud: tải các part bản MỚI NHẤT → ghép → verify sha256
+/// → ghi `.bxa` cạnh user_data_dir → archive.rs giải mã/giải nén (W51-B1).
+/// Cùng guard như restore local: profile phải dừng + run-dir thiếu/hỏng.
+#[tauri::command]
+pub async fn restore_from_cloud(state: State<'_, AppState>, profile_id: String) -> Result<()> {
+    if state.procs.is_running(&profile_id).await {
+        return Err(AppError::InvalidInput(format!(
+            "profile {profile_id} đang chạy — stop trước khi restore từ cloud"
+        )));
+    }
+    let profile = state.db.get_profile(&profile_id)?;
+    let dir = PathBuf::from(profile.user_data_dir);
+    if dir.join("Default").is_dir() {
+        return Err(AppError::InvalidInput(
+            "user_data_dir vẫn còn dữ liệu — chỉ restore khi run-dir thiếu/hỏng".into(),
+        ));
+    }
+    let parts = state.db.get_cloud_backup_parts(&profile_id, None)?;
+    if parts.is_empty() {
+        return Err(AppError::NotFound(format!(
+            "no cloud backup for profile {profile_id}"
+        )));
+    }
+    let (token, chat_id) = telegram_sync::load_credentials(&state.db)?.ok_or_else(|| {
+        AppError::InvalidInput("Telegram chưa cấu hình — nhập Bot Token + Chat ID trước".into())
+    })?;
+    let client = telegram_sync::TelegramClient::new(token, chat_id)?;
+    let data = telegram_sync::download_backup(&client, &parts).await?;
+
+    let bxa = archive::archive_path(&dir, &profile_id).ok_or_else(|| {
+        AppError::InvalidInput(format!("user_data_dir has no parent: {}", dir.display()))
+    })?;
+    tokio::fs::write(&bxa, &data).await?;
+    let id = profile_id.clone();
+    tokio::task::spawn_blocking(move || archive::restore_archive(&dir, &id))
+        .await
+        .map_err(|e| AppError::Other(anyhow::anyhow!("restore archive panic: {e}")))??;
+    state
+        .db
+        .insert_audit("profile.cloud_restore", Some(&profile_id), None)?;
+    Ok(())
+}
+
+/// (W51-B2) Xoá bản backup cloud MỚI NHẤT của profile (message Telegram +
+/// row DB).
+#[tauri::command]
+pub async fn delete_cloud_backup(state: State<'_, AppState>, profile_id: String) -> Result<()> {
+    let (token, chat_id) = telegram_sync::load_credentials(&state.db)?.ok_or_else(|| {
+        AppError::InvalidInput("Telegram chưa cấu hình — nhập Bot Token + Chat ID trước".into())
+    })?;
+    let client = telegram_sync::TelegramClient::new(token, chat_id)?;
+    telegram_sync::delete_backup(&client, &state.db, &profile_id, None).await?;
+    state
+        .db
+        .insert_audit("profile.cloud_backup_delete", Some(&profile_id), None)?;
+    Ok(())
 }
 
 /// (W51-B1) Restore thủ công từ archive local `.bxa`: giải mã → verify GCM →

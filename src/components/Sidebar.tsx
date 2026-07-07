@@ -1,6 +1,7 @@
 import {
   BookmarkPlus,
   Building2,
+  Cloud,
   Folder,
   Laptop,
   LayoutGrid,
@@ -43,6 +44,7 @@ export function useDeviceType(): DeviceType {
 export type MainView =
   | "profiles"
   | "running"
+  | "cloudSync"
   | "favorites"
   | "trash"
   | "proxies"
@@ -64,6 +66,7 @@ interface SidebarProps {
   counts: {
     all: number;
     running: number;
+    cloudSync: number;
     favorites: number;
     trash: number;
     proxies: number;
@@ -250,6 +253,13 @@ export function Sidebar({
           count={counts.running}
           active={view === "running"}
           onClick={() => onNavigate("running")}
+        />
+        <NavRow
+          icon={<Cloud className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />}
+          label={t("sidebar.cloudSyncProfiles")}
+          count={counts.cloudSync}
+          active={view === "cloudSync"}
+          onClick={() => onNavigate("cloudSync")}
         />
         <NavRow
           icon={<Star className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />}

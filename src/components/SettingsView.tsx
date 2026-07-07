@@ -7,6 +7,7 @@ import { Toggle } from "./profile-form/controls";
 import { AuditLog } from "./settings/AuditLog";
 import { BackupDialog } from "./settings/BackupDialog";
 import { SystemPanel } from "./settings/SystemPanel";
+import { TelegramSyncSection } from "./settings/TelegramSyncSection";
 import { ThemeCards } from "./settings/ThemeCards";
 
 /** Fallback persistence when running outside Tauri (plain browser dev). */
@@ -183,6 +184,11 @@ export function SettingsView() {
                 {t("backup.restoreButton")}
               </button>
             </SettingRow>
+          </Section>
+
+          {/* (W51-B2) Cloud backup (Telegram) — primary destination config. */}
+          <Section title={t("telegram.sectionTitle")}>
+            <TelegramSyncSection />
           </Section>
 
           <Section title={t("system.title")}>

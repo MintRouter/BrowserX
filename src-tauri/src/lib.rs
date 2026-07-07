@@ -34,6 +34,7 @@ pub mod models;
 pub mod process;
 pub mod proxy_check;
 pub mod storage;
+pub mod telegram_sync;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -178,6 +179,12 @@ pub fn run() {
             commands::get_profile_extensions,
             commands::list_audit,
             commands::get_metrics,
+            commands::telegram_set_credentials,
+            commands::telegram_credentials_status,
+            commands::telegram_test_connection,
+            commands::list_cloud_backups,
+            commands::restore_from_cloud,
+            commands::delete_cloud_backup,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

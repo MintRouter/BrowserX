@@ -459,6 +459,21 @@ export interface TagInfo {
   color: string | null;
 }
 
+/** (W51-B2) One cloud backup (aggregated parts) — mirrors db.rs `CloudBackupInfo`. */
+export interface CloudBackupInfo {
+  profile_id: string;
+  /** Total bytes across all uploaded parts. */
+  size: number;
+  /** SHA-256 hex of the whole .bxa file (verified on restore). */
+  sha256: string;
+  part_count: number;
+  /** RFC3339 UTC upload timestamp (shared by all parts of one backup). */
+  uploaded_at: string;
+}
+
+/** (W51-B2) Settings key: auto-upload archives to Telegram ("true"/"false"). */
+export const TELEGRAM_SYNC_ENABLED_SETTING = "telegram_sync_enabled";
+
 /** Settings key: auto-clear a profile's cache when its session stops ("true"/"false"). */
 export const AUTO_CLEAR_CACHE_SETTING = "auto_clear_cache_on_stop";
 
@@ -665,6 +680,23 @@ export const api = {
 
   // Observability (W26b) — live sessions / RAM / launch p95 / error counters.
   getMetrics: () => invoke<SystemMetrics>("get_metrics"),
+
+  // Telegram cloud sync (W51-B2) — .bxa archives uploaded via Bot API.
+  /** Store Bot Token + Chat ID (encrypted at rest). Empty strings clear them. */
+  telegramSetCredentials: (botToken: string, chatId: string) =>
+    invoke<void>("telegram_set_credentials", { botToken, chatId }),
+  /** true when both Bot Token and Chat ID are configured (no plaintext returned). */
+  telegramCredentialsStatus: () =>
+    invoke<boolean>("telegram_credentials_status"),
+  /** getMe + test message to the chat — resolves with the bot username. */
+  telegramTestConnection: () => invoke<string>("telegram_test_connection"),
+  listCloudBackups: () => invoke<CloudBackupInfo[]>("list_cloud_backups"),
+  /** Download latest backup parts, verify sha256, then decrypt/unpack (W51-B1). */
+  restoreFromCloud: (profileId: string) =>
+    invoke<void>("restore_from_cloud", { profileId }),
+  /** Delete the latest cloud backup of a profile (Telegram messages + records). */
+  deleteCloudBackup: (profileId: string) =>
+    invoke<void>("delete_cloud_backup", { profileId }),
 };
 
 // --- Events ---
