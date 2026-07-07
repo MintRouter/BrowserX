@@ -27,17 +27,19 @@ interface TopBarProps {
   onNavigate?: (view: MainView) => void;
 }
 
-/* (W53) MLX parity: single app-switcher pill (device icon + chevron), radius 8;
+/* (W50I) MLX pixel audit §2: icon-pill 44×28, radius 8, icon 20px;
  * active = #F0F6FF bg + accent icon, idle = gray icon + light hover. */
+const pillBtn =
+  "inline-flex h-7 w-11 shrink-0 items-center justify-center rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60";
 const pillIdle = "text-fg/70 hover:bg-surface-3 hover:text-fg";
 const pillActive = "bg-[#F0F6FF] text-accent";
 
-/** App-switcher dropdown items — one entry per top-level view (MLX parity). */
-const NAV_ITEMS: {
+/** Icon-pill row — one pill per top-level view (MLX app-switcher parity). */
+const PILLS: {
   view: MainView;
   icon: LucideIcon;
   labelKey: string;
-  /** Sidebar sub-views that keep this item highlighted. */
+  /** Sidebar sub-views that keep this pill highlighted. */
   match: MainView[];
 }[] = [
   {
@@ -88,70 +90,66 @@ export function TopBar(props: TopBarProps) {
         {/* Thin vertical divider between logo and pills. */}
         <span className="mx-2 h-5 w-px shrink-0 bg-border" aria-hidden="true" />
 
-        {/* (W53) Single app-switcher pill (MLX parity) — dropdown holds every nav item. */}
-        <Popover
-          open={moreOpen}
-          onClose={() => setMoreOpen(false)}
-          label={t("topbar.appSwitcher")}
-          trigger={
-            <button
-              type="button"
-              aria-label={t("topbar.appSwitcher")}
-              title={t("topbar.appSwitcher")}
-              aria-haspopup="menu"
-              aria-expanded={moreOpen}
-              onClick={() => setMoreOpen((v) => !v)}
-              className={`inline-flex h-7 shrink-0 items-center gap-0.5 rounded-lg px-1.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
-                moreOpen || view !== undefined ? pillActive : pillIdle
-              }`}
-            >
-              <MonitorSmartphone className="h-5 w-5" aria-hidden="true" />
-              <ChevronDown className="h-4 w-4" aria-hidden="true" />
-            </button>
-          }
-          panelClassName="w-[252px]"
-        >
-          <div role="menu">
-            {NAV_ITEMS.map(({ view: v, icon: Icon, labelKey, match }) => {
-              const active = view !== undefined && match.includes(view);
-              return (
-                <div key={v} className={active ? "bg-[#F0F6FF] [&>button]:text-accent" : undefined}>
-                  <MenuItem
-                    icon={
-                      <Icon
-                        className={`h-4 w-4 shrink-0 ${active ? "text-accent" : "text-fg-muted"}`}
-                        aria-hidden="true"
-                      />
-                    }
-                    onClick={() => {
-                      setMoreOpen(false);
-                      onNavigate?.(v);
-                    }}
-                  >
-                    {t(labelKey)}
-                  </MenuItem>
-                </div>
-              );
-            })}
-            <MenuItem
-              icon={<Users className={menuIcon} aria-hidden="true" />}
-              disabled
-              title={t("toolbar.comingSoon")}
-            >
-              {t("topbar.team")}
-            </MenuItem>
-            {/* (W50F) Docs link — opens externally via the opener plugin. */}
-            <MenuItem
-              icon={<HelpCircle className={menuIcon} aria-hidden="true" />}
-              onClick={() => {
-                setMoreOpen(false);
-                openExternal(DOCS_URL);
-              }}
-            >
-              {t("topbar.help")}
-            </MenuItem>
-          </div>
-        </Popover>
+        {/* (W50I) Direct icon-pill row (MLX audit §2) — one pill per main view. */}
+        <nav className="flex items-center gap-0.5" aria-label={t("topbar.appSwitcher")}>
+          {PILLS.map(({ view: v, icon: Icon, labelKey, match }) => {
+            const active = view !== undefined && match.includes(view);
+            return (
+              <button
+                key={v}
+                type="button"
+                onClick={() => onNavigate?.(v)}
+                aria-label={t(labelKey)}
+                title={t(labelKey)}
+                aria-current={active ? "page" : undefined}
+                className={`${pillBtn} ${active ? pillActive : pillIdle}`}
+              >
+                <Icon className="h-5 w-5" aria-hidden="true" />
+              </button>
+            );
+          })}
+
+          {/* Chevron dropdown — only secondary items without a dedicated view. */}
+          <Popover
+            open={moreOpen}
+            onClose={() => setMoreOpen(false)}
+            label={t("topbar.appSwitcher")}
+            trigger={
+              <button
+                type="button"
+                aria-label={t("topbar.appSwitcher")}
+                title={t("topbar.appSwitcher")}
+                aria-haspopup="menu"
+                aria-expanded={moreOpen}
+                onClick={() => setMoreOpen((v) => !v)}
+                className={`${pillBtn} !w-7 ${moreOpen ? pillActive : pillIdle}`}
+              >
+                <ChevronDown className="h-4 w-4" aria-hidden="true" />
+              </button>
+            }
+            panelClassName="w-[252px]"
+          >
+            <div role="menu">
+              <MenuItem
+                icon={<Users className={menuIcon} aria-hidden="true" />}
+                disabled
+                title={t("toolbar.comingSoon")}
+              >
+                {t("topbar.team")}
+              </MenuItem>
+              {/* (W50F) Docs link — opens externally via the opener plugin. */}
+              <MenuItem
+                icon={<HelpCircle className={menuIcon} aria-hidden="true" />}
+                onClick={() => {
+                  setMoreOpen(false);
+                  openExternal(DOCS_URL);
+                }}
+              >
+                {t("topbar.help")}
+              </MenuItem>
+            </div>
+          </Popover>
+        </nav>
       </div>
 
       {/* (W50I) Right cluster — separate white islands (MLX audit §2). */}
