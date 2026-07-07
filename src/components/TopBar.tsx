@@ -52,21 +52,17 @@ const PILLS: {
   { view: "proxyTemplates", icon: Network, labelKey: "topbar.proxyTemplates", match: ["proxyTemplates"] },
   { view: "templates", icon: Laptop, labelKey: "topbar.profileTemplates", match: ["templates"] },
   { view: "extensions", icon: Puzzle, labelKey: "topbar.extensions", match: ["extensions"] },
-  { view: "settings", icon: Settings, labelKey: "topbar.settings", match: ["settings"] },
 ];
 
 export function TopBar(props: TopBarProps) {
   const { view, onNavigate } = props;
   const { t } = useTranslation();
-  const [moreOpen, setMoreOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const initial = t("app.name").charAt(0).toUpperCase();
 
-  const menuIcon = "h-4 w-4 shrink-0 text-fg-muted";
-
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 bg-surface-0 px-2">
-      {/* (W50I-fix) One white island holding logo + divider + pill row + chevron (MLX audit §2). */}
+      {/* (W50I-fix) One white island holding logo + divider + pill row (MLX audit §2). */}
       <div className="flex h-10 items-center rounded-lg bg-surface-1 px-1.5">
         {/* Logo = home (Profiles), like the ML logo click. */}
         <button
@@ -109,46 +105,39 @@ export function TopBar(props: TopBarProps) {
             );
           })}
 
-          {/* Chevron dropdown — only secondary items without a dedicated view. */}
-          <Popover
-            open={moreOpen}
-            onClose={() => setMoreOpen(false)}
-            label={t("topbar.appSwitcher")}
-            trigger={
-              <button
-                type="button"
-                aria-label={t("topbar.appSwitcher")}
-                title={t("topbar.appSwitcher")}
-                aria-haspopup="menu"
-                aria-expanded={moreOpen}
-                onClick={() => setMoreOpen((v) => !v)}
-                className={`${pillBtn} !w-7 ${moreOpen ? pillActive : pillIdle}`}
-              >
-                <ChevronDown className="h-4 w-4" aria-hidden="true" />
-              </button>
-            }
-            panelClassName="w-[252px]"
+          {/* (W53b) Team — cloud-only feature, flat disabled pill (desktop MLX parity). */}
+          <button
+            type="button"
+            disabled
+            aria-label={t("topbar.team")}
+            title={t("toolbar.comingSoon")}
+            className={`${pillBtn} ${pillIdle} cursor-not-allowed opacity-40`}
           >
-            <div role="menu">
-              <MenuItem
-                icon={<Users className={menuIcon} aria-hidden="true" />}
-                disabled
-                title={t("toolbar.comingSoon")}
-              >
-                {t("topbar.team")}
-              </MenuItem>
-              {/* (W50F) Docs link — opens externally via the opener plugin. */}
-              <MenuItem
-                icon={<HelpCircle className={menuIcon} aria-hidden="true" />}
-                onClick={() => {
-                  setMoreOpen(false);
-                  openExternal(DOCS_URL);
-                }}
-              >
-                {t("topbar.help")}
-              </MenuItem>
-            </div>
-          </Popover>
+            <Users className="h-5 w-5" aria-hidden="true" />
+          </button>
+
+          {/* (W53b) Help — opens the docs externally via the opener plugin (W50F). */}
+          <button
+            type="button"
+            onClick={() => openExternal(DOCS_URL)}
+            aria-label={t("topbar.help")}
+            title={t("topbar.help")}
+            className={`${pillBtn} ${pillIdle}`}
+          >
+            <HelpCircle className="h-5 w-5" aria-hidden="true" />
+          </button>
+
+          {/* (W53b) Settings — last pill, matching the desktop MLX layout. */}
+          <button
+            type="button"
+            onClick={() => onNavigate?.("settings")}
+            aria-label={t("topbar.settings")}
+            title={t("topbar.settings")}
+            aria-current={view === "settings" ? "page" : undefined}
+            className={`${pillBtn} ${view === "settings" ? pillActive : pillIdle}`}
+          >
+            <Settings className="h-5 w-5" aria-hidden="true" />
+          </button>
         </nav>
       </div>
 
