@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { Folder } from "../lib/api";
+import { DOCS_URL, openExternal, type Folder } from "../lib/api";
 import { countActiveFilters, FilterPanel, type ProfileFilters } from "./FilterPanel";
 import { FolderPanel, MenuItem, Popover, TagPanel } from "./Popover";
 import type { ProfilesSort } from "./ProfileTable";
@@ -460,11 +460,10 @@ export function ProfilesToolbar(props: ProfilesToolbarProps) {
           </div>
         </div>
 
-        {/* (W50B) MLX school slot — docs link pending an external-open capability */}
+        {/* (W50B/W50F) MLX school slot — opens the docs page externally */}
         <ToolButton
           label={t("toolbar.help")}
-          title={t("topbar.linkUnavailable")}
-          disabled
+          onClick={() => openExternal(DOCS_URL)}
         >
           <GraduationCap className="h-4 w-4" aria-hidden="true" />
         </ToolButton>

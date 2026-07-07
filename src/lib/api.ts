@@ -8,6 +8,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 // --- Types (mirror src-tauri/src/models.rs) ---
 
@@ -712,4 +713,13 @@ export function onExitRequested(
 /** True when running inside the Tauri WebView (invoke available). */
 export function isTauri(): boolean {
   return "__TAURI_INTERNALS__" in window;
+}
+
+/** (W50F) Docs/support URL — tạm dùng repo cho tới khi có trang docs riêng. */
+export const DOCS_URL = "https://github.com/MintRouter/BrowserX";
+
+/** (W50F) Open an external URL — opener plugin in Tauri, new tab in plain-browser dev. */
+export function openExternal(url: string): void {
+  if (isTauri()) void openUrl(url).catch(() => {});
+  else window.open(url, "_blank", "noopener");
 }

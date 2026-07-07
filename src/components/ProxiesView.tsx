@@ -230,7 +230,7 @@ export function ProxiesView(props: ProxiesViewProps) {
               <rect x="60" y="36" width="42" height="5" rx="2.5" fill="#F1EDED" />
               <rect x="60" y="48" width="26" height="5" rx="2.5" fill="#F1EDED" />
               <circle cx="106" cy="72" r="16" fill="#F0F6FF" />
-              <path d="M106 66v12M100 72h12" stroke="#055FF0" strokeWidth="2.5" strokeLinecap="round" />
+              <path d="M106 66v12M100 72h12" stroke="#2563EB" strokeWidth="2.5" strokeLinecap="round" />
             </svg>
             <p className="text-xl font-medium text-fg">{t("proxy.emptyTitle")}</p>
             <p className="max-w-xs text-sm text-fg-muted">{t("proxy.emptyHint")}</p>

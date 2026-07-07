@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { DOCS_URL, openExternal } from "../lib/api";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { MenuItem, Popover } from "./Popover";
 import type { MainView } from "./Sidebar";
@@ -119,11 +120,13 @@ export function TopBar(props: TopBarProps) {
           >
             {t("topbar.team")}
           </MenuItem>
-          {/* Docs link pending an external-open capability (no opener plugin yet). */}
+          {/* (W50F) Docs link — opens externally via the opener plugin. */}
           <MenuItem
             icon={<HelpCircle className={menuIcon} aria-hidden="true" />}
-            disabled
-            title={t("topbar.linkUnavailable")}
+            onClick={() => {
+              setAppsOpen(false);
+              openExternal(DOCS_URL);
+            }}
           >
             {t("topbar.help")}
           </MenuItem>
@@ -138,13 +141,13 @@ export function TopBar(props: TopBarProps) {
 
       <div className="ml-auto flex h-11 items-center gap-2 rounded-lg bg-surface-1 px-2">
         <LanguageSwitcher />
-        {/* Support slot (ML parity) — disabled until external links can open. */}
+        {/* Support slot (ML parity) — opens the docs/support page (W50F). */}
         <button
           type="button"
-          disabled
+          onClick={() => openExternal(DOCS_URL)}
           aria-label={t("topbar.support")}
-          title={t("topbar.linkUnavailable")}
-          className={`${iconBtn} ${iconIdle} disabled:cursor-not-allowed disabled:opacity-40`}
+          title={t("topbar.support")}
+          className={`${iconBtn} ${iconIdle}`}
         >
           <LifeBuoy className="h-[18px] w-[18px]" aria-hidden="true" />
         </button>

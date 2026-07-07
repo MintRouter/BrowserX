@@ -44,10 +44,23 @@ export function ExtensionsView({
   const [dialog, setDialog] = useState<Extension | "add" | null>(null);
   const [menuId, setMenuId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  /** (W47) Extension awaiting the remove confirmation (window.confirm is a no-op in Tauri). */
-  const [removeConfirm, setRemoveConfirm] = useState<Extension | null>(null);
+  /** (W47) Remove confirmation target — one extension or the bulk selection ("bulk"). */
+  const [removeConfirm, setRemoveConfirm] = useState<Extension | "bulk" | null>(
+    null,
+  );
+  /** (W50F) Checked row ids for the bulk-remove action. */
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   /** profile id → assigned extension ids (Profiles column + assign dialog). */
   const [assignments, setAssignments] = useState<Record<string, string[]>>({});
+
+  // Drop selections that no longer exist after a refetch.
+  useEffect(() => {
+    setSelected((prev) => {
+      const ids = new Set(extensions.map((e) => e.id));
+      const next = new Set([...prev].filter((id) => ids.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [extensions]);
 
   const loadAssignments = useCallback(async () => {
     try {
@@ -100,13 +113,42 @@ export function ExtensionsView({
     (safePage + 1) * rowsPerPage,
   );
 
+  const allChecked = paged.length > 0 && paged.every((e) => selected.has(e.id));
+  const someChecked = paged.some((e) => selected.has(e.id));
+
+  const toggleRow = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const togglePage = (select: boolean) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const e of paged) {
+        if (select) next.add(e.id);
+        else next.delete(e.id);
+      }
+      return next;
+    });
+  };
+
   const handleRemove = async () => {
-    const ext = removeConfirm;
+    const target = removeConfirm;
     setRemoveConfirm(null);
-    if (!ext) return;
+    if (!target) return;
+    const ids = target === "bulk" ? [...selected] : [target.id];
     setError(null);
     try {
-      await api.removeExtension(ext.id);
+      for (const id of ids) await api.removeExtension(id);
+      setSelected((prev) => {
+        const next = new Set(prev);
+        for (const id of ids) next.delete(id);
+        return next;
+      });
       await onChanged();
       await loadAssignments();
     } catch (err) {
@@ -147,6 +189,18 @@ export function ExtensionsView({
             <Plus className="h-4 w-4" aria-hidden="true" />
             <span>{t("ext.add")}</span>
           </button>
+
+          {/* (W50F) Bulk remove — appears while rows are selected (shell parity) */}
+          {selected.size > 0 && (
+            <button
+              type="button"
+              onClick={() => setRemoveConfirm("bulk")}
+              className="btn-danger h-9 py-1.5"
+            >
+              <Trash2 className="h-4 w-4" aria-hidden="true" />
+              <span>{t("ext.removeSelected", { count: selected.size })}</span>
+            </button>
+          )}
 
           <div className="relative ml-auto w-[225px]">
             <Search
@@ -190,6 +244,18 @@ export function ExtensionsView({
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10 border-b border-border bg-surface-2">
                 <tr className="h-10 border-b border-border">
+                  <th scope="col" className="w-10 px-3 align-middle">
+                    <input
+                      type="checkbox"
+                      aria-label={t("table.selectAll")}
+                      checked={allChecked}
+                      ref={(el) => {
+                        if (el) el.indeterminate = someChecked && !allChecked;
+                      }}
+                      onChange={() => togglePage(!allChecked)}
+                      className="h-4 w-4 cursor-pointer rounded border-border accent-accent"
+                    />
+                  </th>
                   <th scope="col" className={th}>{t("ext.name")}</th>
                   <th scope="col" className={th}>{t("ext.source")}</th>
                   <th scope="col" className={th}>{t("ext.enabled")}</th>
@@ -205,6 +271,15 @@ export function ExtensionsView({
                     key={ext.id}
                     className="h-[49px] border-b border-border transition-colors hover:bg-accent/[0.03] [&>td]:align-middle"
                   >
+                    <td className="w-10 px-3 py-2">
+                      <input
+                        type="checkbox"
+                        aria-label={`${t("table.selectRow")}: ${ext.name}`}
+                        checked={selected.has(ext.id)}
+                        onChange={() => toggleRow(ext.id)}
+                        className="h-4 w-4 cursor-pointer rounded border-border accent-accent"
+                      />
+                    </td>
                     <td className="max-w-0 px-3 py-2">
                       <div className="flex items-center gap-2">
                         <Puzzle
@@ -329,7 +404,11 @@ export function ExtensionsView({
       )}
       {removeConfirm && (
         <ConfirmDialog
-          message={t("ext.confirmRemove", { name: removeConfirm.name })}
+          message={
+            removeConfirm === "bulk"
+              ? t("ext.confirmRemoveMany", { count: selected.size })
+              : t("ext.confirmRemove", { name: removeConfirm.name })
+          }
           confirmLabel={t("ext.remove")}
           onConfirm={() => void handleRemove()}
           onCancel={() => setRemoveConfirm(null)}

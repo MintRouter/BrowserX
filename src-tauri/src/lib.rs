@@ -38,6 +38,8 @@ pub mod storage;
 pub fn run() {
     logging::init();
     tauri::Builder::default()
+        // (W50F) External links (Help/Support/docs) qua opener plugin.
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             use std::sync::Arc;
             use tauri::Manager;
