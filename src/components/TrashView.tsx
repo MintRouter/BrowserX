@@ -5,6 +5,7 @@ import {
   History,
   Search,
   SearchX,
+  SlidersHorizontal,
   Star,
   Trash2,
 } from "lucide-react";
@@ -13,6 +14,8 @@ import { useTranslation } from "react-i18next";
 import type { Folder, Profile } from "../lib/api";
 import { Checkbox } from "./Checkbox";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { countActiveFilters, FilterPanel, type ProfileFilters } from "./FilterPanel";
+import { Popover } from "./Popover";
 import { TableFooter } from "./TableFooter";
 
 interface TrashViewProps {
@@ -61,6 +64,9 @@ export function TrashView({
 }: TrashViewProps) {
   const { t, i18n } = useTranslation();
   const [search, setSearch] = useState("");
+  /** (W50J) Advanced filters — same FilterPanel as Profiles, matched client-side. */
+  const [filters, setFilters] = useState<ProfileFilters>({});
+  const [filterOpen, setFilterOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(100);
@@ -71,6 +77,7 @@ export function TrashView({
   const [purgeConfirm, setPurgeConfirm] = useState<string[] | "all" | null>(
     null,
   );
+  const activeFilters = countActiveFilters(filters);
 
   const deletedAt = (p: Profile) =>
     (p as unknown as { deleted_at?: string }).deleted_at ?? p.updated_at;
@@ -87,19 +94,30 @@ export function TrashView({
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const list = q
+    let list = q
       ? items.filter((p) => p.name.toLowerCase().includes(q))
       : [...items];
+    // (W50J) FilterPanel criteria matched client-side (trash list is local, no SQL).
+    const { name, os, hasProxy, tag, folderId, runtime } = filters;
+    const nq = name?.trim().toLowerCase();
+    if (nq) list = list.filter((p) => p.name.toLowerCase().includes(nq));
+    if (os) list = list.filter((p) => p.platform === os);
+    if (hasProxy !== undefined)
+      list = list.filter((p) => (p.proxy_id !== null) === hasProxy);
+    if (tag) list = list.filter((p) => p.tags.includes(tag));
+    if (folderId) list = list.filter((p) => p.folder_id === folderId);
+    // Trashed profiles are never running.
+    if (runtime === "running") list = [];
     list.sort((a, b) => {
       const cmp = deletedAt(a).localeCompare(deletedAt(b));
       return sortDir === "asc" ? cmp : -cmp;
     });
     return list;
-  }, [items, search, sortDir]);
+  }, [items, search, filters, sortDir]);
 
   useEffect(() => {
     setPage(0);
-  }, [search, rowsPerPage, items.length]);
+  }, [search, filters, rowsPerPage, items.length]);
 
   // Drop selected ids that no longer exist (e.g. after restore/purge).
   useEffect(() => {
@@ -216,8 +234,51 @@ export function TrashView({
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t("trash.searchPlaceholder")}
               aria-label={t("trash.searchPlaceholder")}
-              className="h-9 w-full rounded-md border border-border bg-surface-2 pl-9 pr-3 text-sm text-fg placeholder:text-fg-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/50"
+              className="h-9 w-full rounded-md border border-border bg-surface-2 pl-9 pr-9 text-sm text-fg placeholder:text-fg-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/50"
             />
+            {/* (W50J) Filter icon — same look/panel as the Profiles search box */}
+            <div className="absolute right-2 top-1/2 -translate-y-1/2">
+              <Popover
+                open={filterOpen}
+                onClose={() => setFilterOpen(false)}
+                label={t("toolbar.filters")}
+                align="end"
+                trigger={
+                  <button
+                    type="button"
+                    aria-label={
+                      activeFilters > 0
+                        ? `${t("toolbar.filters")} (${t("toolbar.filtersActive", { count: activeFilters })})`
+                        : t("toolbar.filters")
+                    }
+                    title={t("toolbar.filters")}
+                    aria-haspopup="dialog"
+                    aria-expanded={filterOpen}
+                    onClick={() => setFilterOpen((v) => !v)}
+                    className={`relative grid h-6 w-6 place-items-center rounded-full transition-colors hover:bg-surface-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
+                      activeFilters > 0 ? "text-accent" : "text-fg-muted"
+                    }`}
+                  >
+                    <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+                    {activeFilters > 0 && (
+                      <span
+                        aria-hidden="true"
+                        className="absolute -right-0.5 -top-0.5 grid h-3.5 w-3.5 place-items-center rounded-full bg-accent text-[9px] font-semibold leading-none text-white"
+                      >
+                        {activeFilters}
+                      </span>
+                    )}
+                  </button>
+                }
+              >
+                <FilterPanel
+                  filters={filters}
+                  folders={folders}
+                  onChange={setFilters}
+                  onClose={() => setFilterOpen(false)}
+                />
+              </Popover>
+            </div>
           </div>
         </div>
 

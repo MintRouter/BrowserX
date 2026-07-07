@@ -368,44 +368,44 @@ export function ProfilesToolbar(props: ProfilesToolbarProps) {
         </>
       )}
 
-      {/* Right: kebab + search */}
-      <div className="ml-auto flex items-center gap-3">
-        <Popover
-          open={menu === "more"}
-          onClose={close}
-          label={t("toolbar.more")}
-          align="end"
-          trigger={
-            <ToolButton
-              label={t("toolbar.more")}
-              expanded={menu === "more"}
-              onClick={() => toggle("more")}
-            >
-              <EllipsisVertical className="h-4 w-4" aria-hidden="true" />
-            </ToolButton>
-          }
+      {/* (W50J) Kebab closes the bulk-action row — 8th icon inline (MLX parity). */}
+      <Popover
+        open={menu === "more"}
+        onClose={close}
+        label={t("toolbar.more")}
+        trigger={
+          <ToolButton
+            label={t("toolbar.more")}
+            expanded={menu === "more"}
+            onClick={() => toggle("more")}
+          >
+            <EllipsisVertical className="h-4 w-4" aria-hidden="true" />
+          </ToolButton>
+        }
+      >
+        {/* Import .bxprofile (W19a) — triggers the hidden file input */}
+        <MenuItem
+          icon={<Upload className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+          onClick={() => {
+            close();
+            fileRef.current?.click();
+          }}
         >
-          {/* Import .bxprofile (W19a) — triggers the hidden file input */}
-          <MenuItem
-            icon={<Upload className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
-            onClick={() => {
-              close();
-              fileRef.current?.click();
-            }}
-          >
-            {t("exchange.importButton")}
-          </MenuItem>
-          <MenuItem
-            disabled={none}
-            onClick={() => {
-              close();
-              props.onClearSelection();
-            }}
-          >
-            {t("toolbar.clearSelection")}
-          </MenuItem>
-        </Popover>
+          {t("exchange.importButton")}
+        </MenuItem>
+        <MenuItem
+          disabled={none}
+          onClick={() => {
+            close();
+            props.onClearSelection();
+          }}
+        >
+          {t("toolbar.clearSelection")}
+        </MenuItem>
+      </Popover>
 
+      {/* Right: search + help */}
+      <div className="ml-auto flex items-center gap-3">
         <div className="relative w-[329px]">
           <Search
             className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted"
