@@ -101,6 +101,12 @@ fn open_with_key(key: &[u8; KEY_LEN], ciphertext: &[u8]) -> Result<Vec<u8>> {
         .map_err(|_| AppError::Crypto("decryption failed (wrong key or corrupted data)".into()))
 }
 
+/// (W51-B1) Khoá gốc làm INPUT KDF cho module khác (archive.rs derive
+/// Argon2id + salt riêng — KHÔNG dùng trực tiếp làm khoá mã hoá).
+pub(crate) fn master_key_material() -> Result<[u8; KEY_LEN]> {
+    master_key()
+}
+
 /// Lấy khoá gốc (cache trong process). Env → keychain → file, không panic.
 fn master_key() -> Result<[u8; KEY_LEN]> {
     let mut guard = MASTER_KEY

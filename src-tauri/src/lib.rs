@@ -13,6 +13,7 @@
 //! - `commands` — Tauri commands (invoke handlers) (Wave 3a)
 //! - `storage`  — đo dung lượng + dọn cache profile (W16)
 
+pub mod archive;
 pub mod backup;
 pub mod binary;
 pub mod cdp;
@@ -58,8 +59,23 @@ pub fn run() {
                 let _handle = watchdog.start_watchdog(2000, move |profile_id, clean| {
                     let status = if clean { "stopped" } else { "crashed" };
                     commands::emit_status(&status_app, profile_id, status, None, None);
-                    let _ = commands::auto_clear_cache_if_enabled(&watchdog_db, profile_id);
-                    let _ = commands::apply_storage_options_on_stop(&watchdog_db, profile_id);
+                    let cleanups = commands::auto_clear_cache_if_enabled(&watchdog_db, profile_id)
+                        .into_iter()
+                        .chain(commands::apply_storage_options_on_stop(
+                            &watchdog_db,
+                            profile_id,
+                        ))
+                        .collect();
+                    // (W51-B1) Archive best-effort sau sanitize — kể cả crash
+                    // (dữ liệu trên đĩa vẫn backup được). Task đã spawn, drop
+                    // handle là đủ (fire-and-forget).
+                    drop(commands::archive_profile_after_stop(
+                        status_app.clone(),
+                        &watchdog_db,
+                        profile_id,
+                        status,
+                        cleanups,
+                    ));
                 });
             });
 
@@ -151,6 +167,7 @@ pub fn run() {
             commands::stop_all_and_quit,
             commands::create_backup,
             commands::restore_backup,
+            commands::restore_profile_archive,
             commands::restart_app,
             commands::list_extensions,
             commands::add_extension_from_folder,

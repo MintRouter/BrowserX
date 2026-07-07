@@ -36,7 +36,9 @@ use crate::models::{
 use crate::metrics::LaunchMetrics;
 use crate::process::ProcessManager;
 use crate::proxy_check::{self, ProxyCheckResult};
-use crate::{binary, cdp, cookierobot, cookies, crypto, extensions, geoip, launcher, storage};
+use crate::{
+    archive, binary, cdp, cookierobot, cookies, crypto, extensions, geoip, launcher, storage,
+};
 
 /// State toàn app — khởi tạo trong `tauri::Builder::setup` (lib.rs) rồi `.manage()`.
 pub struct AppState {
@@ -740,6 +742,31 @@ async fn launch_profile_inner(
         }
     }
 
+    // (W51-B1) Run-dir thiếu dữ liệu mà có archive local `.bxa` → restore
+    // best-effort TRƯỚC khi spawn (mất run-dir vẫn cứu được session từ backup);
+    // lỗi restore chỉ log warn, launch tiếp với profile trống.
+    {
+        let dir = PathBuf::from(&profile.user_data_dir);
+        if !dir.join("Default").is_dir()
+            && archive::archive_path(&dir, profile_id).is_some_and(|p| p.is_file())
+        {
+            let id = profile_id.to_string();
+            match tokio::task::spawn_blocking(move || archive::restore_archive(&dir, &id)).await {
+                Ok(Ok(())) => {
+                    tracing::info!(
+                        "launch_profile {profile_id}: restored user_data_dir from local archive"
+                    );
+                }
+                Ok(Err(e)) => tracing::warn!(
+                    "launch_profile {profile_id}: archive restore failed — launching fresh: {e}"
+                ),
+                Err(e) => tracing::warn!(
+                    "launch_profile {profile_id}: archive restore panicked — launching fresh: {e}"
+                ),
+            }
+        }
+    }
+
     let proxy_url = match profile.proxy_id.as_deref() {
         Some(pid) => Some(proxy_url_from(&state.db.get_proxy(pid)?)?),
         None => None,
@@ -826,8 +853,92 @@ pub async fn stop_profile(
         .db
         .insert_audit("profile.stop", Some(&profile_id), None)?;
     emit_status(&app, &profile_id, "stopped", None, None);
-    let _ = auto_clear_cache_if_enabled(&state.db, &profile_id);
-    let _ = apply_storage_options_on_stop(&state.db, &profile_id);
+    let cleanups = auto_clear_cache_if_enabled(&state.db, &profile_id)
+        .into_iter()
+        .chain(apply_storage_options_on_stop(&state.db, &profile_id))
+        .collect();
+    // (W51-B1) Archive best-effort SAU sanitize; lỗi không chặn stop-flow.
+    archive_profile_after_stop(app, &state.db, &profile_id, "stopped", cleanups);
+    Ok(())
+}
+
+/// (W51-B1) Nén + mã hoá profile thành `.bxa` SAU khi phiên dừng và các
+/// cleanup W49/W20b (`cleanups`) chạy xong — archive phải chụp dữ liệu ĐÃ
+/// sanitize. Best-effort trong background: mọi lỗi chỉ log warn, không chặn
+/// stop-flow. Emit `profile://status` "archiving" khi bắt đầu nén và
+/// `final_status` ("stopped"/"crashed") khi xong. Semaphore trong archive.rs
+/// giới hạn tối đa 2 archive song song.
+pub(crate) fn archive_profile_after_stop(
+    app: AppHandle,
+    db: &Arc<Db>,
+    profile_id: &str,
+    final_status: &str,
+    cleanups: Vec<tauri::async_runtime::JoinHandle<()>>,
+) -> tauri::async_runtime::JoinHandle<()> {
+    let db = Arc::clone(db);
+    let profile_id = profile_id.to_string();
+    let final_status = final_status.to_string();
+    tauri::async_runtime::spawn(async move {
+        for h in cleanups {
+            let _ = h.await;
+        }
+        let Ok(profile) = db.get_profile(&profile_id) else {
+            return;
+        };
+        let dir = PathBuf::from(profile.user_data_dir);
+        let _slot = archive::acquire_slot().await;
+        emit_status(&app, &profile_id, "archiving", None, None);
+        let id = profile_id.clone();
+        let res = tokio::task::spawn_blocking(move || archive::archive_profile(&dir, &id)).await;
+        match res {
+            Ok(Ok(archive::ArchiveOutcome::Written { bytes })) => {
+                tracing::info!("archive {profile_id}: wrote {bytes} bytes to local .bxa");
+                let _ = db.insert_audit(
+                    "profile.archive",
+                    Some(&profile_id),
+                    Some(&json!({ "bytes": bytes })),
+                );
+            }
+            Ok(Ok(archive::ArchiveOutcome::SkippedClean)) => {
+                tracing::info!("archive {profile_id}: skipped — data unchanged since last archive");
+            }
+            Ok(Ok(archive::ArchiveOutcome::SkippedNoData)) => {
+                tracing::debug!("archive {profile_id}: no Default/ dir — nothing to archive");
+            }
+            Ok(Err(e)) => tracing::warn!("archive {profile_id} failed (best-effort): {e}"),
+            Err(e) => tracing::warn!("archive {profile_id} task panicked: {e}"),
+        }
+        emit_status(&app, &profile_id, &final_status, None, None);
+    })
+}
+
+/// (W51-B1) Restore thủ công từ archive local `.bxa`: giải mã → verify GCM →
+/// giải nén vào user_data_dir. CHỈ khi run-dir thiếu/hỏng (không có `Default/`)
+/// — có dữ liệu rồi thì REFUSE để không ghi đè session mới bằng backup cũ.
+#[tauri::command]
+pub async fn restore_profile_archive(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<()> {
+    if state.procs.is_running(&profile_id).await {
+        return Err(AppError::InvalidInput(format!(
+            "profile {profile_id} đang chạy — stop trước khi restore archive"
+        )));
+    }
+    let profile = state.db.get_profile(&profile_id)?;
+    let dir = PathBuf::from(profile.user_data_dir);
+    if dir.join("Default").is_dir() {
+        return Err(AppError::InvalidInput(
+            "user_data_dir vẫn còn dữ liệu — chỉ restore khi run-dir thiếu/hỏng".into(),
+        ));
+    }
+    let id = profile_id.clone();
+    tokio::task::spawn_blocking(move || archive::restore_archive(&dir, &id))
+        .await
+        .map_err(|e| AppError::Other(anyhow::anyhow!("restore archive panic: {e}")))??;
+    state
+        .db
+        .insert_audit("profile.archive_restore", Some(&profile_id), None)?;
     Ok(())
 }
 
