@@ -128,6 +128,16 @@ function initialState(profile: Profile | null, defaultName: string): FormState {
   };
 }
 
+/** MLX-style section divider: muted label + hairline rule. */
+function SectionHeading({ label }: { label: string }) {
+  return (
+    <div className="mb-4 flex items-center gap-3">
+      <h2 className="text-sm font-medium text-fg-muted">{label}</h2>
+      <div className="h-px flex-1 bg-border" aria-hidden="true" />
+    </div>
+  );
+}
+
 /** Parse the launch-args textarea: must be empty or a JSON array of strings. */
 function parseLaunchArgs(text: string): { args: string[] } | { error: true } {
   const trimmed = text.trim();
@@ -183,6 +193,9 @@ export function ProfileForm({
   const extAssignDirty = useRef(false);
   const defaultFolderApplied = useRef(false);
   const tabRefs = useRef<Partial<Record<TabId, HTMLButtonElement | null>>>({});
+  // (W50G) MLX parity: tabs are anchors into one long scroll page.
+  const sectionRefs = useRef<Partial<Record<TabId, HTMLElement | null>>>({});
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const set: SetField = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -479,6 +492,38 @@ export function ProfileForm({
     }
   };
 
+  // (W50G) Anchor-tab click: smooth-scroll the section to the top of the page.
+  const scrollToSection = (tab: TabId) => {
+    setActiveTab(tab);
+    const el = sectionRefs.current[tab];
+    const container = scrollRef.current;
+    if (!el || !container) return;
+    container.scrollTo({
+      top:
+        el.getBoundingClientRect().top -
+        container.getBoundingClientRect().top +
+        container.scrollTop -
+        12,
+      behavior: "smooth",
+    });
+  };
+
+  // (W50G) Scroll-spy: underline the tab of the section nearest the top.
+  const handleScroll = () => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const cTop = container.getBoundingClientRect().top;
+    let current: TabId = "general";
+    for (const tab of TABS) {
+      const el = sectionRefs.current[tab];
+      if (el && el.getBoundingClientRect().top - cTop <= 96) current = tab;
+    }
+    if (container.scrollTop + container.clientHeight >= container.scrollHeight - 4) {
+      current = "extra";
+    }
+    setActiveTab(current);
+  };
+
   const handleTabKeyDown = (e: React.KeyboardEvent) => {
     const idx = TABS.indexOf(activeTab);
     let next: TabId | null = null;
@@ -488,7 +533,7 @@ export function ProfileForm({
     else if (e.key === "End") next = TABS[TABS.length - 1] ?? null;
     if (next) {
       e.preventDefault();
-      setActiveTab(next);
+      scrollToSection(next);
       tabRefs.current[next]?.focus();
     }
   };
@@ -513,9 +558,8 @@ export function ProfileForm({
         </h1>
       </div>
 
-      {/* Tab bar */}
-      <div
-        role="tablist"
+      {/* (W50G) Anchor-tab bar: MLX parity — tabs scroll to sections in one long page */}
+      <nav
         aria-label={t("pform.tabsLabel")}
         onKeyDown={handleTabKeyDown}
         className="flex border-b border-border px-6"
@@ -529,12 +573,9 @@ export function ProfileForm({
                 tabRefs.current[tab] = el;
               }}
               type="button"
-              role="tab"
               id={`pf-tab-${tab}`}
-              aria-selected={active}
-              aria-controls="pf-tabpanel"
-              tabIndex={active ? 0 : -1}
-              onClick={() => setActiveTab(tab)}
+              aria-current={active ? "true" : undefined}
+              onClick={() => scrollToSection(tab)}
               className={[
                 "-mb-px inline-flex h-12 items-center border-b-2 px-8 text-sm font-medium",
                 "transition-colors motion-reduce:transition-none",
@@ -548,19 +589,24 @@ export function ProfileForm({
             </button>
           );
         })}
-      </div>
+      </nav>
 
-      {/* Content: form column + overview column */}
-      <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
-        <div className="flex flex-col gap-6 px-6 py-5 lg:h-full lg:flex-row">
-          <div
-            id="pf-tabpanel"
-            role="tabpanel"
-            aria-labelledby={`pf-tab-${activeTab}`}
-            tabIndex={0}
-            className="min-w-0 flex-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 lg:h-full lg:max-w-[640px] lg:overflow-y-auto lg:pr-2"
-          >
-            {activeTab === "general" && (
+      {/* (W50G) Content: one long scroll page — all sections stacked in the
+          ~560px form column, overview panel sticky on the right. */}
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="min-h-0 flex-1 overflow-y-auto"
+      >
+        <div className="flex flex-col gap-6 px-6 py-5 lg:flex-row lg:items-start">
+          <div className="min-w-0 flex-1 space-y-8 lg:max-w-[560px]">
+            <section
+              id="pf-section-general"
+              aria-label={t("pform.tabs.general")}
+              ref={(el) => {
+                sectionRefs.current.general = el;
+              }}
+            >
               <GeneralTab
                 form={form}
                 set={set}
@@ -573,17 +619,40 @@ export function ProfileForm({
                 saveAsTemplate={saveAsTemplate}
                 onSaveAsTemplateChange={setSaveAsTemplate}
               />
-            )}
-            {activeTab === "proxy" && (
+            </section>
+            <section
+              id="pf-section-proxy"
+              aria-label={t("pform.tabs.proxy")}
+              ref={(el) => {
+                sectionRefs.current.proxy = el;
+              }}
+            >
+              <SectionHeading label={t("pform.tabs.proxy")} />
               <ProxyTab
                 form={form}
                 set={set}
                 proxies={proxies}
                 onProxiesChanged={onProxiesChanged}
               />
-            )}
-            {activeTab === "fingerprint" && <FingerprintTab form={form} set={set} />}
-            {activeTab === "extra" && (
+            </section>
+            <section
+              id="pf-section-fingerprint"
+              aria-label={t("pform.tabs.fingerprint")}
+              ref={(el) => {
+                sectionRefs.current.fingerprint = el;
+              }}
+            >
+              <SectionHeading label={t("pform.tabs.fingerprint")} />
+              <FingerprintTab form={form} set={set} />
+            </section>
+            <section
+              id="pf-section-extra"
+              aria-label={t("pform.tabs.extra")}
+              ref={(el) => {
+                sectionRefs.current.extra = el;
+              }}
+            >
+              <SectionHeading label={t("pform.tabs.extra")} />
               <ExtraTab
                 form={form}
                 set={set}
@@ -594,15 +663,13 @@ export function ProfileForm({
                 assignedExtIds={assignedExtIds}
                 onToggleExtension={toggleExtension}
               />
-            )}
+            </section>
           </div>
           <aside
             aria-label={t("pform.ov.title")}
-            className="w-full shrink-0 lg:h-full lg:w-[340px] lg:overflow-y-auto"
+            className="w-full shrink-0 lg:sticky lg:top-0 lg:w-[340px]"
           >
-            <div className="lg:sticky lg:top-0">
-              <OverviewPanel form={form} proxies={proxies} />
-            </div>
+            <OverviewPanel form={form} proxies={proxies} />
           </aside>
         </div>
       </div>

@@ -28,7 +28,7 @@ interface ProfileListProps {
   onSelectedChange: (selected: Set<string>) => void;
   settings: Record<string, string> | null;
   onNewProfile: () => void;
-  onQuickProfile: () => Promise<void>;
+  onQuickProfile: () => void | Promise<void>;
   onEdit: (profile: Profile) => void;
   onLaunch: (id: string) => Promise<void>;
   onStop: (id: string) => Promise<void>;

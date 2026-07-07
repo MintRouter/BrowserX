@@ -469,6 +469,28 @@
     "confirmPurgeMany_other": "Xoá vĩnh viễn {{count}} profile? Không thể hoàn tác.",
     "confirmEmpty_other": "Dọn sạch thùng rác? {{count}} profile sẽ bị xoá vĩnh viễn. Không thể hoàn tác."
   },
+  "quick": {
+    "title": "Tạo profile nhanh",
+    "subtitle": "Khi đóng profile nhanh, profile sẽ tự động bị xoá cùng toàn bộ dữ liệu.",
+    "close": "Đóng",
+    "tipCheckProxy": "Kiểm tra proxy trước khi chạy profile để giảm rủi ro bị chặn",
+    "template": "Mẫu profile",
+    "templateNone": "Chọn mẫu",
+    "count": "Số lượng profile (tối đa {{max}})",
+    "countDec": "Giảm số lượng",
+    "countInc": "Tăng số lượng",
+    "screenMasked": "Che giấu",
+    "screenCustom": "Tuỳ chỉnh",
+    "screenReal": "Thật",
+    "headless": "Chạy headless",
+    "proxySaved": "Proxy đã lưu",
+    "proxyNone": "Không",
+    "proxyPick": "Proxy",
+    "noProxies": "Chưa có proxy nào — thêm trong trang Proxies.",
+    "checkOk": "Proxy OK — {{ip}} · {{ms}} ms",
+    "cancel": "Huỷ",
+    "start": "Bắt đầu"
+  },
   "quickStop": {
     "title": "Dừng profile nhanh",
     "message": "\"{{name}}\" là profile nhanh — dữ liệu browser sẽ bị xoá khi đóng. Lưu thành profile thường để giữ lại dữ liệu.",

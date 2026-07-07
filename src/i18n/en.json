@@ -476,6 +476,28 @@
     "confirmEmpty_one": "Empty the trash bin? {{count}} profile will be permanently deleted. This cannot be undone.",
     "confirmEmpty_other": "Empty the trash bin? {{count}} profiles will be permanently deleted. This cannot be undone."
   },
+  "quick": {
+    "title": "Create quick profile",
+    "subtitle": "When you close a quick browser profile, it is automatically deleted along with all its data.",
+    "close": "Close",
+    "tipCheckProxy": "Check the proxy before starting the profile to reduce ban risk",
+    "template": "Profile template",
+    "templateNone": "Select template",
+    "count": "Number of profiles ({{max}} max)",
+    "countDec": "Fewer profiles",
+    "countInc": "More profiles",
+    "screenMasked": "Masked",
+    "screenCustom": "Custom",
+    "screenReal": "Real",
+    "headless": "Start headless",
+    "proxySaved": "Saved proxy",
+    "proxyNone": "None",
+    "proxyPick": "Proxy",
+    "noProxies": "No saved proxies yet — add them in the Proxies view.",
+    "checkOk": "Proxy OK — {{ip}} · {{ms}} ms",
+    "cancel": "Cancel",
+    "start": "Start"
+  },
   "quickStop": {
     "title": "Stop quick profile",
     "message": "\"{{name}}\" is a quick profile — its browser data will be deleted when closed. Save it as a regular profile to keep the data.",

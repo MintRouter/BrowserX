@@ -67,7 +67,7 @@ export function Segmented<T extends string>({
       aria-label={label}
       title={title}
       className={[
-        "inline-flex rounded-lg bg-surface-2 p-0.5",
+        "inline-flex rounded-lg bg-[#F1F2F4] p-0.5 dark:bg-surface-2",
         disabled ? "opacity-50" : "",
       ].join(" ")}
     >
@@ -86,7 +86,7 @@ export function Segmented<T extends string>({
               "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60",
               disabled ? "cursor-not-allowed" : "",
               active
-                ? "bg-surface-1 text-fg shadow-sm"
+                ? "bg-white text-accent shadow-sm dark:bg-surface-1"
                 : "text-fg-muted hover:text-fg",
             ].join(" ")}
           >

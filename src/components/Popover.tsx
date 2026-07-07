@@ -66,9 +66,11 @@ interface MenuItemProps {
   disabled?: boolean;
   danger?: boolean;
   title?: string;
+  /** (W50G) MLX parity: gray right-aligned keyboard-shortcut hint (display only). */
+  shortcut?: string;
 }
 
-export function MenuItem({ icon, children, onClick, disabled, danger, title }: MenuItemProps) {
+export function MenuItem({ icon, children, onClick, disabled, danger, title, shortcut }: MenuItemProps) {
   return (
     <button
       type="button"
@@ -82,8 +84,18 @@ export function MenuItem({ icon, children, onClick, disabled, danger, title }: M
     >
       {icon}
       <span className="flex-1 truncate">{children}</span>
+      {shortcut && (
+        <span aria-hidden="true" className="ml-4 shrink-0 text-xs text-fg-muted">
+          {shortcut}
+        </span>
+      )}
     </button>
   );
+}
+
+/** (W50G) Thin divider between menu groups (MLX parity). */
+export function MenuDivider() {
+  return <div role="separator" className="mx-1 my-1 h-px bg-border" aria-hidden="true" />;
 }
 
 /** Folder picker list: "Default folder" (null) + user folders. */

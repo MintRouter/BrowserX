@@ -31,7 +31,8 @@ import {
 import { useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Folder, Platform, Profile } from "../lib/api";
-import { ExtensionsPanel, FolderPanel, MenuItem, Popover, TagPanel } from "./Popover";
+import { detectHostPlatform } from "../lib/host";
+import { ExtensionsPanel, FolderPanel, MenuDivider, MenuItem, Popover, TagPanel } from "./Popover";
 
 export type ProfilesSort = { key: "name" | "updated"; dir: "asc" | "desc" };
 
@@ -298,6 +299,7 @@ function RowMenu({
   onClearCache,
   onTrash,
   onOpenChange,
+  onSelect,
 }: {
   profile: Profile;
   folders: Folder[];
@@ -319,14 +321,19 @@ function RowMenu({
   onTrash: () => void;
   /** (W27) Tells the table which row's menu is open so it stays mounted while scrolling. */
   onOpenChange: (open: boolean) => void;
+  /** (W50G) MLX parity: opening the kebab menu also selects the row. */
+  onSelect: () => void;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"root" | "move" | "tags" | "extensions">("root");
+  // (W50G) Display-only shortcut hints, mod key per host OS (MLX parity).
+  const mod = detectHostPlatform() === "macos" ? "Cmd" : "Ctrl";
 
   const openMenu = () => {
     setOpen(true);
     onOpenChange(true);
+    onSelect();
   };
   const close = () => {
     setOpen(false);
@@ -340,6 +347,7 @@ function RowMenu({
       onClose={close}
       align="end"
       label={`${t("table.rowMenu")}: ${profile.name}`}
+      panelClassName={mode === "root" ? "w-[260px]" : ""}
       trigger={
         <button
           type="button"
@@ -354,75 +362,9 @@ function RowMenu({
       }
     >
       {mode === "root" ? (
+        /* (W50G) MLX parity: 4 groups split by dividers, gray shortcut hints. */
         <>
-          <MenuItem
-            icon={<Pencil className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
-            onClick={() => {
-              close();
-              onEdit();
-            }}
-          >
-            {t("toolbar.editSelected")}
-          </MenuItem>
-          <MenuItem
-            icon={<PenLine className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
-            onClick={() => {
-              close();
-              onRename();
-            }}
-          >
-            {t("listUtils.rename")}
-          </MenuItem>
-          <MenuItem
-            icon={
-              <ClipboardCopy className="h-4 w-4 text-fg-muted" aria-hidden="true" />
-            }
-            onClick={() => {
-              close();
-              onCopyId();
-            }}
-          >
-            {t("listUtils.copyId")}
-          </MenuItem>
-          <span
-            className="block"
-            title={!running ? t("listUtils.copyCdpUrlNotRunning") : undefined}
-          >
-            <MenuItem
-              disabled={!running}
-              icon={<Link2 className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
-              onClick={() => {
-                close();
-                onCopyCdpUrl();
-              }}
-            >
-              {t("listUtils.copyCdpUrl")}
-            </MenuItem>
-          </span>
-          <span
-            className="block"
-            title={!running ? t("listUtils.bringToFrontNotRunning") : undefined}
-          >
-            <MenuItem
-              disabled={!running}
-              icon={<MonitorUp className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
-              onClick={() => {
-                close();
-                onBringToFront();
-              }}
-            >
-              {t("listUtils.bringToFront")}
-            </MenuItem>
-          </span>
-          <MenuItem
-            icon={<Copy className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
-            onClick={() => {
-              close();
-              onClone();
-            }}
-          >
-            {t("toolbar.clone")}
-          </MenuItem>
+          {/* Group 1 — proxies / cookies / extensions */}
           <MenuItem
             icon={<Shuffle className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
             onClick={() => {
@@ -432,21 +374,6 @@ function RowMenu({
           >
             {t("toolbar.rotateProxy")}
           </MenuItem>
-          <span
-            className="block"
-            title={running ? t("exchange.exportRunning") : undefined}
-          >
-            <MenuItem
-              disabled={running}
-              icon={<Download className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
-              onClick={() => {
-                close();
-                onExport();
-              }}
-            >
-              {t("exchange.export")}
-            </MenuItem>
-          </span>
           <MenuItem
             icon={<Cookie className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
             onClick={() => {
@@ -475,7 +402,46 @@ function RowMenu({
             {t("robot.menu")}
           </MenuItem>
           <MenuItem
+            icon={<Puzzle className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+            onClick={() => setMode("extensions")}
+          >
+            {t("ext.rowMenu")}
+          </MenuItem>
+          <MenuDivider />
+          {/* Group 2 — profile actions */}
+          <MenuItem
+            icon={<Pencil className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+            shortcut={`${mod}+E`}
+            onClick={() => {
+              close();
+              onEdit();
+            }}
+          >
+            {t("toolbar.editSelected")}
+          </MenuItem>
+          <MenuItem
+            icon={<PenLine className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+            shortcut="F2"
+            onClick={() => {
+              close();
+              onRename();
+            }}
+          >
+            {t("listUtils.rename")}
+          </MenuItem>
+          <MenuItem
+            icon={<Copy className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+            shortcut={`${mod}+Shift+C`}
+            onClick={() => {
+              close();
+              onClone();
+            }}
+          >
+            {t("toolbar.clone")}
+          </MenuItem>
+          <MenuItem
             icon={<FolderInput className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+            shortcut={`${mod}+Shift+M`}
             onClick={() => setMode("move")}
           >
             {t("toolbar.moveToFolder")}
@@ -486,12 +452,64 @@ function RowMenu({
           >
             {t("toolbar.addTags")}
           </MenuItem>
-          <MenuItem
-            icon={<Puzzle className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
-            onClick={() => setMode("extensions")}
+          <span
+            className="block"
+            title={!running ? t("listUtils.bringToFrontNotRunning") : undefined}
           >
-            {t("ext.rowMenu")}
+            <MenuItem
+              disabled={!running}
+              icon={<MonitorUp className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+              onClick={() => {
+                close();
+                onBringToFront();
+              }}
+            >
+              {t("listUtils.bringToFront")}
+            </MenuItem>
+          </span>
+          <MenuDivider />
+          {/* Group 3 — copy / export / maintenance */}
+          <MenuItem
+            icon={
+              <ClipboardCopy className="h-4 w-4 text-fg-muted" aria-hidden="true" />
+            }
+            onClick={() => {
+              close();
+              onCopyId();
+            }}
+          >
+            {t("listUtils.copyId")}
           </MenuItem>
+          <span
+            className="block"
+            title={!running ? t("listUtils.copyCdpUrlNotRunning") : undefined}
+          >
+            <MenuItem
+              disabled={!running}
+              icon={<Link2 className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+              onClick={() => {
+                close();
+                onCopyCdpUrl();
+              }}
+            >
+              {t("listUtils.copyCdpUrl")}
+            </MenuItem>
+          </span>
+          <span
+            className="block"
+            title={running ? t("exchange.exportRunning") : undefined}
+          >
+            <MenuItem
+              disabled={running}
+              icon={<Download className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+              onClick={() => {
+                close();
+                onExport();
+              }}
+            >
+              {t("exchange.export")}
+            </MenuItem>
+          </span>
           <span
             className="block"
             title={running ? t("table.clearCacheRunning") : undefined}
@@ -507,6 +525,8 @@ function RowMenu({
               {t("table.clearCache")}
             </MenuItem>
           </span>
+          <MenuDivider />
+          {/* Group 4 — destructive, last */}
           <MenuItem
             danger
             icon={<Trash2 className="h-4 w-4" aria-hidden="true" />}
@@ -936,6 +956,9 @@ export function ProfileTable({
                   onClearCache={() => onClearCache([p.id])}
                   onTrash={() => onTrash([p.id])}
                   onOpenChange={(o) => setMenuOpenId(o ? p.id : null)}
+                  onSelect={() => {
+                    if (!isSelected) onToggleRow(p.id);
+                  }}
                 />
               </td>
             </tr>

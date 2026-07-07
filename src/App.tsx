@@ -11,6 +11,7 @@ import { ProfileForm } from "./components/ProfileForm";
 import { ProfileList } from "./components/ProfileList";
 import { ProxiesView, type ProxyPatch } from "./components/ProxiesView";
 import { ProxyTemplatesView } from "./components/ProxyTemplatesView";
+import { QuickProfileModal } from "./components/QuickProfileModal";
 import { QuickStopDialog } from "./components/QuickStopDialog";
 import { QuitDialog } from "./components/QuitDialog";
 import { SettingsView } from "./components/SettingsView";
@@ -61,6 +62,8 @@ export default function App() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   /** Quick profiles awaiting the stop confirmation dialog (null = closed). */
   const [quickStop, setQuickStop] = useState<string[] | null>(null);
+  /** (W50G) MLX-parity "Create quick profile" modal. */
+  const [quickModalOpen, setQuickModalOpen] = useState(false);
   /** (W47) Profiles awaiting the move-to-trash confirmation (null = closed). */
   const [trashConfirm, setTrashConfirm] = useState<string[] | null>(null);
   const [quickStopBusy, setQuickStopBusy] = useState(false);
@@ -459,22 +462,33 @@ export default function App() {
     return `Quick ${n}`;
   };
 
-  const handleQuickProfile = async () => {
+  // (W50G) ⚡Quick now opens the MLX-parity modal instead of creating directly.
+  const handleQuickProfile = () => {
     if (engineBusy) {
       setActionError(t("engine.notReadyLaunch"));
       return;
     }
     setActionError(null);
+    setQuickModalOpen(true);
+  };
+
+  /** (W50G) Quick modal "Start": create `count` quick profiles + launch them. */
+  const handleQuickStart = async (
+    input: Omit<ProfileInput, "name">,
+    count: number,
+  ) => {
+    let n = Number(/^Quick (\d+)$/.exec(nextQuickName())?.[1] ?? 1);
     try {
-      const created = await api.createProfile({
-        name: nextQuickName(),
-        is_quick: true,
-      });
-      await api.launchProfile(created.id);
-    } catch (err) {
-      setActionError(errMsg(err));
+      for (let i = 0; i < count; i++) {
+        const created = await api.createProfile({
+          ...input,
+          name: `Quick ${n + i}`,
+        });
+        await api.launchProfile(created.id);
+      }
+    } finally {
+      await refetch(refetchProfiles(), refetchRunning());
     }
-    await refetch(refetchProfiles(), refetchRunning());
   };
 
   const handleClone = async (p: Profile) => {
@@ -839,6 +853,14 @@ export default function App() {
           confirmLabel={t("toolbar.trash")}
           onConfirm={() => void confirmTrash()}
           onCancel={() => setTrashConfirm(null)}
+        />
+      )}
+      {quickModalOpen && (
+        <QuickProfileModal
+          templates={templates}
+          proxies={proxies}
+          onStart={handleQuickStart}
+          onClose={() => setQuickModalOpen(false)}
         />
       )}
       {quickStop && (
