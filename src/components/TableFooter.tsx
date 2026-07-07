@@ -1,7 +1,25 @@
 import { ChevronLeft, ChevronRight, Info } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { api, isTauri, onBinaryProgress } from "../lib/api";
 import { Popover } from "./Popover";
+
+/** (W50D) Engine pill state — derived from ensure_binary + binary://progress. */
+type EngineStatus = "checking" | "downloading" | "connected" | "error";
+
+const ENGINE_PILL_CLASS: Record<EngineStatus, string> = {
+  connected: "bg-success/10 text-success",
+  checking: "bg-warning/10 text-warning",
+  downloading: "bg-warning/10 text-warning",
+  error: "bg-danger/10 text-danger",
+};
+
+const ENGINE_PILL_KEY: Record<EngineStatus, string> = {
+  connected: "footer.engineConnected",
+  checking: "footer.engineChecking",
+  downloading: "footer.engineDownloading",
+  error: "footer.engineError",
+};
 
 export const ROWS_PER_PAGE_OPTIONS = [25, 50, 100] as const;
 
@@ -26,6 +44,34 @@ export function TableFooter({
 }: TableFooterProps) {
   const { t } = useTranslation();
   const [infoOpen, setInfoOpen] = useState(false);
+  const [engine, setEngine] = useState<EngineStatus>("checking");
+
+  // (W50D) Probe the engine: cache-hit resolves immediately ("Agent connected");
+  // a first-run download streams binary://progress ("downloading" → "connected").
+  useEffect(() => {
+    if (!isTauri()) return;
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    void onBinaryProgress((e) => {
+      if (cancelled) return;
+      setEngine(e.phase === "done" ? "connected" : "downloading");
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+    api
+      .ensureBinary()
+      .then(() => {
+        if (!cancelled) setEngine("connected");
+      })
+      .catch(() => {
+        if (!cancelled) setEngine("error");
+      });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   const totalPages = Math.max(1, Math.ceil(total / rowsPerPage));
   const from = total === 0 ? 0 : page * rowsPerPage + 1;
@@ -44,42 +90,54 @@ export function TableFooter({
 
   return (
     <div className="flex h-20 shrink-0 items-center justify-between gap-3 border-t border-border px-3 text-xs text-fg">
-      <Popover
-        open={infoOpen}
-        onClose={() => setInfoOpen(false)}
-        label={t("footer.info")}
-        panelClassName="bottom-full top-auto mb-1 mt-0"
-        trigger={
-          <button
-            type="button"
-            aria-label={t("footer.info")}
-            aria-haspopup="dialog"
-            aria-expanded={infoOpen}
-            onClick={() => setInfoOpen((v) => !v)}
-            className="inline-flex items-center gap-1.5 rounded-md bg-[#F0F6FF] px-2.5 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-[#E0EDFF] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
-          >
-            <Info className="h-3.5 w-3.5" aria-hidden="true" />
-            <span>{t("footer.info")}</span>
-          </button>
-        }
-      >
-        <dl className="w-52 space-y-1.5 p-2 text-xs">
-          <div className="flex justify-between gap-3">
-            <dt className="text-fg-muted">{t("footer.version")}</dt>
-            <dd className="font-medium text-fg">{version}</dd>
-          </div>
-          <div className="flex justify-between gap-3">
-            <dt className="text-fg-muted">{t("footer.profiles")}</dt>
-            <dd className="font-medium text-fg tabular-nums">{profileCount}</dd>
-          </div>
-          {cap !== null && (
+      <div className="flex items-center gap-2">
+        <Popover
+          open={infoOpen}
+          onClose={() => setInfoOpen(false)}
+          label={t("footer.info")}
+          panelClassName="bottom-full top-auto mb-1 mt-0"
+          trigger={
+            <button
+              type="button"
+              aria-label={t("footer.info")}
+              aria-haspopup="dialog"
+              aria-expanded={infoOpen}
+              onClick={() => setInfoOpen((v) => !v)}
+              className="inline-flex items-center gap-1.5 rounded-md bg-[#F0F6FF] px-2.5 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-[#E0EDFF] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+            >
+              <Info className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>{t("footer.info")}</span>
+            </button>
+          }
+        >
+          <dl className="w-52 space-y-1.5 p-2 text-xs">
             <div className="flex justify-between gap-3">
-              <dt className="text-fg-muted">{t("footer.concurrentCap")}</dt>
-              <dd className="font-medium text-fg tabular-nums">{cap}</dd>
+              <dt className="text-fg-muted">{t("footer.version")}</dt>
+              <dd className="font-medium text-fg">{version}</dd>
             </div>
-          )}
-        </dl>
-      </Popover>
+            <div className="flex justify-between gap-3">
+              <dt className="text-fg-muted">{t("footer.profiles")}</dt>
+              <dd className="font-medium text-fg tabular-nums">{profileCount}</dd>
+            </div>
+            {cap !== null && (
+              <div className="flex justify-between gap-3">
+                <dt className="text-fg-muted">{t("footer.concurrentCap")}</dt>
+                <dd className="font-medium text-fg tabular-nums">{cap}</dd>
+              </div>
+            )}
+          </dl>
+        </Popover>
+        {isTauri() && (
+          <span
+            role="status"
+            aria-live="polite"
+            className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium ${ENGINE_PILL_CLASS[engine]}`}
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+            <span>{t(ENGINE_PILL_KEY[engine])}</span>
+          </span>
+        )}
+      </div>
 
       <div className="flex items-center gap-4">
         <label className="flex items-center gap-2">

@@ -138,7 +138,9 @@
     "clearCachePartial": "Cache cleared — {{freed}} freed ({{failed}} skipped)",
     "clearCacheFailed": "Failed to clear cache",
     "emptyTitle": "No profiles yet",
-    "emptyHint": "Create your first browser profile to get started."
+    "emptyHint": "Create your first browser profile to get started.",
+    "mobileEmptyTitle": "No mobile profiles yet",
+    "mobileEmptyHint": "Mobile profiles will show up here when they become available."
   },
   "footer": {
     "info": "Info",
@@ -148,7 +150,11 @@
     "rowsPerPage": "Rows per page",
     "range": "{{from}}–{{to}} of {{total}}",
     "prevPage": "Previous page",
-    "nextPage": "Next page"
+    "nextPage": "Next page",
+    "engineConnected": "Agent connected",
+    "engineChecking": "Checking engine…",
+    "engineDownloading": "Downloading engine…",
+    "engineError": "Engine error"
   },
   "launch": {
     "launch": "Launch",
@@ -461,7 +467,14 @@
     "deletedAt": "Deleted",
     "restore": "Restore",
     "deleteForever": "Delete forever",
-    "confirmPurge": "Permanently delete \"{{name}}\"? This cannot be undone."
+    "confirmPurge": "Permanently delete \"{{name}}\"? This cannot be undone.",
+    "emptyTrashBin": "Empty trash bin",
+    "searchPlaceholder": "Search",
+    "created": "Created",
+    "confirmPurgeMany_one": "Permanently delete {{count}} profile? This cannot be undone.",
+    "confirmPurgeMany_other": "Permanently delete {{count}} profiles? This cannot be undone.",
+    "confirmEmpty_one": "Empty the trash bin? {{count}} profile will be permanently deleted. This cannot be undone.",
+    "confirmEmpty_other": "Empty the trash bin? {{count}} profiles will be permanently deleted. This cannot be undone."
   },
   "quickStop": {
     "title": "Stop quick profile",

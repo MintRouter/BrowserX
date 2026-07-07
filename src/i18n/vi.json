@@ -136,7 +136,9 @@
     "clearCachePartial": "Đã dọn cache — giải phóng {{freed}} ({{failed}} bị bỏ qua)",
     "clearCacheFailed": "Dọn cache thất bại",
     "emptyTitle": "Chưa có profile nào",
-    "emptyHint": "Tạo profile trình duyệt đầu tiên để bắt đầu."
+    "emptyHint": "Tạo profile trình duyệt đầu tiên để bắt đầu.",
+    "mobileEmptyTitle": "Chưa có profile di động nào",
+    "mobileEmptyHint": "Profile di động sẽ hiển thị ở đây khi khả dụng."
   },
   "footer": {
     "info": "Thông tin",
@@ -146,7 +148,11 @@
     "rowsPerPage": "Số dòng mỗi trang",
     "range": "{{from}}–{{to}} / {{total}}",
     "prevPage": "Trang trước",
-    "nextPage": "Trang sau"
+    "nextPage": "Trang sau",
+    "engineConnected": "Agent đã kết nối",
+    "engineChecking": "Đang kiểm tra engine…",
+    "engineDownloading": "Đang tải engine…",
+    "engineError": "Engine lỗi"
   },
   "launch": {
     "launch": "Chạy",
@@ -456,7 +462,12 @@
     "deletedAt": "Đã xoá lúc",
     "restore": "Khôi phục",
     "deleteForever": "Xoá vĩnh viễn",
-    "confirmPurge": "Xoá vĩnh viễn \"{{name}}\"? Không thể hoàn tác."
+    "confirmPurge": "Xoá vĩnh viễn \"{{name}}\"? Không thể hoàn tác.",
+    "emptyTrashBin": "Dọn sạch thùng rác",
+    "searchPlaceholder": "Tìm kiếm",
+    "created": "Ngày tạo",
+    "confirmPurgeMany_other": "Xoá vĩnh viễn {{count}} profile? Không thể hoàn tác.",
+    "confirmEmpty_other": "Dọn sạch thùng rác? {{count}} profile sẽ bị xoá vĩnh viễn. Không thể hoàn tác."
   },
   "quickStop": {
     "title": "Dừng profile nhanh",

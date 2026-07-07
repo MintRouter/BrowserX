@@ -13,6 +13,7 @@ import {
   type ColumnVisibility,
   type ProfilesSort,
 } from "./ProfileTable";
+import { useDeviceType } from "./Sidebar";
 import { TableFooter } from "./TableFooter";
 
 interface ProfileListProps {
@@ -59,6 +60,8 @@ export function ProfileList(props: ProfileListProps) {
     onSelectedChange,
   } = props;
   const { t } = useTranslation();
+  // (W50D) Sidebar Mobile/Browser toggle — Mobile shows its own empty state.
+  const device = useDeviceType();
   const [sort, setSort] = useState<ProfilesSort>({ key: "updated", dir: "desc" });
   // (P3-2b) Advanced filters. os/proxy/tag/folder run through the backend
   // search_profiles (allowed-ID set, selective fetch — no loadAll); the
@@ -436,7 +439,28 @@ export function ProfileList(props: ProfileListProps) {
           onClearSelection={() => onSelectedChange(new Set())}
           moveSignal={moveSignal}
         />
-        {profiles.length === 0 ? (
+        {device === "mobile" ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-12 text-center">
+            <svg
+              width="140"
+              height="100"
+              viewBox="0 0 140 100"
+              fill="none"
+              aria-hidden="true"
+            >
+              <rect x="34" y="20" width="42" height="72" rx="8" fill="#F1EDED" transform="rotate(-8 34 20)" />
+              <rect x="56" y="10" width="44" height="80" rx="8" fill="#FFFFFF" stroke="#E5E1E1" strokeWidth="1.5" />
+              <rect x="70" y="16" width="16" height="3" rx="1.5" fill="#E5E1E1" />
+              <rect x="64" y="30" width="28" height="5" rx="2.5" fill="#F1EDED" />
+              <rect x="64" y="42" width="20" height="5" rx="2.5" fill="#F1EDED" />
+              <circle cx="78" cy="80" r="3" fill="#E5E1E1" />
+              <circle cx="106" cy="72" r="16" fill="#F0F6FF" />
+              <path d="M106 66v12M100 72h12" stroke="#055FF0" strokeWidth="2.5" strokeLinecap="round" />
+            </svg>
+            <p className="text-xl font-medium text-fg">{t("table.mobileEmptyTitle")}</p>
+            <p className="max-w-xs text-sm text-fg-muted">{t("table.mobileEmptyHint")}</p>
+          </div>
+        ) : profiles.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-12 text-center">
             <svg
               width="140"

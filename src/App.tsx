@@ -13,7 +13,6 @@ import { ProxiesView, type ProxyPatch } from "./components/ProxiesView";
 import { ProxyTemplatesView } from "./components/ProxyTemplatesView";
 import { QuickStopDialog } from "./components/QuickStopDialog";
 import { QuitDialog } from "./components/QuitDialog";
-import { RunningDashboard } from "./components/RunningDashboard";
 import { SettingsView } from "./components/SettingsView";
 import { Sidebar, type MainView } from "./components/Sidebar";
 import { TemplatesView } from "./components/TemplatesView";
@@ -241,10 +240,13 @@ export default function App() {
 
   const visibleProfiles = useMemo(() => {
     if (view === "favorites") return favoriteProfiles;
+    // (W50E) Running is the same table filtered to live sessions (MLX parity).
+    if (view === "running")
+      return profiles.filter((p) => runningIds.has(p.id));
     if (activeFolderId)
       return profiles.filter((p) => p.folder_id === activeFolderId);
     return profiles;
-  }, [profiles, favoriteProfiles, view, activeFolderId]);
+  }, [profiles, favoriteProfiles, view, activeFolderId, runningIds]);
 
   const sidebarFolders = useMemo(
     () => folders.map((f) => ({ id: f.id, name: f.name, count: f.profile_count })),
@@ -749,7 +751,7 @@ export default function App() {
               }}
               onProxiesChanged={refetchProxies}
             />
-          ) : view === "profiles" || view === "favorites" ? (
+          ) : view === "profiles" || view === "favorites" || view === "running" ? (
             <ProfileList
               profiles={visibleProfiles}
               folders={folders}
@@ -779,12 +781,6 @@ export default function App() {
               onMove={handleMove}
               onAddTags={handleAddTags}
               onToggleFavorite={handleToggleFavorite}
-            />
-          ) : view === "running" ? (
-            <RunningDashboard
-              sessions={running}
-              profiles={profiles}
-              onStop={handleStop}
             />
           ) : view === "proxies" ? (
             <ProxiesView
@@ -828,6 +824,9 @@ export default function App() {
           ) : (
             <TrashView
               items={trash}
+              folders={folders}
+              profileCount={profiles.length}
+              settings={settings}
               onRestore={handleRestore}
               onPurge={handlePurge}
             />

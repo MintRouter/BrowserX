@@ -14,8 +14,31 @@ import {
   User,
   Users2,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
+import { api, isTauri } from "../lib/api";
+
+/** (W50D) Mobile/Browser toggle — module-level store so ProfileList can react
+ * to the sidebar toggle without threading state through App.tsx. */
+export type DeviceType = "mobile" | "browser";
+
+let deviceType: DeviceType = "browser";
+const deviceListeners = new Set<() => void>();
+
+export function setDeviceType(d: DeviceType) {
+  deviceType = d;
+  deviceListeners.forEach((l) => l());
+}
+
+export function useDeviceType(): DeviceType {
+  return useSyncExternalStore(
+    (cb) => {
+      deviceListeners.add(cb);
+      return () => deviceListeners.delete(cb);
+    },
+    () => deviceType,
+  );
+}
 
 export type MainView =
   | "profiles"
@@ -99,7 +122,7 @@ export function Sidebar({
   onCreateFolder,
 }: SidebarProps) {
   const { t } = useTranslation();
-  const [device, setDevice] = useState<"mobile" | "browser">("browser");
+  const device = useDeviceType();
   const [folderSearch, setFolderSearch] = useState("");
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
@@ -197,7 +220,7 @@ export function Sidebar({
           <button
             key={d}
             type="button"
-            onClick={() => setDevice(d)}
+            onClick={() => setDeviceType(d)}
             aria-pressed={device === d}
             className={`h-7 flex-1 rounded-md text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
               device === d
@@ -329,6 +352,24 @@ export function Sidebar({
 
 function SidebarStats({ counts }: { counts: SidebarProps["counts"] }) {
   const { t } = useTranslation();
+  // (W50D) Concurrency cap from settings → "Profiles x/y" like MLX.
+  const [cap, setCap] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isTauri()) return;
+    let cancelled = false;
+    api
+      .getSettings()
+      .then((s) => {
+        if (cancelled) return;
+        setCap(
+          s.max_concurrent_profiles ?? s.max_concurrent ?? s.concurrent_cap ?? null,
+        );
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   return (
     <div className="mt-auto pt-3">
       <hr className="mb-2 border-border" aria-hidden="true" />
@@ -351,12 +392,12 @@ function SidebarStats({ counts }: { counts: SidebarProps["counts"] }) {
         <StatRow
           icon={<Smartphone className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
           label={t("sidebar.statMinutes")}
-          value="—"
+          value={t("system.na")}
         />
         <StatRow
           icon={<LayoutGrid className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
           label={t("sidebar.profilesStat")}
-          value={counts.all}
+          value={cap !== null ? `${counts.all}/${cap}` : counts.all}
         />
       </div>
     </div>
