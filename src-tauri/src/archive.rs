@@ -499,6 +499,28 @@ mod tests {
         fs::remove_dir_all(&base).unwrap();
     }
 
+    /// (W52-E1) Recovery key roundtrip "máy mới": .bxa mã hoá bằng key A trên
+    /// máy cũ; máy mới CHỈ có chuỗi recovery key → parse → giải mã archive
+    /// thành công (không đụng cache/keychain process-global).
+    #[test]
+    fn recovery_key_decrypts_bxa_from_another_machine() {
+        let base = tmp_root();
+        let old_machine_key: [u8; 32] = [77u8; 32];
+        let plain = b"zip-payload-stand-in".to_vec();
+        let bxa = base.join("profile-px.bxa");
+        write_encrypted(&old_machine_key, &bxa, &plain).unwrap();
+
+        let recovery = crate::crypto::encode_recovery_key_material(&old_machine_key);
+        let recovered = crate::crypto::parse_recovery_key(&recovery).unwrap();
+        assert_eq!(recovered, old_machine_key);
+        assert_eq!(read_decrypted(&recovered, &bxa).unwrap(), plain);
+
+        // Key khác (máy mới chưa import) → KHÔNG giải mã được.
+        let other_key: [u8; 32] = [78u8; 32];
+        assert!(read_decrypted(&other_key, &bxa).is_err());
+        fs::remove_dir_all(&base).unwrap();
+    }
+
     /// (W52-A1) Cache dirs bị loại khỏi archive; dữ liệu phiên GIỮ nguyên.
     #[test]
     fn archive_excludes_cache_dirs_keeps_session_data() {

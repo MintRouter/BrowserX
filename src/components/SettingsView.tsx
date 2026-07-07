@@ -6,6 +6,7 @@ import { useTheme } from "../lib/theme";
 import { Toggle } from "./profile-form/controls";
 import { AuditLog } from "./settings/AuditLog";
 import { BackupDialog } from "./settings/BackupDialog";
+import { RecoveryKeySection } from "./settings/RecoveryKeySection";
 import { SystemPanel } from "./settings/SystemPanel";
 import { TelegramSyncSection } from "./settings/TelegramSyncSection";
 import { ThemeCards } from "./settings/ThemeCards";
@@ -189,6 +190,12 @@ export function SettingsView() {
           {/* (W51-B2) Cloud backup (Telegram) — primary destination config. */}
           <Section title={t("telegram.sectionTitle")}>
             <TelegramSyncSection />
+          </Section>
+
+          {/* (W52-E1) Recovery Key — export/import master key để khôi phục
+              backup .bxa trên máy mới. */}
+          <Section title={t("recoveryKey.sectionTitle")}>
+            <RecoveryKeySection />
           </Section>
 
           <Section title={t("system.title")}>

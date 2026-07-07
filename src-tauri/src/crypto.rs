@@ -228,6 +228,182 @@ fn decode_key_b64(b64: &str) -> std::result::Result<[u8; KEY_LEN], String> {
         .map_err(|_| format!("expected {KEY_LEN}-byte key, got {} bytes", bytes.len()))
 }
 
+// ---------------------------------------------------------------------------
+// (W52-E1) Recovery Key — export/import master key material để khôi phục
+// backup .bxa trên máy mới. Chuỗi = `BXRK1-` + Crockford base32 của
+// `[key 32B][checksum 4B]` (checksum = SHA-256(domain ‖ key) cắt 4 byte).
+// KHÔNG log, KHÔNG lưu, KHÔNG gửi mạng — hiển thị đúng MỘT lần cho user.
+// ---------------------------------------------------------------------------
+
+/// Prefix + version của chuỗi recovery key.
+const RECOVERY_PREFIX: &str = "BXRK1";
+/// Domain-separation cho checksum (đổi format → đổi domain + prefix).
+const RECOVERY_CHECKSUM_DOMAIN: &[u8] = b"browserx-recovery-v1";
+/// Số byte checksum SHA-256 (cắt) gắn sau key — bắt lỗi gõ tay/paste thiếu.
+const RECOVERY_CHECKSUM_LEN: usize = 4;
+/// Số ký tự base32 của body (36 byte × 8 bit / 5, làm tròn lên = 58).
+const RECOVERY_BODY_CHARS: usize = ((KEY_LEN + RECOVERY_CHECKSUM_LEN) * 8).div_ceil(5);
+/// Bảng chữ Crockford base32 — không có I/L/O/U (tránh nhầm với 1/0).
+const CROCKFORD: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+/// Export master key hiện tại thành chuỗi recovery key (caller hiển thị 1 lần).
+pub fn export_recovery_key() -> Result<String> {
+    Ok(encode_recovery_key_material(&master_key()?))
+}
+
+/// Import recovery key trên máy mới: validate → persist (keychain/file) →
+/// cập nhật cache process. Sau đó mọi seal/open + KDF archive dùng key này.
+/// Env `BROWSERX_MASTER_KEY` đang set → lỗi rõ (env ưu tiên tuyệt đối khi
+/// load nên persist sẽ vô tác dụng âm thầm).
+pub fn import_recovery_key(input: &str) -> Result<()> {
+    let key = parse_recovery_key(input)?;
+    persist_imported_key(&key)?;
+    let mut guard = MASTER_KEY
+        .lock()
+        .map_err(|_| AppError::Crypto("master key lock poisoned".into()))?;
+    *guard = Some(key);
+    Ok(())
+}
+
+/// Encode key material → chuỗi `BXRK1-XXXX-…` (nhóm 4 ký tự cho dễ chép tay).
+/// `pub(crate)` để test archive.rs mô phỏng "máy cũ" với key tường minh.
+pub(crate) fn encode_recovery_key_material(key: &[u8; KEY_LEN]) -> String {
+    let mut payload = [0u8; KEY_LEN + RECOVERY_CHECKSUM_LEN];
+    payload[..KEY_LEN].copy_from_slice(key);
+    payload[KEY_LEN..].copy_from_slice(&recovery_checksum(key));
+    let body = crockford_encode(&payload);
+    let mut out = String::with_capacity(RECOVERY_PREFIX.len() + body.len() + body.len() / 4 + 1);
+    out.push_str(RECOVERY_PREFIX);
+    for (i, c) in body.chars().enumerate() {
+        if i % 4 == 0 {
+            out.push('-');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Parse + validate chuỗi recovery key → key material 32 byte. Chấp nhận
+/// chữ thường, khoảng trắng, dấu `-` tuỳ ý, có/không prefix. Lỗi KHÔNG echo
+/// lại input (tránh lộ key vào log/UI).
+pub fn parse_recovery_key(input: &str) -> Result<[u8; KEY_LEN]> {
+    let normalized: String = input
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '-')
+        .map(|c| c.to_ascii_uppercase())
+        .collect();
+    // Prefix chỉ strip khi độ dài KHÔNG khớp body trần (body hợp lệ có thể
+    // tình cờ bắt đầu bằng "BXRK1" — 5 ký tự đều thuộc bảng chữ).
+    let body = if normalized.len() == RECOVERY_BODY_CHARS {
+        normalized.as_str()
+    } else {
+        normalized.strip_prefix(RECOVERY_PREFIX).unwrap_or(&normalized)
+    };
+    if body.len() != RECOVERY_BODY_CHARS {
+        return Err(AppError::InvalidInput(format!(
+            "invalid recovery key: expected {RECOVERY_BODY_CHARS} characters after the {RECOVERY_PREFIX} prefix, got {}",
+            body.len()
+        )));
+    }
+    let payload = crockford_decode(body)
+        .map_err(|e| AppError::InvalidInput(format!("invalid recovery key: {e}")))?;
+    if payload.len() != KEY_LEN + RECOVERY_CHECKSUM_LEN {
+        return Err(AppError::InvalidInput("invalid recovery key: wrong length".into()));
+    }
+    let (key_bytes, checksum) = payload.split_at(KEY_LEN);
+    let key = <[u8; KEY_LEN]>::try_from(key_bytes)
+        .map_err(|_| AppError::InvalidInput("invalid recovery key: wrong length".into()))?;
+    if checksum != recovery_checksum(&key) {
+        return Err(AppError::InvalidInput(
+            "invalid recovery key: checksum mismatch (typo or truncated key)".into(),
+        ));
+    }
+    Ok(key)
+}
+
+/// Checksum = SHA-256(domain ‖ key) cắt [`RECOVERY_CHECKSUM_LEN`] byte.
+fn recovery_checksum(key: &[u8; KEY_LEN]) -> [u8; RECOVERY_CHECKSUM_LEN] {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(RECOVERY_CHECKSUM_DOMAIN);
+    h.update(key);
+    let digest = h.finalize();
+    let mut out = [0u8; RECOVERY_CHECKSUM_LEN];
+    out.copy_from_slice(&digest[..RECOVERY_CHECKSUM_LEN]);
+    out
+}
+
+/// Crockford base32 encode — MSB-first, group cuối pad 0 bit.
+fn crockford_encode(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 8 / 5 + 1);
+    let mut acc: u32 = 0;
+    let mut bits: u32 = 0;
+    for &b in bytes {
+        acc = (acc << 8) | u32::from(b);
+        bits += 8;
+        while bits >= 5 {
+            bits -= 5;
+            out.push(CROCKFORD[((acc >> bits) & 0x1F) as usize] as char);
+        }
+    }
+    if bits > 0 {
+        out.push(CROCKFORD[((acc << (5 - bits)) & 0x1F) as usize] as char);
+    }
+    out
+}
+
+/// Crockford base32 decode — chấp nhận nhầm lẫn O→0, I/L→1; pad bit thừa
+/// phải bằng 0 (chặn chuỗi không canonical).
+fn crockford_decode(s: &str) -> std::result::Result<Vec<u8>, String> {
+    let mut out = Vec::with_capacity(s.len() * 5 / 8);
+    let mut acc: u32 = 0;
+    let mut bits: u32 = 0;
+    for c in s.chars() {
+        let v = match c.to_ascii_uppercase() {
+            'O' => 0,
+            'I' | 'L' => 1,
+            up => CROCKFORD
+                .iter()
+                .position(|&a| a as char == up)
+                .ok_or_else(|| format!("invalid character '{c}'"))? as u32,
+        };
+        acc = (acc << 5) | v;
+        bits += 5;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    if bits > 0 && acc & ((1 << bits) - 1) != 0 {
+        return Err("invalid trailing bits".into());
+    }
+    Ok(out)
+}
+
+/// Persist key import: env đang override → lỗi; `BROWSERX_KEYSTORE=file` →
+/// file fallback; còn lại keychain (ghi đè entry cũ — hành động chủ đích của
+/// user), keychain không khả dụng → file fallback kèm cảnh báo (như load).
+fn persist_imported_key(key: &[u8; KEY_LEN]) -> Result<()> {
+    if std::env::var(MASTER_KEY_ENV).is_ok() {
+        return Err(AppError::Keychain(format!(
+            "{MASTER_KEY_ENV} environment override is active; unset it before importing a recovery key"
+        )));
+    }
+    let b64 = B64.encode(key);
+    if std::env::var(KEYSTORE_ENV).as_deref() == Ok("file") {
+        return write_key_file(&fallback_key_path()?, &b64);
+    }
+    let stored = keyring::Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_USER)
+        .and_then(|entry| entry.set_password(&b64));
+    match stored {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            tracing::warn!("OS keychain unavailable for recovery key import ({e}); storing master key in fallback file");
+            write_key_file(&fallback_key_path()?, &b64)
+        }
+    }
+}
+
 /// Cài khoá test CỐ ĐỊNH (env + cache) cho unit test module khác (vd. `export`)
 /// cần crypto mà không đụng OS keychain. Mọi caller cài đúng MỘT khoá nên an
 /// toàn khi test chạy song song (cùng giá trị với `install_env_master_key`).
@@ -353,5 +529,82 @@ mod tests {
         let old = seal_with_key(&test_key(9), KEY_CHECK_VALUE).unwrap();
         assert!(!key_check_matches(&old));
         assert!(!key_check_matches(b"garbage"));
+    }
+
+    // -- (W52-E1) Recovery Key -------------------------------------------
+
+    #[test]
+    fn recovery_key_roundtrip_with_formatting_variants() {
+        let key = test_key(7);
+        let s = encode_recovery_key_material(&key);
+        assert!(s.starts_with("BXRK1-"));
+        // Chuỗi hiển thị KHÔNG chứa key/checksum dạng thô nào khác ngoài base32.
+        assert_eq!(parse_recovery_key(&s).unwrap(), key);
+        // Chữ thường + khoảng trắng thay dấu gạch.
+        assert_eq!(
+            parse_recovery_key(&s.to_lowercase().replace('-', " ")).unwrap(),
+            key
+        );
+        // Body không prefix (58 ký tự) cũng parse được.
+        let body: String = s.trim_start_matches("BXRK1").replace('-', "");
+        assert_eq!(body.len(), RECOVERY_BODY_CHARS);
+        assert_eq!(parse_recovery_key(&body).unwrap(), key);
+    }
+
+    #[test]
+    fn recovery_key_accepts_crockford_confusables() {
+        let key = test_key(8);
+        let body: String = encode_recovery_key_material(&key)
+            .trim_start_matches("BXRK1")
+            .replace('-', "");
+        // O→0, I/L→1 phải decode như nhau (Crockford).
+        let confused = body.replace('0', "O").replace('1', "l");
+        assert_eq!(parse_recovery_key(&confused).unwrap(), key);
+    }
+
+    #[test]
+    fn recovery_key_rejects_typo_and_bad_length() {
+        let key = test_key(9);
+        let s = encode_recovery_key_material(&key);
+        // Đổi 1 ký tự body sang ký tự hợp lệ khác → checksum bắt được.
+        let mut chars: Vec<char> = s.chars().collect();
+        let pos = s.len() - 1;
+        chars[pos] = if chars[pos] == '2' { '3' } else { '2' };
+        let typo: String = chars.into_iter().collect();
+        let err = parse_recovery_key(&typo).unwrap_err().to_string();
+        assert!(err.contains("checksum") || err.contains("trailing"), "{err}");
+        // Quá ngắn → lỗi độ dài; ký tự ngoài bảng chữ (U) → lỗi ký tự.
+        assert!(parse_recovery_key("BXRK1-ABCD").is_err());
+        let bad_char = format!("{}U", &s[..s.len() - 1]);
+        assert!(parse_recovery_key(&bad_char).is_err());
+        // Lỗi KHÔNG được echo lại chuỗi key.
+        assert!(!err.contains(&s));
+    }
+
+    #[test]
+    fn recovery_key_decrypts_data_sealed_under_foreign_key() {
+        // "Máy cũ" seal bằng key B; "máy mới" chỉ có chuỗi recovery → parse
+        // → giải mã được (mô phỏng không đụng cache/keychain process-global).
+        let old_key = test_key(11);
+        let blob = seal_with_key(&old_key, b"cloud secret").unwrap();
+        let recovered = parse_recovery_key(&encode_recovery_key_material(&old_key)).unwrap();
+        assert_eq!(open_with_key(&recovered, &blob).unwrap(), b"cloud secret");
+    }
+
+    #[test]
+    fn export_recovery_key_encodes_current_master_key() {
+        let key = install_env_master_key();
+        let s = export_recovery_key().unwrap();
+        assert_eq!(parse_recovery_key(&s).unwrap(), key);
+    }
+
+    #[test]
+    fn import_recovery_key_rejected_while_env_override_active() {
+        install_env_master_key();
+        let s = encode_recovery_key_material(&test_key(13));
+        let err = import_recovery_key(&s).unwrap_err().to_string();
+        assert!(err.contains(MASTER_KEY_ENV), "{err}");
+        // Cache KHÔNG bị đổi khi import fail.
+        assert_eq!(master_key().unwrap(), test_key(42));
     }
 }

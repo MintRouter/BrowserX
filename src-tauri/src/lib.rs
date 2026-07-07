@@ -127,6 +127,8 @@ pub fn run() {
             commands::delete_proxy_template,
             commands::create_proxy_from_template,
             commands::master_key_status,
+            commands::export_recovery_key,
+            commands::import_recovery_key,
             commands::launch_profile,
             commands::stop_profile,
             commands::list_running,

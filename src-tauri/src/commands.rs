@@ -412,6 +412,40 @@ pub fn master_key_status(state: State<'_, AppState>) -> Result<MasterKeyStatus> 
     })
 }
 
+/// (W52-E1) Kết quả import recovery key trả FE.
+#[derive(Debug, Clone, Serialize)]
+pub struct RecoveryImportResult {
+    /// `true` = key vừa import KHÁC key trước đó của máy này → secret local
+    /// đã lưu (proxy password, bot token…) không giải mã được nữa, cần nhập lại.
+    pub changed: bool,
+}
+
+/// (W52-E1) Export Recovery Key: chuỗi `BXRK1-…` (Crockford base32 +
+/// checksum) đại diện master key — user lưu OFFLINE để khôi phục backup
+/// `.bxa` trên máy mới. Hiển thị MỘT lần; KHÔNG log/lưu/gửi mạng; audit chỉ
+/// ghi sự kiện, không nội dung.
+#[tauri::command]
+pub fn export_recovery_key(state: State<'_, AppState>) -> Result<String> {
+    let key = crypto::export_recovery_key()?;
+    state.db.insert_audit("recovery_key.export", None, None)?;
+    Ok(key)
+}
+
+/// (W52-E1) Import Recovery Key trên máy mới: validate (định dạng +
+/// checksum) → persist keychain/file + cache → re-seal key-check. Sau đó
+/// `restore_from_cloud` giải mã được `.bxa` tạo bởi máy cũ. Trả `changed`
+/// để FE cảnh báo secret local cũ (nếu có) phải nhập lại.
+#[tauri::command]
+pub fn import_recovery_key(
+    state: State<'_, AppState>,
+    key: String,
+) -> Result<RecoveryImportResult> {
+    crypto::import_recovery_key(&key)?;
+    let changed = master_key_check(&state.db)?;
+    state.db.insert_audit("recovery_key.import", None, None)?;
+    Ok(RecoveryImportResult { changed })
+}
+
 #[tauri::command]
 pub fn delete_proxy(state: State<'_, AppState>, id: String) -> Result<bool> {
     let deleted = state.db.delete_proxy(&id)?;
