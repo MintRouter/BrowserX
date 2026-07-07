@@ -97,29 +97,52 @@ pub struct ProfileInput {
     pub taskbar_height: Option<u32>,
 }
 
+/// (W46) Serde helper phân biệt field VẮNG MẶT với field = `null` trong JSON
+/// cho các field nullable của [`ProfileUpdate`]: vắng mặt → `None` (giữ nguyên
+/// giá trị), `null` → `Some(None)` (reset cột về NULL = Auto), có giá trị →
+/// `Some(Some(v))`. Dùng kèm `#[serde(default)]`.
+fn double_option<'de, T, D>(d: D) -> std::result::Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Ok(Some(Option::deserialize(d)?))
+}
+
 /// Update từng phần: chỉ field `Some(_)` được ghi đè (giống `update_profile` Python).
 /// Gán/bỏ proxy dùng [`Db::assign_proxy`]; đổi tags qua field `tags` hoặc
 /// [`Db::set_profile_tags`].
+///
+/// (W46) Field ứng với cột DB nullable dùng double-Option (`Option<Option<T>>`
+/// với [`double_option`]): JSON vắng mặt → `None` (giữ nguyên), JSON `null` →
+/// `Some(None)` (set cột NULL → launcher bỏ emit flag, quay về Auto).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProfileUpdate {
     pub name: Option<String>,
     pub fingerprint_seed: Option<String>,
     pub platform: Option<String>,
-    pub timezone: Option<String>,
-    pub locale: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub timezone: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub locale: Option<Option<String>>,
     pub screen_width: Option<u32>,
     pub screen_height: Option<u32>,
-    pub gpu_vendor: Option<String>,
-    pub gpu_renderer: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub gpu_vendor: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub gpu_renderer: Option<Option<String>>,
     pub hardware_concurrency: Option<u32>,
     pub humanize: Option<bool>,
-    pub human_preset: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub human_preset: Option<Option<String>>,
     pub headless: Option<bool>,
     pub geoip: Option<bool>,
-    pub color_scheme: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub color_scheme: Option<Option<String>>,
     pub launch_args: Option<serde_json::Value>,
     pub user_data_dir: Option<String>,
-    pub notes: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub notes: Option<Option<String>>,
     /// "restore" | "custom".
     pub startup_behavior: Option<String>,
     /// Mảng JSON URL mở khi khởi động (dùng khi startup_behavior = "custom").
@@ -132,11 +155,14 @@ pub struct ProfileUpdate {
     /// (W19c) WebRTC mode "real" | "masked".
     pub webrtc_mode: Option<String>,
     /// (W19c) IP spoof WebRTC khi masked.
-    pub webrtc_ip: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub webrtc_ip: Option<Option<String>>,
     /// (W19c) Geolocation mode "auto" | "manual".
     pub geolocation_mode: Option<String>,
-    pub geo_latitude: Option<String>,
-    pub geo_longitude: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub geo_latitude: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub geo_longitude: Option<Option<String>>,
     /// (W20b) Lưu lịch sử duyệt web.
     pub store_history: Option<bool>,
     /// (W20b) Lưu mật khẩu.
@@ -144,23 +170,30 @@ pub struct ProfileUpdate {
     /// (W20b) Giữ service-worker cache.
     pub store_sw_cache: Option<bool>,
     /// (P3-5a) Browser brand (Chrome/Edge/Opera/Vivaldi).
-    pub nav_brand: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub nav_brand: Option<Option<String>>,
     /// (P3-5a) Brand version (UA + Client Hints).
-    pub nav_brand_version: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub nav_brand_version: Option<Option<String>>,
     /// (P3-5a) Client Hints platform version.
-    pub platform_version: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub platform_version: Option<Option<String>>,
     /// (P3-5a) navigator.deviceMemory (GB).
-    pub device_memory: Option<u32>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub device_memory: Option<Option<u32>>,
     /// (P3-5a) Thư mục fonts target-platform.
-    pub fonts_dir: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub fonts_dir: Option<Option<String>>,
     /// (P3-5a) Căn font metrics theo Windows (Chromium 148+).
     pub windows_font_metrics: Option<bool>,
     /// (P3-5a) Override storage quota (MB).
-    pub storage_quota: Option<u32>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub storage_quota: Option<Option<u32>>,
     /// (W42) Tự xoay proxy mỗi lần launch.
     pub rotate_on_launch: Option<bool>,
     /// (W44) Chiều cao taskbar (px).
-    pub taskbar_height: Option<u32>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub taskbar_height: Option<Option<u32>>,
 }
 
 /// (P3-2a) Bộ lọc nâng cao cho [`Db::search_profiles`] — chỉ gồm tiêu chí có
@@ -1183,11 +1216,17 @@ impl Db {
         }
         if let Some(v) = input.timezone {
             cols.push("timezone");
-            values.push(sql_text(v));
+            values.push(match v {
+                Some(x) => sql_text(x),
+                None => SqlValue::Null,
+            });
         }
         if let Some(v) = input.locale {
             cols.push("locale");
-            values.push(sql_text(v));
+            values.push(match v {
+                Some(x) => sql_text(x),
+                None => SqlValue::Null,
+            });
         }
         if let Some(v) = input.screen_width {
             cols.push("screen_width");
@@ -1199,11 +1238,17 @@ impl Db {
         }
         if let Some(v) = input.gpu_vendor {
             cols.push("gpu_vendor");
-            values.push(sql_text(v));
+            values.push(match v {
+                Some(x) => sql_text(x),
+                None => SqlValue::Null,
+            });
         }
         if let Some(v) = input.gpu_renderer {
             cols.push("gpu_renderer");
-            values.push(sql_text(v));
+            values.push(match v {
+                Some(x) => sql_text(x),
+                None => SqlValue::Null,
+            });
         }
         if let Some(v) = input.hardware_concurrency {
             cols.push("hardware_concurrency");
@@ -1215,7 +1260,10 @@ impl Db {
         }
         if let Some(v) = input.human_preset {
             cols.push("human_preset");
-            values.push(sql_text(v));
+            values.push(match v {
+                Some(x) => sql_text(x),
+                None => SqlValue::Null,
+            });
         }
         if let Some(v) = input.headless {
             cols.push("headless");
@@ -1227,7 +1275,10 @@ impl Db {
         }
         if let Some(v) = input.color_scheme {
             cols.push("color_scheme");
-            values.push(sql_text(v));
+            values.push(match v {
+                Some(x) => sql_text(x),
+                None => SqlValue::Null,
+            });
         }
         if let Some(v) = input.launch_args {
             cols.push("launch_args");
@@ -1239,7 +1290,10 @@ impl Db {
         }
         if let Some(v) = input.notes {
             cols.push("notes");
-            values.push(sql_text(v));
+            values.push(match v {
+                Some(x) => sql_text(x),
+                None => SqlValue::Null,
+            });
         }
         if let Some(v) = input.startup_behavior {
             validate_startup_behavior(&v)?;
@@ -1265,7 +1319,10 @@ impl Db {
         }
         if let Some(v) = input.webrtc_ip {
             cols.push("webrtc_ip");
-            values.push(sql_text(v));
+            values.push(match v {
+                Some(x) => sql_text(x),
+                None => SqlValue::Null,
+            });
         }
         if let Some(v) = input.geolocation_mode {
             validate_geolocation_mode(&v)?;
@@ -1274,11 +1331,17 @@ impl Db {
         }
         if let Some(v) = input.geo_latitude {
             cols.push("geo_latitude");
-            values.push(sql_text(v));
+            values.push(match v {
+                Some(x) => sql_text(x),
+                None => SqlValue::Null,
+            });
         }
         if let Some(v) = input.geo_longitude {
             cols.push("geo_longitude");
-            values.push(sql_text(v));
+            values.push(match v {
+                Some(x) => sql_text(x),
+                None => SqlValue::Null,
+            });
         }
         if let Some(v) = input.store_history {
             cols.push("store_history");
@@ -1294,23 +1357,38 @@ impl Db {
         }
         if let Some(v) = input.nav_brand {
             cols.push("nav_brand");
-            values.push(sql_text(v));
+            values.push(match v {
+                Some(x) => sql_text(x),
+                None => SqlValue::Null,
+            });
         }
         if let Some(v) = input.nav_brand_version {
             cols.push("nav_brand_version");
-            values.push(sql_text(v));
+            values.push(match v {
+                Some(x) => sql_text(x),
+                None => SqlValue::Null,
+            });
         }
         if let Some(v) = input.platform_version {
             cols.push("platform_version");
-            values.push(sql_text(v));
+            values.push(match v {
+                Some(x) => sql_text(x),
+                None => SqlValue::Null,
+            });
         }
         if let Some(v) = input.device_memory {
             cols.push("device_memory");
-            values.push(sql_int(v as i64));
+            values.push(match v {
+                Some(x) => sql_int(x as i64),
+                None => SqlValue::Null,
+            });
         }
         if let Some(v) = input.fonts_dir {
             cols.push("fonts_dir");
-            values.push(sql_text(v));
+            values.push(match v {
+                Some(x) => sql_text(x),
+                None => SqlValue::Null,
+            });
         }
         if let Some(v) = input.windows_font_metrics {
             cols.push("windows_font_metrics");
@@ -1318,7 +1396,10 @@ impl Db {
         }
         if let Some(v) = input.storage_quota {
             cols.push("storage_quota");
-            values.push(sql_int(v as i64));
+            values.push(match v {
+                Some(x) => sql_int(x as i64),
+                None => SqlValue::Null,
+            });
         }
         if let Some(v) = input.rotate_on_launch {
             cols.push("rotate_on_launch");
@@ -1326,7 +1407,10 @@ impl Db {
         }
         if let Some(v) = input.taskbar_height {
             cols.push("taskbar_height");
-            values.push(sql_int(v as i64));
+            values.push(match v {
+                Some(x) => sql_int(x as i64),
+                None => SqlValue::Null,
+            });
         }
 
         {
@@ -3816,7 +3900,7 @@ mod tests {
         db.update_profile(
             &p.id,
             ProfileUpdate {
-                taskbar_height: Some(95),
+                taskbar_height: Some(Some(95)),
                 ..Default::default()
             },
         )
@@ -3831,6 +3915,84 @@ mod tests {
         )
         .unwrap();
         assert_eq!(db.get_profile(&p.id).unwrap().taskbar_height, Some(95));
+    }
+
+    /// (W46) Double-Option reset-về-Auto: explicit null (`Some(None)`) set cột
+    /// về NULL, field vắng mặt (`None`) giữ nguyên giá trị; serde phân biệt
+    /// field vắng mặt vs `null` trong JSON.
+    #[test]
+    fn update_profile_explicit_null_resets_nullable_fields() {
+        let (db, _guard) = temp_db();
+
+        let p = db
+            .create_profile(ProfileInput {
+                name: "reset".into(),
+                timezone: Some("Asia/Ho_Chi_Minh".into()),
+                nav_brand: Some("Edge".into()),
+                storage_quota: Some(2048),
+                taskbar_height: Some(48),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(p.timezone.as_deref(), Some("Asia/Ho_Chi_Minh"));
+        assert_eq!(p.nav_brand.as_deref(), Some("Edge"));
+        assert_eq!(p.storage_quota, Some(2048));
+        assert_eq!(p.taskbar_height, Some(48));
+
+        // Field vắng mặt (None) → giữ nguyên giá trị.
+        let p2 = db
+            .update_profile(
+                &p.id,
+                ProfileUpdate {
+                    name: Some("reset-2".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(p2.timezone.as_deref(), Some("Asia/Ho_Chi_Minh"));
+        assert_eq!(p2.nav_brand.as_deref(), Some("Edge"));
+        assert_eq!(p2.storage_quota, Some(2048));
+        assert_eq!(p2.taskbar_height, Some(48));
+
+        // Explicit null (Some(None)) → cột về NULL (Auto).
+        let p3 = db
+            .update_profile(
+                &p.id,
+                ProfileUpdate {
+                    timezone: Some(None),
+                    nav_brand: Some(None),
+                    storage_quota: Some(None),
+                    taskbar_height: Some(None),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(p3.timezone, None);
+        assert_eq!(p3.nav_brand, None);
+        assert_eq!(p3.storage_quota, None);
+        assert_eq!(p3.taskbar_height, None);
+        let fetched = db.get_profile(&p.id).unwrap();
+        assert_eq!(fetched.timezone, None);
+        assert_eq!(fetched.nav_brand, None);
+        assert_eq!(fetched.storage_quota, None);
+        assert_eq!(fetched.taskbar_height, None);
+
+        // Serde: vắng mặt → None; `null` → Some(None); có giá trị → Some(Some(v)).
+        let u: ProfileUpdate = serde_json::from_str("{}").unwrap();
+        assert_eq!(u.timezone, None);
+        assert_eq!(u.taskbar_height, None);
+        let u: ProfileUpdate = serde_json::from_str(
+            r#"{"timezone":null,"nav_brand":null,"storage_quota":null,"taskbar_height":null}"#,
+        )
+        .unwrap();
+        assert_eq!(u.timezone, Some(None));
+        assert_eq!(u.nav_brand, Some(None));
+        assert_eq!(u.storage_quota, Some(None));
+        assert_eq!(u.taskbar_height, Some(None));
+        let u: ProfileUpdate =
+            serde_json::from_str(r#"{"timezone":"UTC","taskbar_height":48}"#).unwrap();
+        assert_eq!(u.timezone, Some(Some("UTC".into())));
+        assert_eq!(u.taskbar_height, Some(Some(48)));
     }
 
     #[test]
