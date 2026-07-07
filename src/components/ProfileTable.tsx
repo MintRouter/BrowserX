@@ -6,6 +6,7 @@ import {
   ArrowUpDown,
   Bot,
   ClipboardCopy,
+  Cloud,
   Columns3,
   Cookie,
   Copy,
@@ -13,7 +14,6 @@ import {
   EllipsisVertical,
   Eraser,
   FolderInput,
-  HardDrive,
   Link2,
   Loader2,
   MonitorUp,
@@ -36,33 +36,40 @@ import { ExtensionsPanel, FolderPanel, MenuItem, Popover, TagPanel } from "./Pop
 export type ProfilesSort = { key: "name" | "updated"; dir: "asc" | "desc" };
 
 export type ColumnKey =
-  | "storage"
+  | "app"
+  | "serialNo"
+  | "profileId"
   | "folder"
-  | "notes"
   | "tags"
-  | "browser"
+  | "storage"
+  | "notes"
   | "os"
   | "lastStart";
 export type ColumnVisibility = Record<ColumnKey, boolean>;
 
+/** (W50A) Column order mirrors MLX: App | Serial no. | Profile ID | Folder | Tags | Storage, extras after. */
 export const ALL_COLUMNS: ColumnKey[] = [
-  "storage",
+  "app",
+  "serialNo",
+  "profileId",
   "folder",
-  "notes",
   "tags",
-  "browser",
+  "storage",
+  "notes",
   "os",
   "lastStart",
 ];
 
 export const DEFAULT_COLUMNS: ColumnVisibility = {
-  storage: true,
+  app: true,
+  serialNo: false,
+  profileId: false,
   folder: true,
-  notes: true,
   tags: true,
-  browser: true,
-  os: true,
-  lastStart: true,
+  storage: true,
+  notes: false,
+  os: false,
+  lastStart: false,
 };
 
 /** (W26c) Windowing: fixed row height (W15/F4) + overscan rows above/below. */
@@ -685,11 +692,13 @@ export function ProfileTable({
               )}
             </button>
           </th>
-          {columns.storage && <th scope="col" className={th}>{t("table.storage")}</th>}
+          {columns.app && <th scope="col" className={th}>{t("table.app")}</th>}
+          {columns.serialNo && <th scope="col" className={th}>{t("table.serialNo")}</th>}
+          {columns.profileId && <th scope="col" className={th}>{t("table.profileId")}</th>}
           {columns.folder && <th scope="col" className={th}>{t("table.folder")}</th>}
-          {columns.notes && <th scope="col" className={th}>{t("table.notes")}</th>}
           {columns.tags && <th scope="col" className={th}>{t("table.tags")}</th>}
-          {columns.browser && <th scope="col" className={th}>{t("table.browser")}</th>}
+          {columns.storage && <th scope="col" className={th}>{t("table.storage")}</th>}
+          {columns.notes && <th scope="col" className={th}>{t("table.notes")}</th>}
           {columns.os && <th scope="col" className={th}>{t("table.os")}</th>}
           {columns.lastStart && <th scope="col" className={th}>{t("table.lastStart")}</th>}
           <th scope="col" className="w-10 px-1 align-middle">
@@ -726,7 +735,7 @@ export function ProfileTable({
                       }
                       className="h-4 w-4 rounded border-border accent-accent"
                     />
-                    {t(`table.${key === "os" ? "os" : key}`)}
+                    {t(`table.${key}`)}
                   </label>
                 ))}
               </div>
@@ -743,7 +752,7 @@ export function ProfileTable({
             <td colSpan={colCount} className="p-0" style={{ height: padTop }} />
           </tr>
         )}
-        {visibleRows.map((p) => {
+        {visibleRows.map((p, i) => {
           const running = runningIds.has(p.id);
           const isSelected = selected.has(p.id);
           return (
@@ -814,16 +823,31 @@ export function ProfileTable({
                   </span>
                 )}
               </td>
-              {columns.storage && (
+              {columns.app && (
                 <td className="whitespace-nowrap px-3 py-2 text-fg-muted">
-                  <span
-                    className="inline-flex items-center gap-1.5"
-                    title={t("table.local")}
-                  >
-                    <HardDrive className="h-4 w-4" aria-hidden="true" />
-                    {sizes[p.id] !== undefined ? formatBytes(sizes[p.id] ?? 0) : "—"}
-                    <span className="sr-only">{t("table.local")}</span>
+                  <span className="inline-flex items-center gap-1.5" title="Chromium">
+                    <ChromiumIcon className="h-4 w-4" />
+                    Chromium
                   </span>
+                </td>
+              )}
+              {columns.serialNo && (
+                /* (W50A) MLX uses a backend serial; no such field yet, so 1-based index within the page. */
+                <td className="whitespace-nowrap px-3 py-2 text-fg-muted">
+                  {start + i + 1}
+                </td>
+              )}
+              {columns.profileId && (
+                <td className="whitespace-nowrap px-3 py-2 text-fg-muted">
+                  <button
+                    type="button"
+                    title={p.id}
+                    aria-label={`${t("listUtils.copyId")}: ${p.id}`}
+                    onClick={() => onCopyId(p.id)}
+                    className="rounded font-mono text-xs hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                  >
+                    {p.id.slice(0, 8)}
+                  </button>
                 </td>
               )}
               {columns.folder && (
@@ -832,11 +856,6 @@ export function ProfileTable({
                   title={folderName(p.folder_id)}
                 >
                   {folderName(p.folder_id)}
-                </td>
-              )}
-              {columns.notes && (
-                <td className="max-w-[14rem] truncate px-3 py-2 text-fg-muted" title={p.notes ?? undefined}>
-                  {p.notes ?? ""}
                 </td>
               )}
               {columns.tags && (
@@ -856,12 +875,21 @@ export function ProfileTable({
                   </span>
                 </td>
               )}
-              {columns.browser && (
-                <td className="px-3 py-2">
-                  <span title="Chromium">
-                    <ChromiumIcon className="h-4 w-4 text-fg-muted" />
-                    <span className="sr-only">Chromium</span>
+              {columns.storage && (
+                <td className="whitespace-nowrap px-3 py-2 text-fg-muted">
+                  <span
+                    className="inline-flex items-center gap-1.5"
+                    title={t("table.local")}
+                  >
+                    <Cloud className="h-4 w-4" aria-hidden="true" />
+                    {sizes[p.id] !== undefined ? formatBytes(sizes[p.id] ?? 0) : "—"}
+                    <span className="sr-only">{t("table.local")}</span>
                   </span>
+                </td>
+              )}
+              {columns.notes && (
+                <td className="max-w-[14rem] truncate px-3 py-2 text-fg-muted" title={p.notes ?? undefined}>
+                  {p.notes ?? ""}
                 </td>
               )}
               {columns.os && (

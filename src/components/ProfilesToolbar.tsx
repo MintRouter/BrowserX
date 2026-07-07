@@ -1,20 +1,22 @@
 import {
   ArrowUpDown,
+  BringToFront,
   ChevronDown,
-  Cookie,
   Copy,
   Download,
   EllipsisVertical,
-  Eraser,
   FolderInput,
+  GraduationCap,
   Pencil,
   Play,
   Plus,
   RefreshCw,
   Search,
+  SearchCheck,
   Shuffle,
   SlidersHorizontal,
   Square,
+  SquareUserRound,
   Tag,
   Trash2,
   Upload,
@@ -52,9 +54,10 @@ interface ProfilesToolbarProps {
   onCloneSelected: () => void;
   /** (W25a) Bulk export the selected profiles to .bxprofile files. */
   onExportSelected: () => void;
-  /** (W24a) Bulk cookie export for the selected profiles. */
-  onExportCookiesSelected: () => void;
-  onClearCacheSelected: () => void;
+  /** (W50B) Bulk proxy check for the selected profiles (MLX search_check_2). */
+  onCheckProxiesSelected: () => void;
+  /** (W50B) Bring the windows of the selected running profiles to front. */
+  onBringToFrontSelected: () => void;
   onTrashSelected: () => void;
   onClearSelection: () => void;
   /** (W20a) Increment to open the move-to-folder popover (⌘/Ctrl+Shift+M). */
@@ -201,15 +204,16 @@ export function ProfilesToolbar(props: ProfilesToolbarProps) {
           >
             <Square className="h-4 w-4" aria-hidden="true" />
           </ToolButton>
+          {/* (W50B) Bulk proxy check — MLX search_check_2 slot */}
+          <ToolButton
+            label={t("toolbar.checkProxies")}
+            disabled={none}
+            onClick={props.onCheckProxiesSelected}
+          >
+            <SearchCheck className="h-4 w-4" aria-hidden="true" />
+          </ToolButton>
           <ToolButton label={t("toolbar.refresh")} onClick={props.onRefresh}>
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
-          </ToolButton>
-          <ToolButton
-            label={t("toolbar.editSelected")}
-            disabled={notSingle}
-            onClick={props.onEditSelected}
-          >
-            <Pencil className="h-4 w-4" aria-hidden="true" />
           </ToolButton>
           <ToolButton
             label={t("toolbar.rotateProxy")}
@@ -217,6 +221,13 @@ export function ProfilesToolbar(props: ProfilesToolbarProps) {
             onClick={props.onRotateProxies}
           >
             <Shuffle className="h-4 w-4" aria-hidden="true" />
+          </ToolButton>
+          <ToolButton
+            label={t("toolbar.editSelected")}
+            disabled={notSingle}
+            onClick={props.onEditSelected}
+          >
+            <Pencil className="h-4 w-4" aria-hidden="true" />
           </ToolButton>
 
           <Popover
@@ -300,7 +311,11 @@ export function ProfilesToolbar(props: ProfilesToolbarProps) {
             </MenuItem>
           </Popover>
 
-          <ToolButton label={t("toolbar.import")} title={t("toolbar.comingSoon")} disabled>
+          {/* (W50B) Import enabled directly — same .bxprofile flow as the kebab item */}
+          <ToolButton
+            label={t("toolbar.import")}
+            onClick={() => fileRef.current?.click()}
+          >
             <Upload className="h-4 w-4" aria-hidden="true" />
           </ToolButton>
           {/* (W25a) Bulk export selection → one .bxprofile file per profile */}
@@ -319,24 +334,26 @@ export function ProfilesToolbar(props: ProfilesToolbarProps) {
           >
             <Copy className="h-4 w-4" aria-hidden="true" />
           </ToolButton>
+          {/* (W50B) MLX switch_account slot — no multi-account yet */}
           <ToolButton
-            label={t("cookies.bulkExport")}
-            disabled={none}
-            onClick={props.onExportCookiesSelected}
+            label={t("toolbar.switchAccount")}
+            title={t("toolbar.comingSoon")}
+            disabled
           >
-            <Cookie className="h-4 w-4" aria-hidden="true" />
+            <SquareUserRound className="h-4 w-4" aria-hidden="true" />
           </ToolButton>
+          {/* (W50B) MLX flip_to_front slot — focuses the running selection's windows */}
           <ToolButton
-            label={t("toolbar.clearCacheSelected")}
+            label={t("listUtils.bringToFront")}
             title={
               hasRunningSelected
-                ? t("table.clearCacheRunning")
-                : t("toolbar.clearCacheSelected")
+                ? t("listUtils.bringToFront")
+                : t("listUtils.bringToFrontNotRunning")
             }
-            disabled={none || hasRunningSelected}
-            onClick={props.onClearCacheSelected}
+            disabled={!hasRunningSelected}
+            onClick={props.onBringToFrontSelected}
           >
-            <Eraser className="h-4 w-4" aria-hidden="true" />
+            <BringToFront className="h-4 w-4" aria-hidden="true" />
           </ToolButton>
           <ToolButton
             label={t("toolbar.trash")}
@@ -442,6 +459,15 @@ export function ProfilesToolbar(props: ProfilesToolbarProps) {
             </Popover>
           </div>
         </div>
+
+        {/* (W50B) MLX school slot — docs link pending an external-open capability */}
+        <ToolButton
+          label={t("toolbar.help")}
+          title={t("topbar.linkUnavailable")}
+          disabled
+        >
+          <GraduationCap className="h-4 w-4" aria-hidden="true" />
+        </ToolButton>
       </div>
 
       <input

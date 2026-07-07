@@ -300,18 +300,38 @@ export function ProfileList(props: ProfileListProps) {
     }
   };
 
-  // (W24a) Bulk cookie export for the current selection.
-  const handleExportCookiesSelected = () => {
-    const targets = profiles.filter((p) => selected.has(p.id));
-    if (targets.length > 0) setCookieDialog({ mode: "export", profiles: targets });
-  };
-
   const handleBringToFront = async (id: string) => {
     try {
       await api.bringToFront(id);
     } catch (err) {
       setToast(t("listUtils.bringToFrontFailed", { error: String(err) }));
     }
+  };
+
+  // (W50B) Toolbar bring-to-front — focus every running profile in the selection.
+  const handleBringToFrontSelected = async () => {
+    for (const id of selected) {
+      if (runningIds.has(id)) await handleBringToFront(id);
+    }
+  };
+
+  // (W50B) Bulk proxy check for the selection (profiles without a proxy are skipped).
+  const handleCheckProxiesSelected = async () => {
+    const targets = profiles.filter((p) => selected.has(p.id) && p.proxy_id);
+    if (targets.length === 0) {
+      setToast(t("toolbar.checkProxiesNone"));
+      return;
+    }
+    let ok = 0;
+    for (const p of targets) {
+      try {
+        const res = await api.checkProxy({ proxy_id: p.proxy_id });
+        if (res.ok) ok++;
+      } catch {
+        // counted as failed in the summary toast
+      }
+    }
+    setToast(t("toolbar.checkProxiesDone", { ok, total: targets.length }));
   };
 
   // (W20a) Global shortcuts (skipped while typing in a field):
@@ -410,8 +430,8 @@ export function ProfileList(props: ProfileListProps) {
           onMoveToFolder={(folderId) => void props.onMove(selectedIds, folderId)}
           onCloneSelected={() => singleSelected && void props.onClone(singleSelected)}
           onExportSelected={() => void handleExportSelected()}
-          onExportCookiesSelected={handleExportCookiesSelected}
-          onClearCacheSelected={() => void handleClearCache(selectedIds)}
+          onCheckProxiesSelected={() => void handleCheckProxiesSelected()}
+          onBringToFrontSelected={() => void handleBringToFrontSelected()}
           onTrashSelected={() => void props.onTrash(selectedIds)}
           onClearSelection={() => onSelectedChange(new Set())}
           moveSignal={moveSignal}

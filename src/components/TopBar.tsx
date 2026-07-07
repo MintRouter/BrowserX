@@ -1,12 +1,11 @@
 import {
-  Bot,
   ChevronDown,
   HelpCircle,
   Laptop,
-  LayoutGrid,
+  LifeBuoy,
+  MonitorSmartphone,
   Network,
   Puzzle,
-  Send,
   Settings,
   Users,
 } from "lucide-react";
@@ -33,76 +32,34 @@ const iconActive = "bg-accent/10 text-accent";
 export function TopBar(props: TopBarProps) {
   const { view, onNavigate } = props;
   const { t } = useTranslation();
+  const [appsOpen, setAppsOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const initial = t("app.name").charAt(0).toUpperCase();
-  const profilesActive =
-    view !== "proxies" &&
-    view !== "proxyTemplates" &&
-    view !== "templates" &&
-    view !== "extensions" &&
-    view !== "settings";
+  /** Views reachable from the app-switcher dropdown (ML parity, GAP 1/2). */
+  const appsActive =
+    view === "proxyTemplates" ||
+    view === "templates" ||
+    view === "extensions" ||
+    view === "settings";
 
-  const navItems: {
-    key: string;
-    label: string;
-    icon: React.ReactNode;
-    active?: boolean;
-    onClick?: () => void;
-  }[] = [
-    {
-      key: "profiles",
-      label: t("topbar.profiles"),
-      icon: <LayoutGrid className="h-5 w-5" strokeWidth={2} aria-hidden="true" />,
-      active: profilesActive,
-      onClick: () => onNavigate?.("profiles"),
-    },
-    {
-      key: "proxies",
-      label: t("topbar.proxies"),
-      icon: <Network className="h-5 w-5" strokeWidth={2} aria-hidden="true" />,
-      active: view === "proxies" || view === "proxyTemplates",
-      onClick: () => onNavigate?.("proxies"),
-    },
-    {
-      key: "templates",
-      label: t("topbar.templates"),
-      icon: <Laptop className="h-5 w-5" strokeWidth={2} aria-hidden="true" />,
-      active: view === "templates",
-      onClick: () => onNavigate?.("templates"),
-    },
-    {
-      key: "automation",
-      label: t("topbar.automation"),
-      icon: <Bot className="h-5 w-5" strokeWidth={2} aria-hidden="true" />,
-    },
-    {
-      key: "extensions",
-      label: t("topbar.extensions"),
-      icon: <Puzzle className="h-5 w-5" strokeWidth={2} aria-hidden="true" />,
-      active: view === "extensions",
-      onClick: () => onNavigate?.("extensions"),
-    },
-    {
-      key: "team",
-      label: t("topbar.team"),
-      icon: <Users className="h-5 w-5" strokeWidth={2} aria-hidden="true" />,
-    },
-    {
-      key: "help",
-      label: t("topbar.help"),
-      icon: <HelpCircle className="h-5 w-5" strokeWidth={2} aria-hidden="true" />,
-    },
-    {
-      key: "more",
-      label: t("topbar.more"),
-      icon: <ChevronDown className="h-4 w-4" aria-hidden="true" />,
-    },
-  ];
+  const go = (v: MainView) => {
+    setAppsOpen(false);
+    onNavigate?.(v);
+  };
+
+  const menuIcon = "h-4 w-4 shrink-0 text-fg-muted";
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 bg-surface-0 px-2">
-      {/* Workspace/logo card — separate from the nav cluster (ML parity, 1.11) */}
-      <div className="flex h-10 items-center gap-2.5 rounded-lg bg-surface-1 px-2.5">
+      {/* Logo card = home (Profiles), like the ML logo click. */}
+      <button
+        type="button"
+        onClick={() => onNavigate?.("profiles")}
+        aria-label={t("topbar.profiles")}
+        title={t("topbar.profiles")}
+        aria-current={!appsActive ? "page" : undefined}
+        className="flex h-10 items-center gap-2.5 rounded-lg bg-surface-1 px-2.5 transition-colors hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+      >
         <span
           className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-accent text-xs font-bold text-white"
           aria-hidden="true"
@@ -112,36 +69,84 @@ export function TopBar(props: TopBarProps) {
         <span className="text-sm font-bold uppercase tracking-wider text-fg">
           {t("app.name")}
         </span>
-        <ChevronDown className="h-4 w-4 text-fg/80" aria-hidden="true" />
-      </div>
+      </button>
 
-      <div className="flex h-10 items-center rounded-lg bg-surface-1 px-1.5">
-        <nav className="flex items-center gap-1" aria-label={t("topbar.mainNav")}>
-          {navItems.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              onClick={item.onClick}
-              aria-label={item.label}
-              title={item.label}
-              aria-current={item.active ? "page" : undefined}
-              className={`${iconBtn} ${item.active ? iconActive : iconIdle}`}
-            >
-              {item.icon}
-            </button>
-          ))}
-        </nav>
-      </div>
+      {/* App-switcher dropdown (devices icon + chevron) replaces the flat icon row. */}
+      <Popover
+        open={appsOpen}
+        onClose={() => setAppsOpen(false)}
+        label={t("topbar.appSwitcher")}
+        trigger={
+          <button
+            type="button"
+            aria-label={t("topbar.appSwitcher")}
+            title={t("topbar.appSwitcher")}
+            aria-haspopup="menu"
+            aria-expanded={appsOpen}
+            onClick={() => setAppsOpen((v) => !v)}
+            className={`flex h-10 items-center gap-1 rounded-lg px-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
+              appsActive ? iconActive : "bg-surface-1 text-fg/80 hover:bg-surface-2 hover:text-fg"
+            }`}
+          >
+            <MonitorSmartphone className="h-5 w-5" strokeWidth={2} aria-hidden="true" />
+            <ChevronDown className="h-4 w-4" aria-hidden="true" />
+          </button>
+        }
+      >
+        <div role="menu" className="w-52">
+          <MenuItem
+            icon={<Network className={menuIcon} aria-hidden="true" />}
+            onClick={() => go("proxyTemplates")}
+          >
+            {t("topbar.proxyTemplates")}
+          </MenuItem>
+          <MenuItem
+            icon={<Laptop className={menuIcon} aria-hidden="true" />}
+            onClick={() => go("templates")}
+          >
+            {t("topbar.profileTemplates")}
+          </MenuItem>
+          <MenuItem
+            icon={<Puzzle className={menuIcon} aria-hidden="true" />}
+            onClick={() => go("extensions")}
+          >
+            {t("topbar.extensions")}
+          </MenuItem>
+          <MenuItem
+            icon={<Users className={menuIcon} aria-hidden="true" />}
+            disabled
+            title={t("toolbar.comingSoon")}
+          >
+            {t("topbar.team")}
+          </MenuItem>
+          {/* Docs link pending an external-open capability (no opener plugin yet). */}
+          <MenuItem
+            icon={<HelpCircle className={menuIcon} aria-hidden="true" />}
+            disabled
+            title={t("topbar.linkUnavailable")}
+          >
+            {t("topbar.help")}
+          </MenuItem>
+          <MenuItem
+            icon={<Settings className={menuIcon} aria-hidden="true" />}
+            onClick={() => go("settings")}
+          >
+            {t("topbar.accountSettings")}
+          </MenuItem>
+        </div>
+      </Popover>
 
       <div className="ml-auto flex h-11 items-center gap-2 rounded-lg bg-surface-1 px-2">
         <LanguageSwitcher />
+        {/* Support slot (ML parity) — disabled until external links can open. */}
         <button
           type="button"
-          aria-label={t("topbar.share")}
-          title={t("topbar.share")}
-          className={`${iconBtn} ${iconIdle}`}
+          disabled
+          aria-label={t("topbar.support")}
+          title={t("topbar.linkUnavailable")}
+          className={`${iconBtn} ${iconIdle} disabled:cursor-not-allowed disabled:opacity-40`}
         >
-          <Send className="h-[18px] w-[18px]" aria-hidden="true" />
+          <LifeBuoy className="h-[18px] w-[18px]" aria-hidden="true" />
         </button>
         <Popover
           open={accountOpen}

@@ -65,14 +65,16 @@ interface MenuItemProps {
   onClick?: () => void;
   disabled?: boolean;
   danger?: boolean;
+  title?: string;
 }
 
-export function MenuItem({ icon, children, onClick, disabled, danger }: MenuItemProps) {
+export function MenuItem({ icon, children, onClick, disabled, danger, title }: MenuItemProps) {
   return (
     <button
       type="button"
       role="menuitem"
       disabled={disabled}
+      title={title}
       onClick={onClick}
       className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-40 ${
         danger ? "text-danger hover:bg-danger/10" : "text-fg hover:bg-surface-2"
