@@ -185,6 +185,9 @@ pub fn run() {
             commands::list_cloud_backups,
             commands::restore_from_cloud,
             commands::delete_cloud_backup,
+            commands::list_cloud_upload_states,
+            commands::retry_cloud_upload,
+            commands::backup_now,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

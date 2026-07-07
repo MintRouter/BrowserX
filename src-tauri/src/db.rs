@@ -367,12 +367,31 @@ pub struct CloudBackupInfo {
     pub uploaded_at: String,
 }
 
+/// (W52-B C1) Trạng thái upload cloud MỚI NHẤT của 1 profile (bảng
+/// `cloud_upload_state`, 1 row/profile). Upload sau archive không còn nuốt
+/// lỗi: mọi chuyển trạng thái ghi DB để FE hiển thị + retry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CloudUploadState {
+    pub profile_id: String,
+    /// "pending" | "uploading" | "uploaded" | "failed".
+    pub status: String,
+    /// Thông điệp lỗi lần fail gần nhất — giữ nguyên qua lần retry đang chạy,
+    /// chỉ xoá khi upload THÀNH CÔNG.
+    pub last_error: Option<String>,
+    /// RFC3339 UTC thời điểm fail gần nhất.
+    pub last_error_at: Option<String>,
+    /// Số lần fail liên tiếp — reset 0 khi thành công.
+    pub retry_count: i64,
+    /// RFC3339 UTC lần chuyển trạng thái gần nhất.
+    pub updated_at: String,
+}
+
 // ---------------------------------------------------------------------------
 // Db: mở/khởi tạo + migration
 // ---------------------------------------------------------------------------
 
 /// Schema version hiện tại (PRAGMA user_version).
-const SCHEMA_VERSION: i64 = 14;
+const SCHEMA_VERSION: i64 = 15;
 
 const SCHEMA_V1: &str = "
 CREATE TABLE IF NOT EXISTS profiles (
@@ -636,6 +655,23 @@ CREATE TABLE IF NOT EXISTS cloud_backups (
 CREATE INDEX IF NOT EXISTS idx_cloud_backups_profile ON cloud_backups(profile_id, uploaded_at);
 ";
 
+/// Migration v14→v15 (W52-B C1): bảng `cloud_upload_state` — trạng thái upload
+/// cloud MỚI NHẤT của từng profile (1 row/profile, upsert). Upload sau archive
+/// không còn fire-and-forget nuốt lỗi: pending → uploading → uploaded/failed,
+/// `last_error`/`last_error_at` giữ lỗi gần nhất, `retry_count` đếm số lần fail
+/// liên tiếp (reset khi thành công). Không FK → profiles: profile bị purge thì
+/// row trạng thái vô hại và bị ghi đè khi id tái dùng (không xảy ra với UUID).
+const SCHEMA_V15: &str = "
+CREATE TABLE IF NOT EXISTS cloud_upload_state (
+    profile_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'pending',
+    last_error TEXT,
+    last_error_at TEXT,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
+";
+
 /// Kết nối SQLite của app. `Mutex<Connection>` để dùng được trong `tauri::State`
 /// (single-process, mọi thao tác tuần tự qua lock — đủ cho local app).
 pub struct Db {
@@ -832,6 +868,10 @@ fn migrate_inner(conn: &Connection, checkpoint: impl Fn(i64) -> Result<()>) -> R
         if version < 14 {
             conn.execute_batch(SCHEMA_V14)?;
             checkpoint(14)?;
+        }
+        if version < 15 {
+            conn.execute_batch(SCHEMA_V15)?;
+            checkpoint(15)?;
         }
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         Ok(())
@@ -2533,6 +2573,89 @@ impl Db {
         )?;
         Ok(n)
     }
+
+    /// (W52-B C1) Chuyển trạng thái upload cloud của profile sang
+    /// "pending"/"uploading" (upsert 1 row/profile). GIỮ NGUYÊN
+    /// last_error/last_error_at/retry_count của lần fail trước — chỉ upload
+    /// THÀNH CÔNG mới xoá lỗi (FE vẫn thấy lý do fail trong lúc retry chạy).
+    pub fn set_cloud_upload_started(&self, profile_id: &str, status: &str) -> Result<()> {
+        let conn = self.lock();
+        conn.execute(
+            "INSERT INTO cloud_upload_state (profile_id, status, updated_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(profile_id) DO UPDATE SET status = ?2, updated_at = ?3",
+            params![profile_id, status, now()],
+        )?;
+        Ok(())
+    }
+
+    /// (W52-B C1) Upload thành công: status "uploaded", xoá lỗi, reset retry_count.
+    pub fn set_cloud_upload_succeeded(&self, profile_id: &str) -> Result<()> {
+        let conn = self.lock();
+        conn.execute(
+            "INSERT INTO cloud_upload_state (profile_id, status, updated_at)
+             VALUES (?1, 'uploaded', ?2)
+             ON CONFLICT(profile_id) DO UPDATE SET status = 'uploaded',
+                 last_error = NULL, last_error_at = NULL, retry_count = 0,
+                 updated_at = ?2",
+            params![profile_id, now()],
+        )?;
+        Ok(())
+    }
+
+    /// (W52-B C1) Upload fail: status "failed", ghi lỗi + tăng retry_count.
+    pub fn set_cloud_upload_failed(&self, profile_id: &str, error: &str) -> Result<()> {
+        let conn = self.lock();
+        let ts = now();
+        conn.execute(
+            "INSERT INTO cloud_upload_state
+                 (profile_id, status, last_error, last_error_at, retry_count, updated_at)
+             VALUES (?1, 'failed', ?2, ?3, 1, ?3)
+             ON CONFLICT(profile_id) DO UPDATE SET status = 'failed',
+                 last_error = ?2, last_error_at = ?3,
+                 retry_count = retry_count + 1, updated_at = ?3",
+            params![profile_id, error, ts],
+        )?;
+        Ok(())
+    }
+
+    /// (W52-B C1) Trạng thái upload của 1 profile — `None` khi chưa từng upload.
+    pub fn get_cloud_upload_state(&self, profile_id: &str) -> Result<Option<CloudUploadState>> {
+        let conn = self.lock();
+        conn.query_row(
+            "SELECT profile_id, status, last_error, last_error_at, retry_count, updated_at
+             FROM cloud_upload_state WHERE profile_id = ?1",
+            params![profile_id],
+            row_to_cloud_upload_state,
+        )
+        .optional()
+        .map_err(Into::into)
+    }
+
+    /// (W52-B C1) Trạng thái upload của MỌI profile (FE map view Cloud sync).
+    pub fn list_cloud_upload_states(&self) -> Result<Vec<CloudUploadState>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            "SELECT profile_id, status, last_error, last_error_at, retry_count, updated_at
+             FROM cloud_upload_state ORDER BY updated_at DESC",
+        )?;
+        let rows = stmt
+            .query_map([], row_to_cloud_upload_state)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+}
+
+/// Map một row `cloud_upload_state` → [`CloudUploadState`].
+fn row_to_cloud_upload_state(r: &Row) -> rusqlite::Result<CloudUploadState> {
+    Ok(CloudUploadState {
+        profile_id: r.get(0)?,
+        status: r.get(1)?,
+        last_error: r.get(2)?,
+        last_error_at: r.get(3)?,
+        retry_count: r.get(4)?,
+        updated_at: r.get(5)?,
+    })
 }
 
 /// Map một row `cloud_backups` → [`CloudBackupPart`].
@@ -4468,6 +4591,63 @@ mod tests {
         assert!(!db.delete_extension(&b.id).unwrap());
         assert!(db.get_profile_extensions(&p.id).unwrap().is_empty());
         assert!(db.profile_extension_paths(&p.id).unwrap().is_empty());
+    }
+
+    /// (W52-B C1) State machine upload cloud: pending → uploading → failed
+    /// (giữ lỗi + tăng retry_count qua lần retry) → uploaded (xoá lỗi, reset).
+    #[test]
+    fn cloud_upload_state_machine_persists_errors_and_retries() {
+        let db = Db::open_in_memory().unwrap();
+        assert!(db.get_cloud_upload_state("p1").unwrap().is_none());
+        assert!(db.list_cloud_upload_states().unwrap().is_empty());
+
+        db.set_cloud_upload_started("p1", "pending").unwrap();
+        let s = db.get_cloud_upload_state("p1").unwrap().unwrap();
+        assert_eq!(s.status, "pending");
+        assert_eq!(s.retry_count, 0);
+        assert!(s.last_error.is_none());
+
+        db.set_cloud_upload_started("p1", "uploading").unwrap();
+        assert_eq!(
+            db.get_cloud_upload_state("p1").unwrap().unwrap().status,
+            "uploading"
+        );
+
+        db.set_cloud_upload_failed("p1", "telegram sendDocument: 500").unwrap();
+        let s = db.get_cloud_upload_state("p1").unwrap().unwrap();
+        assert_eq!(s.status, "failed");
+        assert_eq!(s.retry_count, 1);
+        assert_eq!(s.last_error.as_deref(), Some("telegram sendDocument: 500"));
+        assert!(s.last_error_at.is_some());
+
+        // Retry bắt đầu: status đổi nhưng lỗi cũ + retry_count GIỮ NGUYÊN.
+        db.set_cloud_upload_started("p1", "uploading").unwrap();
+        let s = db.get_cloud_upload_state("p1").unwrap().unwrap();
+        assert_eq!(s.status, "uploading");
+        assert_eq!(s.retry_count, 1);
+        assert_eq!(s.last_error.as_deref(), Some("telegram sendDocument: 500"));
+
+        // Fail lần 2 → retry_count tăng, lỗi mới ghi đè.
+        db.set_cloud_upload_failed("p1", "network error").unwrap();
+        let s = db.get_cloud_upload_state("p1").unwrap().unwrap();
+        assert_eq!(s.retry_count, 2);
+        assert_eq!(s.last_error.as_deref(), Some("network error"));
+
+        // Thành công → xoá sạch lỗi, reset retry_count.
+        db.set_cloud_upload_succeeded("p1").unwrap();
+        let s = db.get_cloud_upload_state("p1").unwrap().unwrap();
+        assert_eq!(s.status, "uploaded");
+        assert_eq!(s.retry_count, 0);
+        assert!(s.last_error.is_none());
+        assert!(s.last_error_at.is_none());
+
+        // Profile thứ 2 độc lập; list trả cả 2.
+        db.set_cloud_upload_failed("p2", "boom").unwrap();
+        assert_eq!(db.list_cloud_upload_states().unwrap().len(), 2);
+        assert_eq!(
+            db.get_cloud_upload_state("p2").unwrap().unwrap().status,
+            "failed"
+        );
     }
 
     #[test]

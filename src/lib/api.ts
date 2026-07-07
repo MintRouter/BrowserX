@@ -471,6 +471,33 @@ export interface CloudBackupInfo {
   uploaded_at: string;
 }
 
+/** (W52-B C1) Latest cloud upload state of a profile — mirrors db.rs `CloudUploadState`. */
+export interface CloudUploadState {
+  profile_id: string;
+  /** pending | uploading | uploaded | failed */
+  status: string;
+  /** Last failure message — kept during a running retry, cleared only on success. */
+  last_error: string | null;
+  /** RFC3339 UTC of the last failure. */
+  last_error_at: string | null;
+  /** Consecutive failure count — reset to 0 on success. */
+  retry_count: number;
+  /** RFC3339 UTC of the last state transition. */
+  updated_at: string;
+}
+
+/** (W52-B C6) Payload of `cloud://progress` during multi-part cloud upload/download. */
+export interface CloudProgressEvent {
+  profileId: string;
+  /** "upload" | "download" */
+  phase: string;
+  /** Parts finished so far (0 before the first part, = partCount when done). */
+  partIndex: number;
+  partCount: number;
+  bytesDone: number;
+  bytesTotal: number;
+}
+
 /** (W51-B2) Settings key: auto-upload archives to Telegram ("true"/"false"). */
 export const TELEGRAM_SYNC_ENABLED_SETTING = "telegram_sync_enabled";
 
@@ -697,6 +724,14 @@ export const api = {
   /** Delete the latest cloud backup of a profile (Telegram messages + records). */
   deleteCloudBackup: (profileId: string) =>
     invoke<void>("delete_cloud_backup", { profileId }),
+  /** (W52-B C1) Upload states of all profiles (status / last error / retry count). */
+  listCloudUploadStates: () =>
+    invoke<CloudUploadState[]>("list_cloud_upload_states"),
+  /** (W52-B C1) Re-upload the latest LOCAL .bxa archive of a profile. */
+  retryCloudUpload: (profileId: string) =>
+    invoke<void>("retry_cloud_upload", { profileId }),
+  /** (W52-B C5) Sync now: archive immediately (skips dirty-check) + upload. Profile must be stopped. */
+  backupNow: (profileId: string) => invoke<void>("backup_now", { profileId }),
 };
 
 // --- Events ---
@@ -720,6 +755,15 @@ export function onBackupProgress(
   cb: (e: BackupProgressEvent) => void,
 ): Promise<UnlistenFn> {
   return listen<BackupProgressEvent>("backup://progress", (ev) =>
+    cb(ev.payload),
+  );
+}
+
+/** (W52-B C6) Progress of a multi-part cloud upload/download. */
+export function onCloudProgress(
+  cb: (e: CloudProgressEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<CloudProgressEvent>("cloud://progress", (ev) =>
     cb(ev.payload),
   );
 }

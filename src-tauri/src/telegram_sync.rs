@@ -336,20 +336,34 @@ impl TelegramClient {
 // Upload / restore / retention flows
 // ---------------------------------------------------------------------------
 
+/// (W52-B C6) Callback progress khi upload/restore nhiều part:
+/// `(phase, part_index, part_count, bytes_done, bytes_total)` — phase
+/// "upload" | "download", part_index 0-based part ĐANG xử lý (= part_count khi
+/// xong). Caller (commands.rs) map sang event tauri `cloud://progress`;
+/// `None` → không emit (test thuần logic).
+pub type ProgressFn<'a> = &'a (dyn Fn(&str, usize, usize, u64, u64) + Send + Sync);
+
 /// Upload archive `.bxa` của profile lên Telegram: split part → sendDocument
 /// từng part → ghi metadata `cloud_backups` → prune retention. Caller giữ
-/// [`acquire_upload_slot`] trong suốt quá trình.
+/// [`acquire_upload_slot`] trong suốt quá trình. `progress` được gọi trước
+/// part đầu (bytes_done=0) và sau MỖI part upload xong.
 pub async fn upload_archive(
     client: &TelegramClient,
     db: &Arc<Db>,
     profile_id: &str,
     archive_path: &Path,
+    progress: Option<ProgressFn<'_>>,
 ) -> Result<()> {
     let data = tokio::fs::read(archive_path).await?;
     let sha256 = sha256_hex(&data);
+    let bytes_total = data.len() as u64;
     let parts = split_parts(&data);
     let part_count = parts.len();
     let mut inputs = Vec::with_capacity(part_count);
+    let mut bytes_done: u64 = 0;
+    if let Some(cb) = progress {
+        cb("upload", 0, part_count, 0, bytes_total);
+    }
     for (i, chunk) in parts.into_iter().enumerate() {
         let name = part_file_name(profile_id, i, part_count);
         let (message_id, file_id) = client.send_document(&name, chunk.to_vec()).await?;
@@ -359,6 +373,10 @@ pub async fn upload_archive(
             size: chunk.len() as i64,
             part_index: i as i64,
         });
+        bytes_done += chunk.len() as u64;
+        if let Some(cb) = progress {
+            cb("upload", i + 1, part_count, bytes_done, bytes_total);
+        }
     }
     let uploaded_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     db.insert_cloud_backup(profile_id, &sha256, &uploaded_at, &inputs)?;
@@ -420,9 +438,12 @@ pub async fn delete_backup(
 
 /// Tải bản backup mới nhất: getFile từng part → ghép theo part_index → verify
 /// sha256 → trả bytes `.bxa` nguyên vẹn (caller ghi file + gọi archive.rs).
+/// `progress` (W52-B C6) được gọi trước part đầu và sau MỖI part tải xong
+/// (phase "download"; bytes_total từ tổng `size` các part trong DB).
 pub async fn download_backup(
     client: &TelegramClient,
     parts: &[CloudBackupPart],
+    progress: Option<ProgressFn<'_>>,
 ) -> Result<Vec<u8>> {
     if parts.is_empty() {
         return Err(AppError::NotFound("cloud backup has no parts".into()));
@@ -434,6 +455,11 @@ pub async fn download_backup(
             parts[0].part_count
         )));
     }
+    let part_count = parts.len();
+    let bytes_total: u64 = parts.iter().map(|p| p.size.max(0) as u64).sum();
+    if let Some(cb) = progress {
+        cb("download", 0, part_count, 0, bytes_total);
+    }
     let mut data = Vec::new();
     for (i, p) in parts.iter().enumerate() {
         if p.part_index != i as i64 {
@@ -444,6 +470,9 @@ pub async fn download_backup(
         }
         let chunk = client.download_file(&p.file_id).await?;
         data.extend_from_slice(&chunk);
+        if let Some(cb) = progress {
+            cb("download", i + 1, part_count, data.len() as u64, bytes_total);
+        }
     }
     let actual = sha256_hex(&data);
     if actual != parts[0].sha256 {
@@ -689,13 +718,28 @@ mod tests {
         let bxa = dir.join("profile-p1.bxa");
         std::fs::write(&bxa, b"BXA1-fake-archive-bytes").unwrap();
 
-        upload_archive(&client, &db, "p1", &bxa).await.unwrap();
+        // (W52-B C6) Thu progress: trước part đầu + sau mỗi part.
+        let events = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let sink = events.clone();
+        let cb = move |phase: &str, i: usize, n: usize, done: u64, total: u64| {
+            sink.lock().unwrap().push((phase.to_string(), i, n, done, total));
+        };
+        upload_archive(&client, &db, "p1", &bxa, Some(&cb))
+            .await
+            .unwrap();
 
         let list = db.list_cloud_backups(Some("p1")).unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].part_count, 1);
         assert_eq!(list[0].size, 23);
         assert_eq!(list[0].sha256, sha256_hex(b"BXA1-fake-archive-bytes"));
+        assert_eq!(
+            *events.lock().unwrap(),
+            vec![
+                ("upload".to_string(), 0, 1, 0, 23),
+                ("upload".to_string(), 1, 1, 23, 23),
+            ]
+        );
         // 2 request sendDocument: 429 rồi thành công.
         let n = hits
             .lock()
@@ -761,17 +805,31 @@ mod tests {
             uploaded_at: "2026-05-01T00:00:00Z".into(),
         };
         let parts = vec![mk_part(0, &sha), mk_part(1, &sha)];
-        let data = download_backup(&client, &parts).await.unwrap();
+        // (W52-B C6) Progress download: trước part đầu + sau mỗi part.
+        let events = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let sink = events.clone();
+        let cb = move |phase: &str, i: usize, n: usize, done: u64, total: u64| {
+            sink.lock().unwrap().push((phase.to_string(), i, n, done, total));
+        };
+        let data = download_backup(&client, &parts, Some(&cb)).await.unwrap();
         assert_eq!(data, full);
+        assert_eq!(
+            *events.lock().unwrap(),
+            vec![
+                ("download".to_string(), 0, 2, 0, 22),
+                ("download".to_string(), 1, 2, 11, 22),
+                ("download".to_string(), 2, 2, 22, 22),
+            ]
+        );
 
         // sha sai → lỗi Crypto, KHÔNG trả dữ liệu.
         let bad = vec![mk_part(0, "deadbeef"), mk_part(1, "deadbeef")];
-        let err = download_backup(&client, &bad).await.unwrap_err();
+        let err = download_backup(&client, &bad, None).await.unwrap_err();
         assert!(matches!(err, AppError::Crypto(_)));
 
         // Thiếu part (part_count=2 nhưng chỉ có 1 row) → refuse.
         let missing = vec![mk_part(0, &sha)];
-        let err = download_backup(&client, &missing).await.unwrap_err();
+        let err = download_backup(&client, &missing, None).await.unwrap_err();
         assert!(matches!(err, AppError::InvalidInput(_)));
     }
 }
