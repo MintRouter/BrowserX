@@ -463,6 +463,11 @@
     "closeDelete": "Close & delete",
     "cancel": "Cancel"
   },
+  "confirm": {
+    "title": "Are you sure?",
+    "confirm": "Confirm",
+    "cancel": "Cancel"
+  },
   "quit": {
     "title": "Quit BrowserX",
     "message_one": "{{count}} profile is still running. Stop it and quit? Cache and storage cleanup will run before the app closes.",

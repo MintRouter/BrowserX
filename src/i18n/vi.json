@@ -458,6 +458,11 @@
     "closeDelete": "Đóng & xoá",
     "cancel": "Huỷ"
   },
+  "confirm": {
+    "title": "Bạn chắc chắn?",
+    "confirm": "Xác nhận",
+    "cancel": "Huỷ"
+  },
   "quit": {
     "title": "Thoát BrowserX",
     "message_other": "{{count}} profile đang chạy. Dừng tất cả và thoát? Việc dọn cache/lưu trữ sẽ chạy trước khi app đóng.",

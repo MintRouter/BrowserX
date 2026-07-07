@@ -5,6 +5,7 @@ import {
   initialEngineState,
   type EngineState,
 } from "./components/EngineSetup";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 import { ExtensionsView } from "./components/ExtensionsView";
 import { ProfileForm } from "./components/ProfileForm";
 import { ProfileList } from "./components/ProfileList";
@@ -61,6 +62,8 @@ export default function App() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   /** Quick profiles awaiting the stop confirmation dialog (null = closed). */
   const [quickStop, setQuickStop] = useState<string[] | null>(null);
+  /** (W47) Profiles awaiting the move-to-trash confirmation (null = closed). */
+  const [trashConfirm, setTrashConfirm] = useState<string[] | null>(null);
   const [quickStopBusy, setQuickStopBusy] = useState(false);
   /** (W23a) Running-session count when quit was requested (null = no dialog). */
   const [quitCount, setQuitCount] = useState<number | null>(null);
@@ -306,8 +309,12 @@ export default function App() {
       setActionError(t("engine.notReadyLaunch"));
       return;
     }
-    await api.launchProfile(id);
-    await refetchRunning();
+    try {
+      await api.launchProfile(id);
+      await refetchRunning();
+    } catch (err) {
+      setActionError(errMsg(err));
+    }
   };
 
   const handleStop = async (id: string) => {
@@ -315,8 +322,12 @@ export default function App() {
       setQuickStop([id]);
       return;
     }
-    await api.stopProfile(id);
-    await refetchRunning();
+    try {
+      await api.stopProfile(id);
+      await refetchRunning();
+    } catch (err) {
+      setActionError(errMsg(err));
+    }
   };
 
   const profileName = (id: string) =>
@@ -500,7 +511,15 @@ export default function App() {
 
   const handleTrash = async (ids: string[]) => {
     if (ids.length === 0) return;
-    if (!confirm(t("toolbar.confirmTrash", { count: ids.length }))) return;
+    setTrashConfirm(ids);
+  };
+
+  // (W47) window.confirm() is a no-op in the Tauri WKWebView — the trash
+  // action runs from the in-app ConfirmDialog instead.
+  const confirmTrash = async () => {
+    const ids = trashConfirm;
+    setTrashConfirm(null);
+    if (!ids) return;
     setActionError(null);
     try {
       await api.trashProfiles(ids);
@@ -556,13 +575,23 @@ export default function App() {
   };
 
   const handleRestore = async (ids: string[]) => {
-    await api.restoreProfiles(ids);
-    await refetch(refetchProfiles(), refetchFolders(), refetchTrash());
+    setActionError(null);
+    try {
+      await api.restoreProfiles(ids);
+      await refetch(refetchProfiles(), refetchFolders(), refetchTrash());
+    } catch (err) {
+      setActionError(errMsg(err));
+    }
   };
 
   const handlePurge = async (ids: string[]) => {
-    await api.purgeProfiles(ids);
-    await refetch(refetchTrash());
+    setActionError(null);
+    try {
+      await api.purgeProfiles(ids);
+      await refetch(refetchTrash());
+    } catch (err) {
+      setActionError(errMsg(err));
+    }
   };
 
   const handleCreateProxy = async (input: ProxyInput) => {
@@ -805,6 +834,14 @@ export default function App() {
           )}
         </main>
       </div>
+      {trashConfirm && (
+        <ConfirmDialog
+          message={t("toolbar.confirmTrash", { count: trashConfirm.length })}
+          confirmLabel={t("toolbar.trash")}
+          onConfirm={() => void confirmTrash()}
+          onCancel={() => setTrashConfirm(null)}
+        />
+      )}
       {quickStop && (
         <QuickStopDialog
           names={quickStop.map(profileName)}

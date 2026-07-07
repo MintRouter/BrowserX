@@ -2,6 +2,7 @@ import { RotateCcw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Profile } from "../lib/api";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 interface TrashViewProps {
   items: Profile[];
@@ -12,6 +13,8 @@ interface TrashViewProps {
 export function TrashView({ items, onRestore, onPurge }: TrashViewProps) {
   const { t, i18n } = useTranslation();
   const [busyId, setBusyId] = useState<string | null>(null);
+  /** (W47) Profile awaiting the purge confirmation (window.confirm is a no-op in Tauri). */
+  const [purgeConfirm, setPurgeConfirm] = useState<Profile | null>(null);
 
   const deletedAt = (p: Profile) =>
     (p as unknown as { deleted_at?: string }).deleted_at ?? p.updated_at;
@@ -37,8 +40,10 @@ export function TrashView({ items, onRestore, onPurge }: TrashViewProps) {
     }
   };
 
-  const handlePurge = (p: Profile) => {
-    if (!confirm(t("trash.confirmPurge", { name: p.name }))) return;
+  const handlePurge = () => {
+    const p = purgeConfirm;
+    setPurgeConfirm(null);
+    if (!p) return;
     void run(p.id, () => onPurge([p.id]));
   };
 
@@ -88,7 +93,7 @@ export function TrashView({ items, onRestore, onPurge }: TrashViewProps) {
                         <button
                           type="button"
                           disabled={busyId === p.id}
-                          onClick={() => handlePurge(p)}
+                          onClick={() => setPurgeConfirm(p)}
                           className="btn-danger px-2.5 py-1 text-xs"
                         >
                           <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -103,6 +108,14 @@ export function TrashView({ items, onRestore, onPurge }: TrashViewProps) {
           </div>
         )}
       </div>
+      {purgeConfirm && (
+        <ConfirmDialog
+          message={t("trash.confirmPurge", { name: purgeConfirm.name })}
+          confirmLabel={t("trash.deleteForever")}
+          onConfirm={handlePurge}
+          onCancel={() => setPurgeConfirm(null)}
+        />
+      )}
     </div>
   );
 }

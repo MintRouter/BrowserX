@@ -77,7 +77,10 @@ export function FilterPanel({
   const [tags, setTags] = useState<string[]>([]);
 
   useEffect(() => {
-    api.listTags().then(setTags).catch(() => {});
+    api
+      .listTags()
+      .then((list) => setTags(list.map((t) => t.tag)))
+      .catch(() => {});
   }, []);
 
   // Keep a stale selected tag visible so the select stays consistent.

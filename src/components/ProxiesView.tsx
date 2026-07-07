@@ -17,6 +17,7 @@ import {
   type ProxyCheckResult,
   type ProxyInput,
 } from "../lib/api";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { MenuItem, Popover } from "./Popover";
 import { TableFooter } from "./TableFooter";
 
@@ -74,6 +75,8 @@ export function ProxiesView(props: ProxiesViewProps) {
   /** null = closed · "new" = create dialog · Proxy = edit dialog. */
   const [dialog, setDialog] = useState<Proxy | "new" | null>(null);
   const [menuId, setMenuId] = useState<string | null>(null);
+  /** (W47) Proxy ids awaiting the delete confirmation (window.confirm is a no-op in Tauri). */
+  const [deleteConfirm, setDeleteConfirm] = useState<string[] | null>(null);
 
   // Profiles currently pointing at each proxy (proxy_id → count).
   const usage = useMemo(() => {
@@ -139,11 +142,13 @@ export function ProxiesView(props: ProxiesViewProps) {
 
   const handleDelete = (ids: string[]) => {
     if (ids.length === 0) return;
-    const message =
-      ids.length === 1
-        ? t("proxy.confirmDelete")
-        : t("proxy.confirmDeleteMany", { count: ids.length });
-    if (!confirm(message)) return;
+    setDeleteConfirm(ids);
+  };
+
+  const confirmDelete = () => {
+    const ids = deleteConfirm;
+    setDeleteConfirm(null);
+    if (!ids) return;
     void props.onDelete(ids);
   };
 
@@ -378,6 +383,19 @@ export function ProxiesView(props: ProxiesViewProps) {
           onClose={() => setDialog(null)}
           onCreate={props.onCreate}
           onUpdate={props.onUpdate}
+        />
+      )}
+
+      {deleteConfirm && (
+        <ConfirmDialog
+          message={
+            deleteConfirm.length === 1
+              ? t("proxy.confirmDelete")
+              : t("proxy.confirmDeleteMany", { count: deleteConfirm.length })
+          }
+          confirmLabel={t("proxy.delete")}
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteConfirm(null)}
         />
       )}
     </div>

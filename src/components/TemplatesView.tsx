@@ -17,6 +17,7 @@ import {
   type ProfileTemplate,
   type Proxy,
 } from "../lib/api";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { MenuItem, Popover } from "./Popover";
 import { TableFooter } from "./TableFooter";
 
@@ -72,6 +73,8 @@ export function TemplatesView(props: TemplatesViewProps) {
   const [rowsPerPage, setRowsPerPage] = useState(100);
   /** null = closed · "new" = create dialog · ProfileTemplate = edit dialog. */
   const [dialog, setDialog] = useState<ProfileTemplate | "new" | null>(null);
+  /** (W47) Template ids awaiting the delete confirmation (window.confirm is a no-op in Tauri). */
+  const [deleteConfirm, setDeleteConfirm] = useState<string[] | null>(null);
   /** (W29a) Template the "create multiple profiles" dialog is open for. */
   const [bulkFor, setBulkFor] = useState<ProfileTemplate | null>(null);
   const [menuId, setMenuId] = useState<string | null>(null);
@@ -132,11 +135,13 @@ export function TemplatesView(props: TemplatesViewProps) {
 
   const handleDelete = (ids: string[]) => {
     if (ids.length === 0) return;
-    const message =
-      ids.length === 1
-        ? t("tpl.confirmDelete")
-        : t("tpl.confirmDeleteMany", { count: ids.length });
-    if (!confirm(message)) return;
+    setDeleteConfirm(ids);
+  };
+
+  const confirmDelete = () => {
+    const ids = deleteConfirm;
+    setDeleteConfirm(null);
+    if (!ids) return;
     void props.onDelete(ids);
   };
 
@@ -395,6 +400,19 @@ export function TemplatesView(props: TemplatesViewProps) {
           template={bulkFor}
           onClose={() => setBulkFor(null)}
           onCreate={props.onBulkCreate}
+        />
+      )}
+
+      {deleteConfirm && (
+        <ConfirmDialog
+          message={
+            deleteConfirm.length === 1
+              ? t("tpl.confirmDelete")
+              : t("tpl.confirmDeleteMany", { count: deleteConfirm.length })
+          }
+          confirmLabel={t("tpl.delete")}
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteConfirm(null)}
         />
       )}
     </div>

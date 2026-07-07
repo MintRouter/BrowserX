@@ -13,6 +13,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, type Extension, type Profile } from "../lib/api";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { MenuItem, Popover } from "./Popover";
 import { Segmented, Toggle } from "./profile-form/controls";
 import { TableFooter } from "./TableFooter";
@@ -43,6 +44,8 @@ export function ExtensionsView({
   const [dialog, setDialog] = useState<Extension | "add" | null>(null);
   const [menuId, setMenuId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** (W47) Extension awaiting the remove confirmation (window.confirm is a no-op in Tauri). */
+  const [removeConfirm, setRemoveConfirm] = useState<Extension | null>(null);
   /** profile id → assigned extension ids (Profiles column + assign dialog). */
   const [assignments, setAssignments] = useState<Record<string, string[]>>({});
 
@@ -97,8 +100,10 @@ export function ExtensionsView({
     (safePage + 1) * rowsPerPage,
   );
 
-  const handleRemove = async (ext: Extension) => {
-    if (!confirm(t("ext.confirmRemove", { name: ext.name }))) return;
+  const handleRemove = async () => {
+    const ext = removeConfirm;
+    setRemoveConfirm(null);
+    if (!ext) return;
     setError(null);
     try {
       await api.removeExtension(ext.id);
@@ -279,7 +284,7 @@ export function ExtensionsView({
                             icon={<Trash2 className="h-4 w-4" aria-hidden="true" />}
                             onClick={() => {
                               setMenuId(null);
-                              void handleRemove(ext);
+                              setRemoveConfirm(ext);
                             }}
                           >
                             {t("ext.remove")}
@@ -320,6 +325,14 @@ export function ExtensionsView({
           profiles={profiles}
           onClose={() => setDialog(null)}
           onSaved={loadAssignments}
+        />
+      )}
+      {removeConfirm && (
+        <ConfirmDialog
+          message={t("ext.confirmRemove", { name: removeConfirm.name })}
+          confirmLabel={t("ext.remove")}
+          onConfirm={() => void handleRemove()}
+          onCancel={() => setRemoveConfirm(null)}
         />
       )}
     </div>

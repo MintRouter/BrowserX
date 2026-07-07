@@ -11,6 +11,7 @@ import {
   type Proxy,
 } from "../lib/api";
 import { detectHostPlatform } from "../lib/host";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { ExtraTab } from "./profile-form/ExtraTab";
 import { FingerprintTab } from "./profile-form/FingerprintTab";
 import { GeneralTab } from "./profile-form/GeneralTab";
@@ -166,6 +167,8 @@ export function ProfileForm({
   const [activeTab, setActiveTab] = useState<TabId>("general");
   const [saving, setSaving] = useState(false);
   const [trashing, setTrashing] = useState(false);
+  /** (W47) In-app confirmation before move-to-trash (window.confirm is a no-op in Tauri). */
+  const [trashConfirm, setTrashConfirm] = useState(false);
   const [folders, setFolders] = useState<Folder[]>(foldersProp ?? []);
   const [allTags, setAllTags] = useState<string[]>([]);
   // (W20b) Profile templates: dropdown fills the form in create mode;
@@ -221,7 +224,7 @@ export function ProfileForm({
     api
       .listTags()
       .then((tags) => {
-        if (!cancelled) setAllTags(tags);
+        if (!cancelled) setAllTags(tags.map((t) => t.tag));
       })
       .catch(() => {
         // offline / non-Tauri: keep empty list
@@ -459,7 +462,7 @@ export function ProfileForm({
 
   const handleTrash = async () => {
     if (!profile) return;
-    if (!confirm(t("pform.confirmTrash"))) return;
+    setTrashConfirm(false);
     setTrashing(true);
     try {
       try {
@@ -623,7 +626,7 @@ export function ProfileForm({
         {isEdit && (
           <button
             type="button"
-            onClick={handleTrash}
+            onClick={() => setTrashConfirm(true)}
             disabled={trashing}
             className="btn-danger ml-auto"
           >
@@ -632,6 +635,15 @@ export function ProfileForm({
         )}
       </div>
       </div>
+      {trashConfirm && (
+        <ConfirmDialog
+          message={t("pform.confirmTrash")}
+          confirmLabel={t("pform.moveToTrash")}
+          busy={trashing}
+          onConfirm={() => void handleTrash()}
+          onCancel={() => setTrashConfirm(false)}
+        />
+      )}
     </form>
   );
 }

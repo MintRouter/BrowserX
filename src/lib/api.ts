@@ -452,6 +452,12 @@ export interface SystemMetrics {
   launch_fail: number;
 }
 
+/** (W48) One tag + its color (mirrors db.rs `TagInfo`, returned by `list_tags`). */
+export interface TagInfo {
+  tag: string;
+  color: string | null;
+}
+
 /** Settings key: auto-clear a profile's cache when its session stops ("true"/"false"). */
 export const AUTO_CLEAR_CACHE_SETTING = "auto_clear_cache_on_stop";
 
@@ -506,8 +512,9 @@ export const api = {
     }),
 
   // Session
-  launchProfile: (id: string) => invoke<LaunchResult>("launch_profile", { id }),
-  stopProfile: (id: string) => invoke<void>("stop_profile", { id }),
+  launchProfile: (id: string) =>
+    invoke<LaunchResult>("launch_profile", { profileId: id }),
+  stopProfile: (id: string) => invoke<void>("stop_profile", { profileId: id }),
   listRunning: () => invoke<RunningSession[]>("list_running"),
   // (W24c) CDP websocket endpoint (ws://127.0.0.1:{port}/devtools/browser/…)
   // of a running session — for Playwright/Puppeteer connectOverCDP.
@@ -523,9 +530,9 @@ export const api = {
   getSettings: () => invoke<Record<string, string>>("get_settings"),
   setSetting: (key: string, value: string) =>
     invoke<void>("set_setting", { key, value }),
-  listTags: () => invoke<string[]>("list_tags"),
+  listTags: () => invoke<TagInfo[]>("list_tags"),
   setProfileTags: (id: string, tags: string[]) =>
-    invoke<void>("set_profile_tags", { id, tags }),
+    invoke<void>("set_profile_tags", { profileId: id, tags }),
 
   // Folders & favorites
   listFolders: () => invoke<Folder[]>("list_folders"),

@@ -14,6 +14,7 @@ import type {
   ProxyTemplateCreate,
   ProxyTemplatePatch,
 } from "../lib/api";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { MenuItem, Popover } from "./Popover";
 import { Toggle } from "./profile-form/controls";
 import { TableFooter } from "./TableFooter";
@@ -68,6 +69,8 @@ export function ProxyTemplatesView(props: ProxyTemplatesViewProps) {
   /** null = closed · "new" = create dialog · ProxyTemplate = edit dialog. */
   const [dialog, setDialog] = useState<ProxyTemplate | "new" | null>(null);
   const [menuId, setMenuId] = useState<string | null>(null);
+  /** (W47) Template ids awaiting the delete confirmation (window.confirm is a no-op in Tauri). */
+  const [deleteConfirm, setDeleteConfirm] = useState<string[] | null>(null);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -126,11 +129,13 @@ export function ProxyTemplatesView(props: ProxyTemplatesViewProps) {
 
   const handleDelete = (ids: string[]) => {
     if (ids.length === 0) return;
-    const message =
-      ids.length === 1
-        ? t("pxtpl.confirmDelete")
-        : t("pxtpl.confirmDeleteMany", { count: ids.length });
-    if (!confirm(message)) return;
+    setDeleteConfirm(ids);
+  };
+
+  const confirmDelete = () => {
+    const ids = deleteConfirm;
+    setDeleteConfirm(null);
+    if (!ids) return;
     void props.onDelete(ids);
   };
 
@@ -364,6 +369,19 @@ export function ProxyTemplatesView(props: ProxyTemplatesViewProps) {
           onClose={() => setDialog(null)}
           onCreate={props.onCreate}
           onUpdate={props.onUpdate}
+        />
+      )}
+
+      {deleteConfirm && (
+        <ConfirmDialog
+          message={
+            deleteConfirm.length === 1
+              ? t("pxtpl.confirmDelete")
+              : t("pxtpl.confirmDeleteMany", { count: deleteConfirm.length })
+          }
+          confirmLabel={t("pxtpl.delete")}
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteConfirm(null)}
         />
       )}
     </div>
