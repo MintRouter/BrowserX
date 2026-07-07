@@ -628,7 +628,10 @@
     "lastError": "Lỗi gần nhất: {{error}}",
     "retryCount": "{{count}} lần thất bại",
     "progressUpload": "Đang upload part {{part}}/{{total}}…",
-    "progressDownload": "Đang tải part {{part}}/{{total}}…"
+    "progressDownload": "Đang tải part {{part}}/{{total}}…",
+    "history": "Lịch sử sao lưu",
+    "latest": "Mới nhất",
+    "versionLatestOnly": "Hiện chỉ khôi phục/xoá được bản sao lưu mới nhất"
   },
   "audit": {
     "title": "Nhật ký hành động",

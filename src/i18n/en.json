@@ -636,7 +636,10 @@
     "lastError": "Last error: {{error}}",
     "retryCount": "{{count}} failed attempt(s)",
     "progressUpload": "Uploading part {{part}}/{{total}}…",
-    "progressDownload": "Downloading part {{part}}/{{total}}…"
+    "progressDownload": "Downloading part {{part}}/{{total}}…",
+    "history": "Backup history",
+    "latest": "Latest",
+    "versionLatestOnly": "Only the latest backup can be restored or deleted"
   },
   "audit": {
     "title": "Audit log",
