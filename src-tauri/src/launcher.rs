@@ -10,8 +10,10 @@
 //!
 //! Wave 2c. `build_args`/`resolve_proxy_args` là hàm public cho W3a wiring.
 
+use crate::error::{AppError, Result};
 use crate::geoip::GeoInfo;
 use crate::models::Profile;
+use std::path::Path;
 
 /// Map bảo toàn thứ tự chèn; set lại key đã có sẽ cập nhật tại chỗ (giống dict Python).
 struct OrderedArgs {
@@ -300,6 +302,86 @@ pub fn resolve_proxy_args(proxy_url: Option<&str>) -> Vec<String> {
         Some(url) if !url.trim().is_empty() => vec![format!("--proxy-server={}", url.trim())],
         _ => Vec::new(),
     }
+}
+
+// ---------------------------------------------------------------------------
+// (W54) Ghi tên profile vào Chromium prefs trước khi launch
+// ---------------------------------------------------------------------------
+
+/// Guard: file prefs lớn bất thường (>50MB) → bỏ qua, không đọc vào RAM
+/// (pattern VFlowX ensureLauncherIconPrefs).
+const MAX_PREFS_BYTES: u64 = 50 * 1024 * 1024;
+
+/// (W54) Ghi tên profile vào `<user_data_dir>/Default/Preferences`
+/// (`profile.name`) và `<user_data_dir>/Local State`
+/// (`profile.info_cache.Default.name`) để Chromium hiển thị tên profile
+/// (window title / profile chip) thay vì mặc định. Gọi TRƯỚC khi spawn.
+///
+/// Pattern VFlowX UpdatePreferences: đọc-merge-ghi, CHỈ đụng key cần set,
+/// mọi key khác giữ nguyên (semantic JSON). File/dir chưa có → tạo mới.
+/// Best-effort: lỗi đọc/parse/ghi từng file chỉ log warning, KHÔNG chặn launch.
+pub fn write_profile_name_prefs(user_data_dir: &Path, profile_name: &str) {
+    let targets: [(std::path::PathBuf, &[&str]); 2] = [
+        (
+            user_data_dir.join("Default").join("Preferences"),
+            &["profile", "name"][..],
+        ),
+        (
+            user_data_dir.join("Local State"),
+            &["profile", "info_cache", "Default", "name"][..],
+        ),
+    ];
+    for (path, key_path) in targets {
+        if let Err(e) = merge_name_into_json(&path, key_path, profile_name, MAX_PREFS_BYTES) {
+            tracing::warn!("write_profile_name_prefs: bỏ qua {}: {e}", path.display());
+        }
+    }
+}
+
+/// Đọc-merge-ghi một key string vào file JSON tại `key_path` (tạo object trung
+/// gian nếu thiếu; giá trị trung gian không phải object bị thay bằng object vì
+/// nằm trong key path ta sở hữu). File chưa tồn tại → tạo mới kèm dir cha.
+/// File >`max_bytes` hoặc JSON hỏng / root không phải object → Err (caller log,
+/// file giữ nguyên, không chặn launch).
+fn merge_name_into_json(path: &Path, key_path: &[&str], name: &str, max_bytes: u64) -> Result<()> {
+    use serde_json::{Map, Value};
+    let mut root: Value = match std::fs::metadata(path) {
+        Ok(meta) if meta.len() > max_bytes => {
+            return Err(AppError::InvalidInput(format!(
+                "file {} bytes vượt guard {max_bytes} bytes",
+                meta.len()
+            )));
+        }
+        Ok(_) => serde_json::from_slice(&std::fs::read(path)?)?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Value::Object(Map::new()),
+        Err(e) => return Err(e.into()),
+    };
+    if !root.is_object() {
+        return Err(AppError::InvalidInput(
+            "root JSON không phải object".into(),
+        ));
+    }
+    let (last, parents) = key_path.split_last().expect("key_path không rỗng");
+    let mut cur = &mut root;
+    for k in parents {
+        let entry = cur
+            .as_object_mut()
+            .expect("cur luôn là object")
+            .entry((*k).to_string())
+            .or_insert_with(|| Value::Object(Map::new()));
+        if !entry.is_object() {
+            *entry = Value::Object(Map::new());
+        }
+        cur = entry;
+    }
+    cur.as_object_mut()
+        .expect("cur luôn là object")
+        .insert((*last).to_string(), Value::String(name.to_string()));
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, serde_json::to_vec(&root)?)?;
+    Ok(())
 }
 
 /// Profile mẫu cho unit test (dùng chung với test module `geoip`).
@@ -813,5 +895,103 @@ mod tests {
         assert_eq!(count_key(&args, "--lang"), 0);
         assert_eq!(count_key(&args, "--fingerprint-locale"), 0);
         assert_eq!(count_key(&args, "--fingerprint-location"), 0);
+    }
+
+    // --- (W54) write_profile_name_prefs ---
+
+    struct TempDir(std::path::PathBuf);
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn temp_udd() -> TempDir {
+        let dir = std::env::temp_dir().join(format!(
+            "browserx-launcher-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        TempDir(dir)
+    }
+
+    fn read_json(path: &std::path::Path) -> serde_json::Value {
+        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+    }
+
+    // (1) Dir trống → 2 file được tạo với tên đúng tại đúng key path.
+    #[test]
+    fn profile_name_prefs_created_in_empty_dir() {
+        let udd = temp_udd();
+        write_profile_name_prefs(&udd.0, "My Profile");
+
+        let prefs = read_json(&udd.0.join("Default").join("Preferences"));
+        assert_eq!(prefs["profile"]["name"], "My Profile");
+
+        let local_state = read_json(&udd.0.join("Local State"));
+        assert_eq!(
+            local_state["profile"]["info_cache"]["Default"]["name"],
+            "My Profile"
+        );
+    }
+
+    // (2) File có sẵn key khác → key khác nguyên vẹn, name được set/overwrite.
+    #[test]
+    fn profile_name_prefs_merge_keeps_other_keys() {
+        let udd = temp_udd();
+        let prefs_path = udd.0.join("Default").join("Preferences");
+        std::fs::create_dir_all(prefs_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &prefs_path,
+            r#"{"profile":{"name":"old","avatar_index":3},"browser":{"theme":"dark"}}"#,
+        )
+        .unwrap();
+        let ls_path = udd.0.join("Local State");
+        std::fs::write(
+            &ls_path,
+            r#"{"profile":{"info_cache":{"Default":{"name":"old","user_name":"u"}},"last_used":"Default"},"os_crypt":{"v":1}}"#,
+        )
+        .unwrap();
+
+        write_profile_name_prefs(&udd.0, "New Name");
+
+        let prefs = read_json(&prefs_path);
+        assert_eq!(prefs["profile"]["name"], "New Name");
+        assert_eq!(prefs["profile"]["avatar_index"], 3);
+        assert_eq!(prefs["browser"]["theme"], "dark");
+
+        let ls = read_json(&ls_path);
+        assert_eq!(ls["profile"]["info_cache"]["Default"]["name"], "New Name");
+        assert_eq!(ls["profile"]["info_cache"]["Default"]["user_name"], "u");
+        assert_eq!(ls["profile"]["last_used"], "Default");
+        assert_eq!(ls["os_crypt"]["v"], 1);
+    }
+
+    // (3) JSON hỏng → không panic, file giữ nguyên (launch vẫn tiếp tục).
+    #[test]
+    fn profile_name_prefs_corrupt_json_no_panic() {
+        let udd = temp_udd();
+        let prefs_path = udd.0.join("Default").join("Preferences");
+        std::fs::create_dir_all(prefs_path.parent().unwrap()).unwrap();
+        std::fs::write(&prefs_path, b"{not json").unwrap();
+        let ls_path = udd.0.join("Local State");
+        std::fs::write(&ls_path, b"[1,2,3]").unwrap();
+
+        write_profile_name_prefs(&udd.0, "X");
+
+        assert_eq!(std::fs::read(&prefs_path).unwrap(), b"{not json");
+        assert_eq!(std::fs::read(&ls_path).unwrap(), b"[1,2,3]");
+    }
+
+    // (4) Guard kích thước: file vượt max_bytes → Err, file giữ nguyên.
+    #[test]
+    fn profile_name_prefs_size_guard_skips() {
+        let udd = temp_udd();
+        let path = udd.0.join("Local State");
+        std::fs::write(&path, br#"{"profile":{}}"#).unwrap();
+
+        let res = merge_name_into_json(&path, &["profile", "name"], "X", 4);
+        assert!(res.is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), br#"{"profile":{}}"#.to_vec());
     }
 }

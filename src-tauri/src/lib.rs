@@ -36,6 +36,7 @@ pub mod process;
 pub mod proxy_check;
 pub mod storage;
 pub mod telegram_sync;
+pub mod userbot;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -185,6 +186,12 @@ pub fn run() {
             commands::telegram_set_credentials,
             commands::telegram_credentials_status,
             commands::telegram_test_connection,
+            commands::userbot_get_status,
+            commands::userbot_set_credentials,
+            commands::userbot_send_phone,
+            commands::userbot_submit_code,
+            commands::userbot_submit_password,
+            commands::userbot_logout,
             commands::list_cloud_backups,
             commands::restore_from_cloud,
             commands::delete_cloud_backup,

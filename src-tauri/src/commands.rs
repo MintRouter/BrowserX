@@ -38,7 +38,7 @@ use crate::process::ProcessManager;
 use crate::proxy_check::{self, ProxyCheckResult};
 use crate::{
     archive, binary, cdp, cookierobot, cookies, crypto, extensions, geoip, launcher, storage,
-    telegram_sync,
+    telegram_sync, userbot,
 };
 
 /// State toàn app — khởi tạo trong `tauri::Builder::setup` (lib.rs) rồi `.manage()`.
@@ -840,6 +840,20 @@ async fn launch_profile_inner(
         }
     }
 
+    // (W54) Ghi tên profile vào Preferences/Local State TRƯỚC khi spawn để
+    // Chromium hiển thị đúng tên. Best-effort — lỗi chỉ log warn bên trong,
+    // KHÔNG chặn launch (panic của task cũng chỉ warn).
+    {
+        let dir = PathBuf::from(&profile.user_data_dir);
+        let name = profile.name.clone();
+        if let Err(e) =
+            tokio::task::spawn_blocking(move || launcher::write_profile_name_prefs(&dir, &name))
+                .await
+        {
+            tracing::warn!("launch_profile {profile_id}: ghi tên profile panicked — bỏ qua: {e}");
+        }
+    }
+
     let proxy_url = match profile.proxy_id.as_deref() {
         Some(pid) => Some(proxy_url_from(&state.db.get_proxy(pid)?)?),
         None => None,
@@ -1124,6 +1138,68 @@ pub async fn telegram_test_connection(state: State<'_, AppState>) -> Result<Stri
         .db
         .insert_audit("telegram.test_connection", None, None)?;
     Ok(me.username.unwrap_or_default())
+}
+
+// ---------------------------------------------------------------------------
+// (W55b-core) Userbot MTProto — auth commands (API surface CHỐT CỨNG trong spec)
+// ---------------------------------------------------------------------------
+
+/// (W55b) Trạng thái userbot cho FE: `{ state, phoneHint?, username? }`.
+/// Cũng init lazy client nếu đã có credentials (idempotent).
+#[tauri::command]
+pub async fn userbot_get_status(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<userbot::UserbotStatus> {
+    userbot::ensure_client(&app, &state.db)?;
+    userbot::current_status(&state.db)
+}
+
+/// (W55b) Lưu api_id + api_hash từ my.telegram.org (hash mã hoá XChaCha20-
+/// Poly1305 như bot token). api_hash rỗng → xoá credentials. Có credentials
+/// mới → init client ngay để chạy auth flow.
+#[tauri::command]
+pub async fn userbot_set_credentials(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    api_id: i32,
+    api_hash: String,
+) -> Result<()> {
+    userbot::save_credentials(&state.db, api_id, &api_hash)?;
+    state.db.insert_audit("userbot.set_credentials", None, None)?;
+    userbot::ensure_client(&app, &state.db)?;
+    Ok(())
+}
+
+/// (W55b) Submit số điện thoại (state waiting_phone). KHÔNG log số.
+#[tauri::command]
+pub async fn userbot_send_phone(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    phone: String,
+) -> Result<()> {
+    userbot::ensure_client(&app, &state.db)?;
+    userbot::send_phone(&phone).await
+}
+
+/// (W55b) Submit mã OTP (state waiting_code). KHÔNG log mã.
+#[tauri::command]
+pub async fn userbot_submit_code(code: String) -> Result<()> {
+    userbot::submit_code(&code).await
+}
+
+/// (W55b) Submit mật khẩu 2FA (state waiting_password). KHÔNG log password.
+#[tauri::command]
+pub async fn userbot_submit_password(password: String) -> Result<()> {
+    userbot::submit_password(&password).await
+}
+
+/// (W55b) Logout: revoke session phía Telegram + xoá session dir local.
+#[tauri::command]
+pub async fn userbot_logout(state: State<'_, AppState>) -> Result<()> {
+    userbot::logout().await?;
+    state.db.insert_audit("userbot.logout", None, None)?;
+    Ok(())
 }
 
 /// (W51-B2) Danh sách bản backup cloud (gộp part) — FE map view Cloud sync.
