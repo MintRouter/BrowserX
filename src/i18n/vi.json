@@ -674,7 +674,19 @@
     "progressUpload": "Đang upload part {{part}}/{{total}}…",
     "progressDownload": "Đang tải part {{part}}/{{total}}…",
     "history": "Lịch sử sao lưu",
-    "latest": "Mới nhất"
+    "latest": "Mới nhất",
+    "appDbTitle": "Cơ sở dữ liệu ứng dụng",
+    "appDbLastBackup": "Sao lưu gần nhất: {{date}} · {{size}}",
+    "appDbNoBackup": "Chưa có bản sao lưu cloud nào của database ứng dụng.",
+    "appDbBackupNow": "Sao lưu ngay",
+    "appDbBackupDone": "Đã sao lưu database ứng dụng lên cloud.",
+    "appDbRestoreWhileRunning": "Dừng mọi profile trước khi khôi phục database ứng dụng",
+    "confirmAppDbRestore": "Khôi phục database ứng dụng từ bản sao lưu cloud ngày {{date}}? Bản tải về được ghi tạm và áp dụng khi khởi động lại app — database hiện tại được giữ ở file .bak.",
+    "appDbRestoreStaged": "Đã tải và ghi tạm bản sao lưu. Khởi động lại app để áp dụng.",
+    "appDbPendingRestore": "Đã có bản khôi phục database chờ áp dụng ở lần khởi động tới. Database hiện tại sẽ được giữ ở file .bak.",
+    "appDbRestartNow": "Khởi động lại ngay",
+    "appDbCancelRestore": "Huỷ khôi phục",
+    "appDbRestoreCancelled": "Đã huỷ bản khôi phục database chờ áp dụng."
   },
   "audit": {
     "title": "Nhật ký hành động",

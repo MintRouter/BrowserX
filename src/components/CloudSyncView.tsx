@@ -4,6 +4,7 @@ import {
   Cloud,
   CloudDownload,
   CloudUpload,
+  Database,
   RotateCcw,
   Search,
   SearchX,
@@ -15,6 +16,7 @@ import {
   api,
   isTauri,
   onCloudProgress,
+  type AppDbCloudStatus,
   type CloudBackupInfo,
   type CloudProgressEvent,
   type CloudUploadState,
@@ -38,6 +40,9 @@ function fmtBytes(bytes: number): string {
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
+
+/** (W55c) Sentinel id of the app-DB backup — matches app_db_backup.rs. */
+const APP_DB_ID = "__app_db__";
 
 /**
  * (W51-B2) Cloud sync profiles — profiles that have a Telegram cloud backup
@@ -73,22 +78,31 @@ export function CloudSyncView({
     id: string;
     uploadedAt: string;
   } | null>(null);
+  /** (W55c) App-DB backup card state + pending confirms. */
+  const [appDb, setAppDb] = useState<AppDbCloudStatus | null>(null);
+  const [appDbExpanded, setAppDbExpanded] = useState(false);
+  const [appDbRestoreConfirm, setAppDbRestoreConfirm] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!isTauri()) return;
     try {
-      const [b, s] = await Promise.all([
+      const [b, s, a] = await Promise.all([
         api.listCloudBackups(),
         api.listCloudUploadStates(),
+        api.appDbCloudStatus(),
       ]);
       setBackups(b);
       setStates(s);
+      setAppDb(a);
       // Prune stale upload bars: a failed background upload emits no
       // completion event, but its state row flips away from "uploading".
       setProgress((prev) => {
         const next: Record<string, CloudProgressEvent> = {};
         for (const [id, e] of Object.entries(prev)) {
-          const st = s.find((x) => x.profile_id === id);
+          const st =
+            id === APP_DB_ID
+              ? (a.uploadState ?? undefined)
+              : s.find((x) => x.profile_id === id);
           if (e.phase === "upload" && st && st.status !== "uploading") continue;
           next[id] = e;
         }
@@ -242,6 +256,28 @@ export function CloudSyncView({
       t("cloudSync.retryUploadDone", { name: profileName(id) }),
     );
 
+  // (W55c) App-DB card actions — same runAction plumbing, sentinel busy id.
+  const appDbBackupNow = () =>
+    void runAction(APP_DB_ID, () => api.backupAppDbNow(), t("cloudSync.appDbBackupDone"));
+
+  const confirmAppDbRestore = () => {
+    const uploadedAt = appDbRestoreConfirm;
+    setAppDbRestoreConfirm(null);
+    if (!uploadedAt) return;
+    void runAction(
+      APP_DB_ID,
+      () => api.restoreAppDb(uploadedAt),
+      t("cloudSync.appDbRestoreStaged"),
+    );
+  };
+
+  const appDbCancelRestore = () =>
+    void runAction(
+      APP_DB_ID,
+      () => api.cancelAppDbRestore(),
+      t("cloudSync.appDbRestoreCancelled"),
+    );
+
   const toggleExpanded = (id: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -259,8 +295,155 @@ export function CloudSyncView({
 
   const th = "h-10 px-3 text-left align-middle text-xs font-medium text-fg";
 
+  const appDbLatest = appDb?.backups[0];
+  const appDbBusy = busyId === APP_DB_ID;
+  const appDbProgress = progress[APP_DB_ID];
+  const appDbPct =
+    appDbProgress && appDbProgress.bytesTotal > 0
+      ? Math.min(
+          100,
+          Math.round((appDbProgress.bytesDone / appDbProgress.bytesTotal) * 100),
+        )
+      : 0;
+
   return (
-    <div className="flex h-full flex-col p-4">
+    <div className="flex h-full flex-col gap-4 p-4">
+      {/* (W55c) Application database island — backup/restore the whole app DB. */}
+      <div className="card flex flex-col overflow-hidden">
+        <div className="flex min-h-[60px] flex-wrap items-center gap-3 p-3">
+          <span className="inline-flex items-center gap-1.5 text-sm font-medium text-fg">
+            <Database className="h-4 w-4 text-accent" aria-hidden="true" />
+            {t("cloudSync.appDbTitle")}
+          </span>
+          <span className="text-xs text-fg-muted">
+            {appDbLatest
+              ? t("cloudSync.appDbLastBackup", {
+                  date: fmtDate(appDbLatest.uploaded_at),
+                  size: fmtBytes(appDbLatest.size),
+                })
+              : t("cloudSync.appDbNoBackup")}
+          </span>
+          {appDb?.uploadState?.status === "failed" && !appDbProgress && (
+            <span
+              className="text-xs text-danger"
+              title={appDb.uploadState.last_error ?? undefined}
+            >
+              {statusLabel.failed}
+            </span>
+          )}
+          {appDbProgress && (
+            <span className="inline-flex items-center gap-2 text-xs text-fg-muted">
+              {t(
+                appDbProgress.phase === "download"
+                  ? "cloudSync.progressDownload"
+                  : "cloudSync.progressUpload",
+                {
+                  part: Math.min(appDbProgress.partIndex + 1, appDbProgress.partCount),
+                  total: appDbProgress.partCount,
+                },
+              )}
+              <span
+                role="progressbar"
+                aria-valuenow={appDbPct}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                className="h-1 w-24 overflow-hidden rounded-full bg-border"
+              >
+                <span
+                  className="block h-full rounded-full bg-accent transition-[width]"
+                  style={{ width: `${appDbPct}%` }}
+                />
+              </span>
+            </span>
+          )}
+          <span className="ml-auto flex items-center gap-3">
+            {(appDb?.backups.length ?? 0) > 0 && (
+              <button
+                type="button"
+                aria-expanded={appDbExpanded}
+                onClick={() => setAppDbExpanded((v) => !v)}
+                className="inline-flex items-center gap-1 rounded text-sm font-medium text-fg-muted hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+              >
+                {appDbExpanded ? (
+                  <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                ) : (
+                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                )}
+                {t("cloudSync.history")}
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={appDbBusy}
+              onClick={appDbBackupNow}
+              className="inline-flex items-center gap-1 rounded text-sm font-medium text-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <CloudUpload className="h-4 w-4" aria-hidden="true" />
+              {t("cloudSync.appDbBackupNow")}
+            </button>
+          </span>
+        </div>
+        {appDb?.pendingRestore && (
+          <div className="flex flex-wrap items-center gap-3 border-t border-border bg-accent/10 px-4 py-2 text-xs text-accent">
+            <span>{t("cloudSync.appDbPendingRestore")}</span>
+            <button
+              type="button"
+              onClick={() => void api.restartApp()}
+              className="rounded font-medium underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+            >
+              {t("cloudSync.appDbRestartNow")}
+            </button>
+            <button
+              type="button"
+              disabled={appDbBusy}
+              onClick={appDbCancelRestore}
+              className="rounded font-medium text-fg-muted underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {t("cloudSync.appDbCancelRestore")}
+            </button>
+          </div>
+        )}
+        {appDbExpanded && (appDb?.backups.length ?? 0) > 0 && (
+          <ul className="flex flex-col gap-1.5 border-t border-border bg-surface-2/50 px-4 py-3">
+            {appDb?.backups.map((v, idx) => (
+              <li
+                key={v.uploaded_at}
+                className="flex items-center gap-4 text-xs text-fg-muted"
+              >
+                <span className="whitespace-nowrap" title={`sha256: ${v.sha256}`}>
+                  {fmtDate(v.uploaded_at)}
+                </span>
+                <span className="whitespace-nowrap">{fmtBytes(v.size)}</span>
+                <span className="whitespace-nowrap">
+                  {t("cloudSync.parts")}: {v.part_count}
+                </span>
+                {idx === 0 && (
+                  <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">
+                    {t("cloudSync.latest")}
+                  </span>
+                )}
+                <span className="ml-auto flex items-center">
+                  <button
+                    type="button"
+                    disabled={appDbBusy || runningIds.size > 0}
+                    title={
+                      runningIds.size > 0
+                        ? t("cloudSync.appDbRestoreWhileRunning")
+                        : undefined
+                    }
+                    onClick={() => setAppDbRestoreConfirm(v.uploaded_at)}
+                    className="inline-flex items-center gap-1 rounded text-xs font-medium text-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <CloudDownload className="h-3.5 w-3.5" aria-hidden="true" />
+                    {t("cloudSync.restore")}
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       <div className="card flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="flex min-h-[60px] flex-wrap items-center gap-3 p-3">
           <span className="inline-flex items-center gap-1.5 text-sm font-medium text-fg">
@@ -554,6 +737,16 @@ export function CloudSyncView({
           confirmLabel={t("cloudSync.delete")}
           onConfirm={confirmDelete}
           onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
+      {appDbRestoreConfirm && (
+        <ConfirmDialog
+          message={t("cloudSync.confirmAppDbRestore", {
+            date: fmtDate(appDbRestoreConfirm),
+          })}
+          confirmLabel={t("cloudSync.restore")}
+          onConfirm={confirmAppDbRestore}
+          onCancel={() => setAppDbRestoreConfirm(null)}
         />
       )}
     </div>

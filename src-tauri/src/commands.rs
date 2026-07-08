@@ -37,8 +37,8 @@ use crate::metrics::LaunchMetrics;
 use crate::process::ProcessManager;
 use crate::proxy_check::{self, ProxyCheckResult};
 use crate::{
-    archive, binary, cdp, cloud_transport, cookierobot, cookies, crypto, extensions, geoip,
-    launcher, storage, telegram_sync, userbot,
+    app_db_backup, archive, binary, cdp, cloud_transport, cookierobot, cookies, crypto,
+    extensions, geoip, launcher, storage, telegram_sync, userbot,
 };
 
 /// State toàn app — khởi tạo trong `tauri::Builder::setup` (lib.rs) rồi `.manage()`.
@@ -1263,20 +1263,27 @@ pub async fn cloud_set_transport(state: State<'_, AppState>, transport: String) 
 }
 
 /// (W51-B2) Danh sách bản backup cloud (gộp part) — FE map view Cloud sync.
+/// (W55c) Bản app DB (sentinel `__app_db__`) KHÔNG lẫn vào danh sách profile
+/// — FE lấy riêng qua `app_db_cloud_status`.
 #[tauri::command]
 pub async fn list_cloud_backups(
     state: State<'_, AppState>,
 ) -> Result<Vec<db::CloudBackupInfo>> {
-    state.db.list_cloud_backups(None)
+    let mut list = state.db.list_cloud_backups(None)?;
+    list.retain(|b| b.profile_id != app_db_backup::APP_DB_PROFILE_ID);
+    Ok(list)
 }
 
 /// (W52-B C1) Trạng thái upload cloud của MỌI profile (status/lỗi/retry_count)
 /// — FE hiển thị lý do fail + nút retry trong view Cloud sync.
+/// (W55c) Trạng thái app DB (sentinel) cũng bị lọc — trả riêng.
 #[tauri::command]
 pub async fn list_cloud_upload_states(
     state: State<'_, AppState>,
 ) -> Result<Vec<db::CloudUploadState>> {
-    state.db.list_cloud_upload_states()
+    let mut list = state.db.list_cloud_upload_states()?;
+    list.retain(|s| s.profile_id != app_db_backup::APP_DB_PROFILE_ID);
+    Ok(list)
 }
 
 /// (W52-B C1) Chạy lại upload bản `.bxa` LOCAL gần nhất của profile (bản đã
@@ -1481,6 +1488,173 @@ pub async fn delete_cloud_backup(
     state
         .db
         .insert_audit("profile.cloud_backup_delete", Some(&profile_id), None)?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// (W55c) App DB cloud backup — kiểu VFlowX DB sync
+// ---------------------------------------------------------------------------
+
+/// (W55c) Trạng thái cloud backup của APP DB cho FE: lịch sử bản backup
+/// (retention 3), trạng thái upload, và cờ "đã staging restore — cần restart".
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppDbCloudStatus {
+    pub backups: Vec<db::CloudBackupInfo>,
+    pub upload_state: Option<db::CloudUploadState>,
+    pub pending_restore: bool,
+}
+
+/// (W55c) Trạng thái backup/restore app DB — FE card "Application database".
+#[tauri::command]
+pub async fn app_db_cloud_status(state: State<'_, AppState>) -> Result<AppDbCloudStatus> {
+    let id = app_db_backup::APP_DB_PROFILE_ID;
+    Ok(AppDbCloudStatus {
+        backups: state.db.list_cloud_backups(Some(id))?,
+        upload_state: state.db.get_cloud_upload_state(id)?,
+        pending_restore: app_db_backup::staged_path(state.db.data_dir()).is_file(),
+    })
+}
+
+/// (W55c) Backup app DB lên cloud NGAY: snapshot an toàn `VACUUM INTO`
+/// (KHÔNG copy file đang mở) → mã hoá `.bxa` (pipeline archive.rs) → upload
+/// qua transport hiện hành dưới sentinel `__app_db__` (retention 3 bản dùng
+/// chung `cloud_backups`). Không cần dừng profile — DB app luôn mở, VACUUM
+/// INTO tự chốt snapshot nhất quán.
+#[tauri::command]
+pub async fn backup_app_db_now(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
+    backup_app_db_now_impl(Some(&app), &state.db, None).await?;
+    state.db.insert_audit("appdb.cloud_backup", None, None)?;
+    Ok(())
+}
+
+/// Lõi `backup_app_db_now` tách khỏi `State`/`AppHandle` để unit-test được
+/// (test truyền `api_base` stub loopback như [`backup_now_impl`]).
+pub(crate) async fn backup_app_db_now_impl(
+    app: Option<&AppHandle>,
+    db: &Arc<Db>,
+    api_base: Option<String>,
+) -> Result<()> {
+    let id = app_db_backup::APP_DB_PROFILE_ID;
+    // Credential check TRƯỚC khi snapshot/nén (fail sớm) — pattern backup_now.
+    let use_userbot = cloud_transport::get_transport(db) == "userbot";
+    let client = if use_userbot {
+        if userbot::load_credentials(db)?.is_none() {
+            return Err(AppError::InvalidInput(
+                "Userbot chưa cấu hình — nhập api_id + api_hash và đăng nhập trước".into(),
+            ));
+        }
+        None
+    } else {
+        let (token, chat_id) = telegram_sync::load_credentials(db)?.ok_or_else(|| {
+            AppError::InvalidInput("Telegram chưa cấu hình — nhập Bot Token + Chat ID trước".into())
+        })?;
+        Some(match api_base {
+            Some(base) => telegram_sync::TelegramClient::with_api_base(base, token, chat_id)?,
+            None => telegram_sync::TelegramClient::new(token, chat_id)?,
+        })
+    };
+
+    let data_dir = db.data_dir().to_path_buf();
+    let snap = data_dir.join("appdb-snapshot.db");
+    db.vacuum_into(&snap)?;
+    let bxa = app_db_backup::bxa_path(&data_dir);
+    let (snap_bg, bxa_bg) = (snap.clone(), bxa.clone());
+    let encrypt = tokio::task::spawn_blocking(move || -> Result<()> {
+        let plain = std::fs::read(&snap_bg)?;
+        archive::encrypt_bytes_to_file(&bxa_bg, &plain)?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| AppError::Other(anyhow::anyhow!("app db encrypt task panic: {e}")));
+    // Snapshot plaintext là file tạm — xoá dù encrypt thành công hay không.
+    let _ = std::fs::remove_file(&snap);
+    encrypt??;
+    match client {
+        Some(client) => run_cloud_upload(app, db, id, &bxa, &client).await,
+        None => run_cloud_upload_userbot(app, db, id, &bxa).await,
+    }
+}
+
+/// (W55c) Restore app DB từ cloud — bước 1 (STAGING, KHÔNG đụng DB đang mở):
+/// tải các part (route theo transport gốc của bản backup) → verify sha256 →
+/// giải mã → validate (SQLite hợp lệ, schema không mới hơn app, có bảng
+/// profiles) → ghi `browserx.db.restore-staged` atomic. Áp dụng THẬT diễn ra
+/// lúc restart app ([`crate::app_db_backup::apply_pending_restore`] — DB cũ
+/// giữ ở `.bak-cloud-restore-<ts>`). Guard: mọi profile phải DỪNG.
+/// `uploaded_at = None` → bản mới nhất.
+#[tauri::command]
+pub async fn restore_app_db(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    uploaded_at: Option<String>,
+) -> Result<()> {
+    let id = app_db_backup::APP_DB_PROFILE_ID;
+    if !state.procs.list_running().await.is_empty() {
+        return Err(AppError::InvalidInput(
+            "còn phiên đang chạy — stop mọi profile trước khi restore app DB".into(),
+        ));
+    }
+    let parts = state.db.get_cloud_backup_parts(id, uploaded_at.as_deref())?;
+    if parts.is_empty() {
+        return Err(AppError::NotFound("no cloud backup for app db".into()));
+    }
+    let progress = |phase: &str, i: usize, n: usize, done: u64, total: u64| {
+        emit_cloud_progress(&app, id, phase, i, n, done, total);
+    };
+    let data = if parts[0].transport == "userbot" {
+        cloud_transport::download_backup_userbot(&parts, Some(&progress)).await?
+    } else {
+        let (token, chat_id) = telegram_sync::load_credentials(&state.db)?.ok_or_else(|| {
+            AppError::InvalidInput("Telegram chưa cấu hình — nhập Bot Token + Chat ID trước".into())
+        })?;
+        let client = telegram_sync::TelegramClient::new(token, chat_id)?;
+        telegram_sync::download_backup(&client, &parts, Some(&progress)).await?
+    };
+
+    let data_dir = state.db.data_dir().to_path_buf();
+    let staged = app_db_backup::staged_path(&data_dir);
+    tokio::task::spawn_blocking(move || -> Result<()> {
+        // Giải mã từ file tạm (decrypt helper nhận path) rồi validate TRƯỚC
+        // khi staging — file rác/DB lạ không bao giờ thành staged.
+        let enc_tmp = data_dir.join("appdb-restore.bxa.tmp");
+        std::fs::write(&enc_tmp, &data)?;
+        let plain = archive::decrypt_file_to_bytes(&enc_tmp);
+        let _ = std::fs::remove_file(&enc_tmp);
+        let plain = plain?;
+
+        let staged_tmp = data_dir.join("browserx.db.restore-staged.tmp");
+        let result = (|| -> Result<()> {
+            std::fs::write(&staged_tmp, &plain)?;
+            app_db_backup::validate_snapshot(&staged_tmp)?;
+            std::fs::File::open(&staged_tmp)?.sync_all()?;
+            std::fs::rename(&staged_tmp, &staged)?;
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(&staged_tmp);
+        }
+        result
+    })
+    .await
+    .map_err(|e| AppError::Other(anyhow::anyhow!("app db restore task panic: {e}")))??;
+    state.db.insert_audit(
+        "appdb.cloud_restore_staged",
+        None,
+        Some(&json!({ "uploaded_at": uploaded_at })),
+    )?;
+    Ok(())
+}
+
+/// (W55c) Huỷ bản restore app DB đã staging (chưa restart) — xoá file staged,
+/// DB hiện tại không bị đụng tới.
+#[tauri::command]
+pub async fn cancel_app_db_restore(state: State<'_, AppState>) -> Result<()> {
+    let staged = app_db_backup::staged_path(state.db.data_dir());
+    if staged.is_file() {
+        std::fs::remove_file(&staged)?;
+        state.db.insert_audit("appdb.cloud_restore_cancelled", None, None)?;
+    }
     Ok(())
 }
 
@@ -3125,6 +3299,47 @@ mod tests {
         assert!(s.last_error_at.is_some());
         // Bản backup thành công trước đó vẫn còn nguyên.
         assert_eq!(db.list_cloud_backups(Some(&pid)).unwrap().len(), 1);
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    // -- (W55c) App DB cloud backup -------------------------------------------
+
+    /// Full flow qua stub loopback: snapshot VACUUM INTO → mã hoá `.bxa` →
+    /// upload OK dưới sentinel `__app_db__` (row cloud_backups + state
+    /// "uploaded"); snapshot plaintext tạm bị xoá; `.bxa` giải mã lại đúng
+    /// SQLite. Credentials thiếu → fail sớm TRƯỚC snapshot.
+    #[tokio::test]
+    async fn backup_app_db_uploads_via_stub_and_cleans_snapshot() {
+        crypto::install_test_master_key();
+        let base = std::env::temp_dir().join(format!("bx-appdb-cmd-{}", uuid::Uuid::new_v4()));
+        let db = Arc::new(Db::open_at_dir(&base).unwrap());
+        db.set_setting("some_key", "some_value").unwrap();
+        telegram_sync::save_credentials(&db, "T", "C").unwrap();
+
+        // Chưa cấu hình credentials → fail sớm TRƯỚC snapshot.
+        telegram_sync::save_credentials(&db, "", "").unwrap();
+        let err = backup_app_db_now_impl(None, &db, None).await.unwrap_err();
+        assert!(err.to_string().contains("chưa cấu hình"));
+        telegram_sync::save_credentials(&db, "T", "C").unwrap();
+
+        let ok_body = serde_json::json!({
+            "ok": true,
+            "result": { "message_id": 21, "document": { "file_id": "F9" } }
+        })
+        .to_string();
+        let ok_base = spawn_one_route_stub("/sendDocument", 200, ok_body).await;
+        backup_app_db_now_impl(None, &db, Some(ok_base)).await.unwrap();
+
+        let id = app_db_backup::APP_DB_PROFILE_ID;
+        let s = db.get_cloud_upload_state(id).unwrap().unwrap();
+        assert_eq!(s.status, "uploaded");
+        assert_eq!(db.list_cloud_backups(Some(id)).unwrap().len(), 1);
+        // Snapshot plaintext tạm đã bị dọn; .bxa local còn và giải mã lại được.
+        assert!(!base.join("appdb-snapshot.db").exists());
+        let bxa = app_db_backup::bxa_path(&base);
+        assert!(bxa.is_file());
+        let plain = archive::decrypt_file_to_bytes(&bxa).unwrap();
+        assert_eq!(&plain[..16], b"SQLite format 3\0");
         std::fs::remove_dir_all(&base).unwrap();
     }
 }

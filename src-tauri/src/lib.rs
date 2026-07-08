@@ -13,6 +13,7 @@
 //! - `commands` — Tauri commands (invoke handlers) (Wave 3a)
 //! - `storage`  — đo dung lượng + dọn cache profile (W16)
 
+pub mod app_db_backup;
 pub mod archive;
 pub mod backup;
 pub mod binary;
@@ -201,6 +202,10 @@ pub fn run() {
             commands::list_cloud_upload_states,
             commands::retry_cloud_upload,
             commands::backup_now,
+            commands::app_db_cloud_status,
+            commands::backup_app_db_now,
+            commands::restore_app_db,
+            commands::cancel_app_db_restore,
             commands::suggest_gpu,
             commands::check_gpu_consistency,
         ])

@@ -399,7 +399,7 @@ pub struct CloudUploadState {
 // ---------------------------------------------------------------------------
 
 /// Schema version hiện tại (PRAGMA user_version).
-const SCHEMA_VERSION: i64 = 16;
+pub(crate) const SCHEMA_VERSION: i64 = 16;
 
 const SCHEMA_V1: &str = "
 CREATE TABLE IF NOT EXISTS profiles (
@@ -711,6 +711,14 @@ impl Db {
         if let Some(action) = crate::backup::recover_interrupted_restore(&dir)? {
             tracing::warn!("recovered interrupted restore swap at startup: {action:?}");
         }
+        // (W55c) Áp bản restore app DB từ cloud đã staging (nếu có) — cũng
+        // TRƯỚC khi mở DB; DB cũ giữ ở `browserx.db.bak-cloud-restore-<ts>`.
+        if let Some(bak) = crate::app_db_backup::apply_pending_restore(&dir)? {
+            tracing::warn!(
+                "applied staged app-db cloud restore at startup (old db kept at {})",
+                bak.display()
+            );
+        }
         Self::open_at_dir(dir)
     }
 
@@ -765,6 +773,21 @@ impl Db {
     pub fn wal_checkpoint_truncate(&self) -> Result<()> {
         let conn = self.lock();
         conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
+        Ok(())
+    }
+
+    /// (W55c) Snapshot NHẤT QUÁN của DB đang mở → file `dest` bằng
+    /// `VACUUM INTO` (SQLite tự chốt read-transaction — KHÔNG copy file đang
+    /// mở). File sót từ lần trước bị xoá trước (VACUUM INTO đòi dest chưa có).
+    pub fn vacuum_into(&self, dest: &Path) -> Result<()> {
+        if dest.exists() {
+            std::fs::remove_file(dest)?;
+        }
+        let dest_str = dest.to_str().ok_or_else(|| {
+            AppError::InvalidInput(format!("snapshot path not UTF-8: {}", dest.display()))
+        })?;
+        let conn = self.lock();
+        conn.execute("VACUUM INTO ?1", params![dest_str])?;
         Ok(())
     }
 

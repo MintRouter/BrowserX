@@ -682,7 +682,19 @@
     "progressUpload": "Uploading part {{part}}/{{total}}…",
     "progressDownload": "Downloading part {{part}}/{{total}}…",
     "history": "Backup history",
-    "latest": "Latest"
+    "latest": "Latest",
+    "appDbTitle": "Application database",
+    "appDbLastBackup": "Last backup: {{date}} · {{size}}",
+    "appDbNoBackup": "No cloud backup of the app database yet.",
+    "appDbBackupNow": "Backup now",
+    "appDbBackupDone": "Application database backed up to cloud.",
+    "appDbRestoreWhileRunning": "Stop all profiles before restoring the app database",
+    "confirmAppDbRestore": "Restore the application database from the cloud backup of {{date}}? The downloaded copy is staged and applied on the next app restart — your current database is kept as a .bak file.",
+    "appDbRestoreStaged": "Backup downloaded and staged. Restart the app to apply it.",
+    "appDbPendingRestore": "A database restore is staged and will be applied on the next restart. The current database will be kept as a .bak file.",
+    "appDbRestartNow": "Restart now",
+    "appDbCancelRestore": "Cancel restore",
+    "appDbRestoreCancelled": "Staged database restore cancelled."
   },
   "audit": {
     "title": "Audit log",

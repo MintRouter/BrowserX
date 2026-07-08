@@ -471,6 +471,15 @@ export interface CloudBackupInfo {
   uploaded_at: string;
 }
 
+/** (W55c) App DB cloud backup status — mirrors commands.rs `AppDbCloudStatus`. */
+export interface AppDbCloudStatus {
+  /** Backup versions of the app database, newest first (retention 3). */
+  backups: CloudBackupInfo[];
+  uploadState: CloudUploadState | null;
+  /** true when a restore is staged and waiting for an app restart. */
+  pendingRestore: boolean;
+}
+
 /** (W52-B C1) Latest cloud upload state of a profile — mirrors db.rs `CloudUploadState`. */
 export interface CloudUploadState {
   profile_id: string;
@@ -761,6 +770,18 @@ export const api = {
     invoke<void>("retry_cloud_upload", { profileId }),
   /** (W52-B C5) Sync now: archive immediately (skips dirty-check) + upload. Profile must be stopped. */
   backupNow: (profileId: string) => invoke<void>("backup_now", { profileId }),
+
+  // App DB cloud backup (W55c) — whole app database (settings/profiles/proxies).
+  /** Backup history + upload state + pending-restore flag of the app database. */
+  appDbCloudStatus: () => invoke<AppDbCloudStatus>("app_db_cloud_status"),
+  /** Snapshot (VACUUM INTO) + encrypt + upload the app DB via the current transport. */
+  backupAppDbNow: () => invoke<void>("backup_app_db_now"),
+  /** Download + verify + decrypt to a STAGED file; applied on next app restart.
+   * All profiles must be stopped. `uploadedAt` omitted → latest version. */
+  restoreAppDb: (uploadedAt?: string) =>
+    invoke<void>("restore_app_db", { uploadedAt }),
+  /** Drop the staged app-DB restore before restarting (current DB untouched). */
+  cancelAppDbRestore: () => invoke<void>("cancel_app_db_restore"),
 
   // Userbot MTProto (W55b) — optional second cloud-sync transport.
   /** Current auth state; also lazily (re)inits the TDLib client when credentials exist. */

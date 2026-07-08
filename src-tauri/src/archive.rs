@@ -133,6 +133,22 @@ fn archive_profile_inner(
     Ok(ArchiveOutcome::Written { bytes })
 }
 
+/// (W55c) Mã hoá bytes bất kỳ thành container `.bxa` tại `dest` — cùng
+/// pipeline AES-256-GCM chunked + Argon2id từ master key như archive profile
+/// (KHÔNG zip: caller tự quyết plaintext, ví dụ snapshot SQLite app DB).
+/// Ghi atomic `.tmp` → fsync → rename. Trả kích thước file.
+pub fn encrypt_bytes_to_file(dest: &Path, plain: &[u8]) -> Result<u64> {
+    let master = crypto::master_key_material()?;
+    write_encrypted(&master, dest, plain)
+}
+
+/// (W55c) Giải mã container `.bxa` tại `src` → plaintext bytes (verify GCM
+/// từng chunk — sai khoá/tamper/truncate → lỗi, không trả plaintext một phần).
+pub fn decrypt_file_to_bytes(src: &Path) -> Result<Vec<u8>> {
+    let master = crypto::master_key_material()?;
+    read_decrypted(&master, src)
+}
+
 /// Giải mã + verify (GCM auth từng chunk) + giải nén archive vào
 /// `user_data_dir`. Decrypt fail (sai khoá/tamper) → lỗi TRƯỚC khi đụng đĩa.
 /// Caller chịu trách nhiệm chỉ gọi khi run-dir thiếu/hỏng.
