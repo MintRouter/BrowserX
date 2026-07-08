@@ -334,7 +334,7 @@ pub struct CloudBackupPart {
     pub profile_id: String,
     /// message_id Telegram — dùng deleteMessage khi retention/xoá.
     pub message_id: i64,
-    /// file_id Telegram — dùng getFile khi restore.
+    /// file_id Telegram — dùng getFile khi restore (chuỗi rỗng với userbot).
     pub file_id: String,
     /// Kích thước part (byte).
     pub size: i64,
@@ -345,6 +345,12 @@ pub struct CloudBackupPart {
     pub part_count: i64,
     /// RFC3339 UTC — chung cho mọi part của 1 bản backup.
     pub uploaded_at: String,
+    /// (W55b-transport) Transport đã upload bản này: "bot_api" | "userbot" —
+    /// restore/delete PHẢI route đúng đường theo cột này.
+    pub transport: String,
+    /// (W55b-transport) chat_id private channel userbot (NULL với bot_api) —
+    /// cần cho get_message/delete_messages TDLib.
+    pub chat_id: Option<i64>,
 }
 
 /// (W51-B2) Input insert 1 part backup (id tự tăng).
@@ -365,6 +371,8 @@ pub struct CloudBackupInfo {
     pub sha256: String,
     pub part_count: i64,
     pub uploaded_at: String,
+    /// (W55b-transport) "bot_api" | "userbot" — chung cho mọi part của 1 bản.
+    pub transport: String,
 }
 
 /// (W52-B C1) Trạng thái upload cloud MỚI NHẤT của 1 profile (bảng
@@ -391,7 +399,7 @@ pub struct CloudUploadState {
 // ---------------------------------------------------------------------------
 
 /// Schema version hiện tại (PRAGMA user_version).
-const SCHEMA_VERSION: i64 = 15;
+const SCHEMA_VERSION: i64 = 16;
 
 const SCHEMA_V1: &str = "
 CREATE TABLE IF NOT EXISTS profiles (
@@ -672,6 +680,18 @@ CREATE TABLE IF NOT EXISTS cloud_upload_state (
 );
 ";
 
+/// Migration v15→v16 (W55b-transport): cloud_backups đa-transport.
+/// - `transport`: "bot_api" (mặc định — mọi row cũ là Bot API) | "userbot".
+/// - `chat_id`: chat_id private channel MTProto (NULL với bot_api — chat_id
+///   Bot API nằm trong credentials); userbot cần nó cho getMessage/deleteMessages.
+/// Userbot upload NGUYÊN file (không split) → 1 row/bản, `file_id` để chuỗi
+/// rỗng (getFile là khái niệm Bot API). ALTER TABLE không có IF NOT EXISTS —
+/// idempotency đảm bảo bởi guard `user_version < 16`.
+const SCHEMA_V16: &str = "
+ALTER TABLE cloud_backups ADD COLUMN transport TEXT NOT NULL DEFAULT 'bot_api';
+ALTER TABLE cloud_backups ADD COLUMN chat_id INTEGER;
+";
+
 /// Kết nối SQLite của app. `Mutex<Connection>` để dùng được trong `tauri::State`
 /// (single-process, mọi thao tác tuần tự qua lock — đủ cho local app).
 pub struct Db {
@@ -872,6 +892,10 @@ fn migrate_inner(conn: &Connection, checkpoint: impl Fn(i64) -> Result<()>) -> R
         if version < 15 {
             conn.execute_batch(SCHEMA_V15)?;
             checkpoint(15)?;
+        }
+        if version < 16 {
+            conn.execute_batch(SCHEMA_V16)?;
+            checkpoint(16)?;
         }
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         Ok(())
@@ -2446,11 +2470,34 @@ impl Db {
 impl Db {
     /// (W51-B2) Ghi 1 bản backup mới (mọi part trong 1 transaction). `sha256`
     /// là hash toàn file `.bxa`; `uploaded_at` chung cho mọi part.
+    /// Transport mặc định "bot_api" (path Bot API cũ giữ nguyên không đổi).
     pub fn insert_cloud_backup(
         &self,
         profile_id: &str,
         sha256: &str,
         uploaded_at: &str,
+        parts: &[CloudBackupPartInput],
+    ) -> Result<()> {
+        self.insert_cloud_backup_with_transport(
+            profile_id,
+            sha256,
+            uploaded_at,
+            "bot_api",
+            None,
+            parts,
+        )
+    }
+
+    /// (W55b-transport) Ghi 1 bản backup với transport tường minh. Userbot:
+    /// 1 part duy nhất (không split), `chat_id` = private channel MTProto,
+    /// `file_id` chuỗi rỗng.
+    pub fn insert_cloud_backup_with_transport(
+        &self,
+        profile_id: &str,
+        sha256: &str,
+        uploaded_at: &str,
+        transport: &str,
+        chat_id: Option<i64>,
         parts: &[CloudBackupPartInput],
     ) -> Result<()> {
         let part_count = parts.len() as i64;
@@ -2459,8 +2506,8 @@ impl Db {
         for p in parts {
             tx.execute(
                 "INSERT INTO cloud_backups
-                 (profile_id, message_id, file_id, size, sha256, part_index, part_count, uploaded_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                 (profile_id, message_id, file_id, size, sha256, part_index, part_count, uploaded_at, transport, chat_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     profile_id,
                     p.message_id,
@@ -2469,7 +2516,9 @@ impl Db {
                     sha256,
                     p.part_index,
                     part_count,
-                    uploaded_at
+                    uploaded_at,
+                    transport,
+                    chat_id
                 ],
             )?;
         }
@@ -2482,7 +2531,7 @@ impl Db {
     pub fn list_cloud_backups(&self, profile_id: Option<&str>) -> Result<Vec<CloudBackupInfo>> {
         let conn = self.lock();
         let mut sql = String::from(
-            "SELECT profile_id, SUM(size), sha256, part_count, uploaded_at
+            "SELECT profile_id, SUM(size), sha256, part_count, uploaded_at, transport
              FROM cloud_backups",
         );
         let mut values: Vec<SqlValue> = Vec::new();
@@ -2500,6 +2549,7 @@ impl Db {
                     sha256: r.get(2)?,
                     part_count: r.get(3)?,
                     uploaded_at: r.get(4)?,
+                    transport: r.get(5)?,
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -2530,7 +2580,7 @@ impl Db {
             return Ok(Vec::new());
         };
         let mut stmt = conn.prepare(
-            "SELECT id, profile_id, message_id, file_id, size, sha256, part_index, part_count, uploaded_at
+            "SELECT id, profile_id, message_id, file_id, size, sha256, part_index, part_count, uploaded_at, transport, chat_id
              FROM cloud_backups WHERE profile_id = ?1 AND uploaded_at = ?2
              ORDER BY part_index ASC",
         )?;
@@ -2550,7 +2600,7 @@ impl Db {
     ) -> Result<Vec<CloudBackupPart>> {
         let conn = self.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, profile_id, message_id, file_id, size, sha256, part_index, part_count, uploaded_at
+            "SELECT id, profile_id, message_id, file_id, size, sha256, part_index, part_count, uploaded_at, transport, chat_id
              FROM cloud_backups
              WHERE profile_id = ?1 AND uploaded_at NOT IN (
                  SELECT DISTINCT uploaded_at FROM cloud_backups
@@ -2670,6 +2720,8 @@ fn row_to_cloud_part(r: &Row) -> rusqlite::Result<CloudBackupPart> {
         part_index: r.get(6)?,
         part_count: r.get(7)?,
         uploaded_at: r.get(8)?,
+        transport: r.get(9)?,
+        chat_id: r.get(10)?,
     })
 }
 

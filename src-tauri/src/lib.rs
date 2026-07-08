@@ -17,6 +17,7 @@ pub mod archive;
 pub mod backup;
 pub mod binary;
 pub mod cdp;
+pub mod cloud_transport;
 pub mod commands;
 pub mod config;
 pub mod cookierobot;
@@ -192,6 +193,8 @@ pub fn run() {
             commands::userbot_submit_code,
             commands::userbot_submit_password,
             commands::userbot_logout,
+            commands::cloud_get_transport,
+            commands::cloud_set_transport,
             commands::list_cloud_backups,
             commands::restore_from_cloud,
             commands::delete_cloud_backup,

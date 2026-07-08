@@ -835,6 +835,8 @@ mod tests {
             part_index: i,
             part_count: 2,
             uploaded_at: "2026-05-01T00:00:00Z".into(),
+            transport: "bot_api".into(),
+            chat_id: None,
         };
         let parts = vec![mk_part(0, &sha), mk_part(1, &sha)];
         // (W52-B C6) Progress download: trước part đầu + sau mỗi part.

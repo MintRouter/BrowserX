@@ -498,6 +498,27 @@ export interface CloudProgressEvent {
   bytesTotal: number;
 }
 
+/** (W55b) Userbot MTProto auth state machine (mirrors userbot.rs `UserbotStatus`). */
+export type UserbotState =
+  | "no_credentials"
+  | "disconnected"
+  | "waiting_phone"
+  | "waiting_code"
+  | "waiting_password"
+  | "ready";
+
+/** (W55b) Payload of `userbot_get_status` + the `userbot-auth-state` event. */
+export interface UserbotStatus {
+  state: UserbotState;
+  /** Masked phone (e.g. "+849•••67") while waiting for the OTP. */
+  phoneHint?: string;
+  /** Telegram username once state = "ready". */
+  username?: string;
+}
+
+/** (W55b) Cloud sync transport: Bot API (default, split >48MB) or MTProto userbot (≤2GB, no split). */
+export type CloudTransport = "bot_api" | "userbot";
+
 /** (W51-B2) Settings key: auto-upload archives to Telegram ("true"/"false"). */
 export const TELEGRAM_SYNC_ENABLED_SETTING = "telegram_sync_enabled";
 
@@ -741,6 +762,25 @@ export const api = {
   /** (W52-B C5) Sync now: archive immediately (skips dirty-check) + upload. Profile must be stopped. */
   backupNow: (profileId: string) => invoke<void>("backup_now", { profileId }),
 
+  // Userbot MTProto (W55b) — optional second cloud-sync transport.
+  /** Current auth state; also lazily (re)inits the TDLib client when credentials exist. */
+  userbotGetStatus: () => invoke<UserbotStatus>("userbot_get_status"),
+  /** Store api_id + api_hash from my.telegram.org (hash encrypted at rest, write-only). */
+  userbotSetCredentials: (apiId: number, apiHash: string) =>
+    invoke<void>("userbot_set_credentials", { apiId, apiHash }),
+  userbotSendPhone: (phone: string) =>
+    invoke<void>("userbot_send_phone", { phone }),
+  userbotSubmitCode: (code: string) =>
+    invoke<void>("userbot_submit_code", { code }),
+  userbotSubmitPassword: (password: string) =>
+    invoke<void>("userbot_submit_password", { password }),
+  /** Revoke the Telegram session and wipe the local session dir. */
+  userbotLogout: () => invoke<void>("userbot_logout"),
+  cloudGetTransport: () => invoke<CloudTransport>("cloud_get_transport"),
+  /** Backend rejects "userbot" unless userbot state = "ready". */
+  cloudSetTransport: (transport: CloudTransport) =>
+    invoke<void>("cloud_set_transport", { transport }),
+
   // GPU pool (W52-D/E2) — suggest a platform-consistent vendor/renderer pair.
   /** Weighted-deterministic pick by seed; null when the platform has no pool entry. */
   suggestGpu: (platform: Platform, seed: number) =>
@@ -790,6 +830,13 @@ export function onCloudProgress(
   return listen<CloudProgressEvent>("cloud://progress", (ev) =>
     cb(ev.payload),
   );
+}
+
+/** (W55b) Userbot auth state changes (emitted on every TDLib state transition). */
+export function onUserbotAuthState(
+  cb: (e: UserbotStatus) => void,
+): Promise<UnlistenFn> {
+  return listen<UserbotStatus>("userbot-auth-state", (ev) => cb(ev.payload));
 }
 
 /** (P3-4a) Progress of a running CookieRobot. */
