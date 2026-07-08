@@ -469,6 +469,8 @@ export interface CloudBackupInfo {
   part_count: number;
   /** RFC3339 UTC upload timestamp (shared by all parts of one backup). */
   uploaded_at: string;
+  /** (W55b-transport) Transport used for this backup (shared by all parts). */
+  transport: "bot_api" | "userbot";
 }
 
 /** (W55c) App DB cloud backup status — mirrors commands.rs `AppDbCloudStatus`. */
