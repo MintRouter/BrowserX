@@ -21,8 +21,14 @@ type ProxyMode = "saved" | "none";
 interface QuickProfileModalProps {
   templates: ProfileTemplate[];
   proxies: Proxy[];
-  /** Create + launch `count` quick profiles from the assembled input. */
-  onStart: (input: Omit<ProfileInput, "name">, count: number) => Promise<void>;
+  /** Create + launch `count` quick profiles from the assembled input.
+   *  (W56) `maskedFingerprint` = screen mode "masked": the caller gives each
+   *  profile its own random seed + suggested GPU/screen so N profiles differ. */
+  onStart: (
+    input: Omit<ProfileInput, "name">,
+    count: number,
+    maskedFingerprint: boolean,
+  ) => Promise<void>;
   onClose: () => void;
 }
 
@@ -90,7 +96,7 @@ export function QuickProfileModal({
     setBusy(true);
     setError(null);
     try {
-      await onStart(buildInput(), count);
+      await onStart(buildInput(), count, screenMode === "masked");
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

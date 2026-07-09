@@ -487,16 +487,40 @@ export default function App() {
     setQuickModalOpen(true);
   };
 
-  /** (W50G) Quick modal "Start": create `count` quick profiles + launch them. */
+  /** (W50G) Quick modal "Start": create `count` quick profiles + launch them.
+   *  (W56) Masked screen mode: each profile gets its own random seed + a
+   *  suggested GPU/screen from it, so N quick profiles differ from each other. */
   const handleQuickStart = async (
     input: Omit<ProfileInput, "name">,
     count: number,
+    maskedFingerprint: boolean,
   ) => {
     let n = Number(/^Quick (\d+)$/.exec(nextQuickName())?.[1] ?? 1);
     try {
       for (let i = 0; i < count; i++) {
+        let fp: Partial<ProfileInput> = {};
+        if (maskedFingerprint) {
+          const seed = String(Math.floor(Math.random() * 90000) + 10000);
+          fp = { fingerprint_seed: seed };
+          try {
+            const s = await api.suggestFingerprint(
+              input.platform ?? "windows",
+              seed,
+            );
+            fp = {
+              ...fp,
+              screen_width: s.screen_width,
+              screen_height: s.screen_height,
+              gpu_vendor: s.gpu?.vendor ?? null,
+              gpu_renderer: s.gpu?.renderer ?? null,
+            };
+          } catch {
+            // non-Tauri / suggest failure: keep the modal's default dims
+          }
+        }
         const created = await api.createProfile({
           ...input,
+          ...fp,
           name: `Quick ${n + i}`,
         });
         await api.launchProfile(created.id);
