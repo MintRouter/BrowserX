@@ -46,6 +46,11 @@ const HEADER_LEN: usize = MAGIC.len() + 1 + SALT_LEN + NONCE_LEN;
 /// (DB nhất quán trong file chính) — copy chúng chỉ gây lệch snapshot.
 const SKIP_TOP_FILES: &[&str] = &["browserx.db-wal", "browserx.db-shm"];
 
+/// (W58e) Dir cấp-1 bỏ qua khi nén + bỏ qua khi restore: `engine/` là binary
+/// Chromium tải lại được (hàng trăm MB, không phải dữ liệu user) — nhét vào
+/// backup chỉ phình file; backup cũ lỡ chứa thì restore cũng bỏ qua.
+const SKIP_TOP_DIRS: &[&str] = &["engine"];
+
 /// Callback tiến độ `(phase, pct 0..=100)` — commands.rs emit `backup://progress`.
 pub type Progress<'a> = &'a (dyn Fn(&str, u8) + Send + Sync);
 
@@ -75,6 +80,12 @@ fn collect_files(base: &Path, dir: &Path, out: &mut Vec<(PathBuf, u64)>) -> Resu
             continue;
         }
         if ft.is_dir() {
+            if dir == base {
+                let name = entry.file_name();
+                if SKIP_TOP_DIRS.iter().any(|s| name == *s) {
+                    continue;
+                }
+            }
             collect_files(base, &path, out)?;
         } else if ft.is_file() {
             if dir == base {
@@ -211,7 +222,22 @@ pub fn restore_backup(
 
     let unpacked: Result<()> = (|| {
         let mut ar = tar::Archive::new(GzDecoder::new(plain.as_slice()));
-        ar.unpack(&tmp)?;
+        // (W58e) Bỏ qua entry `engine/` (backup từ bản cũ có thể còn chứa) —
+        // binary tải lại được, không phải dữ liệu user. `unpack_in` chống
+        // path traversal như `unpack` nhưng KHÔNG tự tạo dir đích.
+        fs::create_dir_all(&tmp)?;
+        for entry in ar.entries()? {
+            let mut entry = entry?;
+            if entry
+                .path()?
+                .components()
+                .next()
+                .is_some_and(|c| SKIP_TOP_DIRS.iter().any(|s| c.as_os_str() == *s))
+            {
+                continue;
+            }
+            entry.unpack_in(&tmp)?;
+        }
         if !tmp.join("browserx.db").is_file() {
             return Err(AppError::InvalidInput(
                 "backup does not contain browserx.db — refusing to restore".into(),
@@ -448,6 +474,89 @@ mod tests {
         assert_eq!(fs::read(target.join("browserx.db")).unwrap(), b"sqlite-bytes");
         // (W25b) Restore thành công không được để sót marker.
         assert!(!restore_marker_path(&target).exists());
+    }
+
+    /// (W58e) `engine/` (binary Chromium tải lại được) KHÔNG được vào backup:
+    /// giải mã archive kiểm không có entry engine/, restore ra cũng không có.
+    #[test]
+    fn backup_excludes_engine_dir() {
+        let (root, _guard) = temp_root();
+        let data = make_data_dir(&root);
+        fs::create_dir_all(data.join("engine/chromium-1.2.3.4")).unwrap();
+        fs::write(data.join("engine/chromium-1.2.3.4/chrome"), b"engine-binary").unwrap();
+        let file = root.join("out.browserx-backup");
+        create_backup(&data, &file, "pass", None).unwrap();
+
+        // Giải mã + đọc tar: không entry nào nằm dưới engine/.
+        let raw = fs::read(&file).unwrap();
+        let salt = &raw[MAGIC.len() + 1..MAGIC.len() + 1 + SALT_LEN];
+        let nonce = &raw[MAGIC.len() + 1 + SALT_LEN..HEADER_LEN];
+        let key = derive_key("pass", salt).unwrap();
+        let cipher = Aes256Gcm::new_from_slice(&key).unwrap();
+        let plain = cipher
+            .decrypt(Nonce::from_slice(nonce), &raw[HEADER_LEN..])
+            .unwrap();
+        let mut ar = tar::Archive::new(GzDecoder::new(plain.as_slice()));
+        let entries: Vec<PathBuf> = ar
+            .entries()
+            .unwrap()
+            .map(|e| e.unwrap().path().unwrap().into_owned())
+            .collect();
+        assert!(!entries.is_empty());
+        assert!(
+            entries.iter().all(|p| !p.starts_with("engine")),
+            "engine leaked into backup: {entries:?}"
+        );
+
+        // Restore → dữ liệu user đủ, engine/ không xuất hiện.
+        let target = root.join("restored/.browserx");
+        restore_backup(&file, &target, "pass", None).unwrap();
+        assert_eq!(fs::read(target.join("browserx.db")).unwrap(), b"sqlite-bytes");
+        assert!(!target.join("engine").exists());
+    }
+
+    /// (W58e) Backup từ bản app CŨ có thể còn chứa `engine/` — restore phải
+    /// BỎ QUA (dựng tay archive v1 chứa engine/ + browserx.db).
+    #[test]
+    fn restore_skips_engine_entries_in_old_backups() {
+        let (root, _guard) = temp_root();
+
+        let mut enc = GzEncoder::new(Vec::new(), Compression::default());
+        {
+            let mut tar = tar::Builder::new(&mut enc);
+            for (path, body) in [
+                ("browserx.db", b"sqlite-bytes".as_slice()),
+                ("engine/chromium-1.2.3.4/chrome", b"engine-binary".as_slice()),
+            ] {
+                let mut header = tar::Header::new_gnu();
+                header.set_size(body.len() as u64);
+                header.set_mode(0o644);
+                header.set_cksum();
+                tar.append_data(&mut header, path, body).unwrap();
+            }
+            tar.finish().unwrap();
+        }
+        let plain = enc.finish().unwrap();
+        let salt: [u8; SALT_LEN] = rand::random();
+        let nonce: [u8; NONCE_LEN] = rand::random();
+        let key = derive_key("pass", &salt).unwrap();
+        let cipher = Aes256Gcm::new_from_slice(&key).unwrap();
+        let ciphertext = cipher
+            .encrypt(Nonce::from_slice(&nonce), plain.as_slice())
+            .unwrap();
+        let file = root.join("legacy.browserx-backup");
+        let mut buf = Vec::new();
+        buf.extend_from_slice(MAGIC);
+        buf.push(VERSION);
+        buf.extend_from_slice(&salt);
+        buf.extend_from_slice(&nonce);
+        buf.extend_from_slice(&ciphertext);
+        fs::write(&file, buf).unwrap();
+
+        let target = root.join(".browserx");
+        restore_backup(&file, &target, "pass", None).unwrap();
+        assert_eq!(fs::read(target.join("browserx.db")).unwrap(), b"sqlite-bytes");
+        assert!(!target.join("engine").exists());
     }
 
     /// (W25b) Kill đúng giữa 2 rename (mô phỏng: dựng tay trạng thái swap dở —

@@ -52,6 +52,26 @@ pub fn run() {
             use tauri::Manager;
 
             let db = Arc::new(db::Db::open_default()?);
+
+            // (W58e) Di trú engine cache cũ `~/.cloakbrowser` → cache dir mới
+            // (mặc định `~/.browserx/engine`) — SAU open_default để không tạo
+            // `~/.browserx` trước khi recovery restore (W25b) chạy. Lỗi chỉ
+            // warn, KHÔNG chặn app: cùng lắm binary được tải lại vào dir mới.
+            if let Some(home) = dirs::home_dir() {
+                let legacy = home.join(".cloakbrowser");
+                match config::migrate_legacy_cache_dir(&legacy, &config::get_cache_dir()) {
+                    Ok(true) => tracing::info!(
+                        "migrated legacy engine cache {} -> {}",
+                        legacy.display(),
+                        config::get_cache_dir().display()
+                    ),
+                    Ok(false) => {}
+                    Err(e) => tracing::warn!(
+                        "legacy engine cache migration failed (continuing with new dir): {e}"
+                    ),
+                }
+            }
+
             let max_concurrent = db
                 .get_setting("max_concurrent")?
                 .and_then(|v| v.parse::<usize>().ok())

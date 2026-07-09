@@ -1,4 +1,4 @@
-//! Config: hằng số phiên bản/platform/pubkey, cache dir `~/.cloakbrowser/`,
+//! Config: hằng số phiên bản/platform/pubkey, cache dir `~/.browserx/engine/`,
 //! đường dẫn binary CloakBrowser theo OS, stealth args mặc định, URL tải.
 //!
 //! Port từ refs/CloakBrowser/cloakbrowser/config.py (Wave 2b):
@@ -86,18 +86,35 @@ pub fn get_chromium_version() -> String {
 }
 
 /// Cache dir từ override tường minh — pure, testable (config.py#L150-L159).
+/// (W58e) Default gom về data dir của app: `~/.browserx/engine`.
 pub fn cache_dir_from(custom: Option<&str>) -> PathBuf {
     match custom.map(str::trim).filter(|s| !s.is_empty()) {
         Some(p) => PathBuf::from(p),
         None => dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join(".cloakbrowser"),
+            .join(".browserx")
+            .join("engine"),
     }
 }
 
-/// Cache dir cho binary tải về: env CLOAKBROWSER_CACHE_DIR → `~/.cloakbrowser/`.
+/// Cache dir cho binary tải về: env CLOAKBROWSER_CACHE_DIR → `~/.browserx/engine/`.
 pub fn get_cache_dir() -> PathBuf {
     cache_dir_from(std::env::var("CLOAKBROWSER_CACHE_DIR").ok().as_deref())
+}
+
+/// (W58e) Di trú cache dir cũ `~/.cloakbrowser` → dir mới, một lần: chỉ khi
+/// dir cũ tồn tại VÀ dir mới chưa có → `fs::rename` nguyên khối (cùng
+/// filesystem $HOME — binary đã tải KHÔNG phải tải lại). Trả `true` nếu đã
+/// move; chạy lại lần 2 là no-op (idempotent). Pure trên path, testable.
+pub fn migrate_legacy_cache_dir(legacy: &Path, new: &Path) -> std::io::Result<bool> {
+    if !legacy.is_dir() || new.exists() {
+        return Ok(false);
+    }
+    if let Some(parent) = new.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::rename(legacy, new)?;
+    Ok(true)
 }
 
 /// Thư mục chứa binary của một version: `<cache>/chromium-<version>` (config.py#L162-L166).
@@ -277,8 +294,45 @@ mod tests {
             cache_dir_from(Some("/tmp/custom-cache")),
             PathBuf::from("/tmp/custom-cache")
         );
-        assert!(cache_dir_from(None).ends_with(".cloakbrowser"));
-        assert!(cache_dir_from(Some("  ")).ends_with(".cloakbrowser"));
+        assert!(cache_dir_from(None).ends_with(".browserx/engine"));
+        assert!(cache_dir_from(Some("  ")).ends_with(".browserx/engine"));
+    }
+
+    /// (W58e) Migration `~/.cloakbrowser` → `~/.browserx/engine`: move nguyên
+    /// khối khi dir mới chưa có; idempotent; không legacy → no-op; dir mới đã
+    /// có → không đè.
+    #[test]
+    fn legacy_cache_dir_migration() {
+        use std::fs;
+        let root = std::env::temp_dir().join(format!("bx-mig-test-{}", uuid::Uuid::new_v4()));
+        let legacy = root.join(".cloakbrowser");
+        let new = root.join(".browserx").join("engine");
+        fs::create_dir_all(legacy.join("chromium-1.2.3.4")).unwrap();
+        fs::write(legacy.join("chromium-1.2.3.4/chrome"), b"engine-binary").unwrap();
+
+        // Có legacy + dir mới chưa có → move, binary còn nguyên (không tải lại).
+        assert!(migrate_legacy_cache_dir(&legacy, &new).unwrap());
+        assert!(!legacy.exists());
+        assert_eq!(
+            fs::read(new.join("chromium-1.2.3.4/chrome")).unwrap(),
+            b"engine-binary"
+        );
+
+        // Chạy lần 2 → idempotent no-op.
+        assert!(!migrate_legacy_cache_dir(&legacy, &new).unwrap());
+
+        // Không có legacy → no-op, không tự tạo dir mới.
+        let new2 = root.join("elsewhere/engine");
+        assert!(!migrate_legacy_cache_dir(&root.join("nope"), &new2).unwrap());
+        assert!(!new2.exists());
+
+        // Dir mới đã có → KHÔNG đè lên dữ liệu hiện có.
+        fs::create_dir_all(&legacy).unwrap();
+        fs::write(legacy.join("marker"), b"old").unwrap();
+        assert!(!migrate_legacy_cache_dir(&legacy, &new).unwrap());
+        assert!(legacy.join("marker").is_file());
+
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
