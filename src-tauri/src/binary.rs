@@ -154,6 +154,17 @@ async fn download_and_extract(
         if binary_path.exists() {
             record_verified_hash(&binary_dir, &binary_path)?;
         }
+
+        // (W57b) Dọn engine versions cũ SAU khi version mới đã tải + verify + extract
+        // thành công — best-effort, không bao giờ fail download.
+        let default_version = config::get_chromium_version();
+        let requested_version = version
+            .map(str::to_string)
+            .unwrap_or_else(|| default_version.clone());
+        cleanup_old_engine_versions(
+            &config::get_cache_dir(),
+            &[requested_version.as_str(), default_version.as_str()],
+        );
         Ok(())
     }
     .await;
@@ -502,6 +513,64 @@ fn cached_binary_is_valid(binary_dir: &Path, binary_path: &Path) -> Result<bool>
 }
 
 // ---------------------------------------------------------------------------
+// (W57b) Cleanup engine versions cũ — mỗi version 1 dir `chromium-<v>` trong
+// cache dir; đổi version thì dir cũ (~vài trăm MB) nằm lại vĩnh viễn nếu không dọn.
+// ---------------------------------------------------------------------------
+
+/// Xoá các dir `chromium-<v>` trong `cache_dir` có version KHÔNG nằm trong
+/// `keep_versions`. Trả số dir đã xoá. Best-effort: mọi lỗi (đọc dir, xoá) chỉ
+/// warn — KHÔNG bao giờ fail download vừa thành công.
+///
+/// An toàn với phiên đang chạy (không có ProcessManager ở layer này):
+/// - Unix/macOS: xoá file của process đang chạy vô hại — inode sống đến khi
+///   process đóng fd, phiên browser không bị ảnh hưởng.
+/// - Windows: executable đang chạy bị lock → `remove_dir_all` fail → warn + giữ
+///   nguyên dir, lần download sau sẽ dọn tiếp.
+///
+/// Chỉ đụng entry là DIR THẬT (không theo symlink) tên `chromium-*`; file rác
+/// hoặc dir khác trong cache dir được giữ nguyên.
+fn cleanup_old_engine_versions(cache_dir: &Path, keep_versions: &[&str]) -> usize {
+    let entries = match std::fs::read_dir(cache_dir) {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::warn!(
+                "Engine cleanup: cannot read cache dir {} — {e}",
+                cache_dir.display()
+            );
+            return 0;
+        }
+    };
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        // file_type() từ read_dir KHÔNG theo symlink — symlink bị bỏ qua.
+        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let name = entry.file_name();
+        let Some(version) = name.to_str().and_then(|n| n.strip_prefix("chromium-")) else {
+            continue;
+        };
+        if version.is_empty() || keep_versions.contains(&version) {
+            continue;
+        }
+        let path = entry.path();
+        match std::fs::remove_dir_all(&path) {
+            Ok(()) => {
+                removed += 1;
+                tracing::info!("Removed old engine version dir: {}", path.display());
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Engine cleanup: could not remove {} — {e} (will retry on next download)",
+                    path.display()
+                );
+            }
+        }
+    }
+    removed
+}
+
+// ---------------------------------------------------------------------------
 // Extract (download.py#L726-L816)
 // ---------------------------------------------------------------------------
 
@@ -759,6 +828,74 @@ mod tests {
         let recorded = std::fs::read_to_string(verified_hash_path(&dir)).unwrap();
         assert_eq!(recorded.trim(), sha256_hex(b"fake chromium bytes"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Tạo cache dir tạm với các entry cho test cleanup; caller tự dọn.
+    fn cleanup_fixture(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "browserx-cleanup-test-{}-{tag}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn cleanup_removes_old_versions_keeps_current() {
+        let cache = cleanup_fixture("basic");
+        for v in ["1.0.0.0", "2.0.0.0", "3.0.0.0"] {
+            let d = cache.join(format!("chromium-{v}"));
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join("chrome"), b"bin").unwrap();
+        }
+        let removed = cleanup_old_engine_versions(&cache, &["2.0.0.0", "3.0.0.0"]);
+        assert_eq!(removed, 1);
+        assert!(!cache.join("chromium-1.0.0.0").exists());
+        assert!(cache.join("chromium-2.0.0.0").exists());
+        assert!(cache.join("chromium-3.0.0.0").exists());
+        let _ = std::fs::remove_dir_all(&cache);
+    }
+
+    #[test]
+    fn cleanup_ignores_junk_entries() {
+        let cache = cleanup_fixture("junk");
+        // File (không phải dir) tên chromium-* → giữ nguyên.
+        std::fs::write(cache.join("chromium-9.9.9.9"), b"not a dir").unwrap();
+        // Dir không có prefix chromium- → giữ nguyên.
+        std::fs::create_dir_all(cache.join("profiles")).unwrap();
+        // Dir tên "chromium-" (version rỗng) → giữ nguyên.
+        std::fs::create_dir_all(cache.join("chromium-")).unwrap();
+        let removed = cleanup_old_engine_versions(&cache, &["1.0.0.0"]);
+        assert_eq!(removed, 0);
+        assert!(cache.join("chromium-9.9.9.9").exists());
+        assert!(cache.join("profiles").exists());
+        assert!(cache.join("chromium-").exists());
+        let _ = std::fs::remove_dir_all(&cache);
+    }
+
+    #[test]
+    fn cleanup_missing_cache_dir_is_noop() {
+        let cache = std::env::temp_dir().join(format!(
+            "browserx-cleanup-test-{}-missing-does-not-exist",
+            std::process::id()
+        ));
+        assert_eq!(cleanup_old_engine_versions(&cache, &["1.0.0.0"]), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cleanup_warns_but_does_not_panic_when_removal_fails() {
+        use std::os::unix::fs::PermissionsExt;
+        let cache = cleanup_fixture("locked");
+        std::fs::create_dir_all(cache.join("chromium-1.0.0.0")).unwrap();
+        // Cache dir read-only → không unlink được entry con → xoá fail (best-effort).
+        std::fs::set_permissions(&cache, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let removed = cleanup_old_engine_versions(&cache, &["2.0.0.0"]);
+        std::fs::set_permissions(&cache, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(removed, 0);
+        assert!(cache.join("chromium-1.0.0.0").exists());
+        let _ = std::fs::remove_dir_all(&cache);
     }
 
     #[test]
