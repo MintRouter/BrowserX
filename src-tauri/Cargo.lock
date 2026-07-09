@@ -477,6 +477,7 @@ dependencies = [
  "futures",
  "hex",
  "keyring",
+ "libc",
  "rand 0.10.1",
  "reqwest",
  "rusqlite",
