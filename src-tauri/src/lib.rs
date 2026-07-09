@@ -25,6 +25,7 @@ pub mod cookierobot;
 pub mod cookies;
 pub mod crypto;
 pub mod db;
+pub mod engine_update;
 pub mod error;
 pub mod export;
 pub mod extensions;
@@ -167,6 +168,8 @@ pub fn run() {
             commands::get_cdp_ws_url,
             commands::ensure_binary,
             commands::upgrade_profile_engine,
+            engine_update::check_engine_update,
+            engine_update::apply_engine_update,
             commands::get_settings,
             commands::set_setting,
             commands::list_tags,

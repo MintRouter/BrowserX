@@ -159,7 +159,9 @@ async fn download_and_extract(
         // (W57b) Dọn engine versions cũ SAU khi version mới đã tải + verify + extract
         // thành công — best-effort, không bao giờ fail download. (W58d) Keep-set
         // gồm cả mọi version đang được profile pin; provider lỗi → skip cleanup.
-        let default_version = config::get_chromium_version();
+        // (W58b) Default trong keep-set = version HIỆU LỰC (marker-aware): sau
+        // apply update, bản default mới không bị xoá nhầm khi chưa profile nào pin.
+        let default_version = config::get_effective_version();
         let requested_version = version
             .map(str::to_string)
             .unwrap_or_else(|| default_version.clone());
@@ -941,6 +943,33 @@ mod tests {
     fn keep_versions_provider_error_skips_cleanup() {
         let provider: PinnedVersionsFn = Box::new(|| Err(binary_err("db unavailable")));
         assert!(cleanup_keep_versions_with("2.0.0.0", "3.0.0.0", Some(&provider)).is_none());
+    }
+
+    /// (W58b) Sau apply update (marker trỏ 3.0.0.0 + binary trên đĩa), default
+    /// hiệu lực = 3.0.0.0 phải nằm trong keep-set: profile pin 1.0.0.0 tải lại
+    /// engine → cleanup KHÔNG xoá nhầm bản default mới dù chưa profile nào pin;
+    /// hardcode default 2.0.0.0 không còn ai giữ → bị dọn.
+    #[test]
+    fn cleanup_keeps_marker_effective_default_after_update() {
+        let cache = cleanup_fixture("effective-default");
+        let tag = "linux-x64";
+        let base = "2.0.0.0";
+        let new_bin = config::binary_path_in(&cache.join("chromium-3.0.0.0"), "linux");
+        std::fs::create_dir_all(new_bin.parent().unwrap()).unwrap();
+        std::fs::write(&new_bin, b"x").unwrap();
+        config::write_version_marker_in(&cache, tag, "3.0.0.0").unwrap();
+        std::fs::create_dir_all(cache.join("chromium-1.0.0.0")).unwrap();
+        std::fs::create_dir_all(cache.join("chromium-2.0.0.0")).unwrap();
+
+        let effective = config::effective_version_in(&cache, tag, base, "linux");
+        assert_eq!(effective, "3.0.0.0");
+        let keep = cleanup_keep_versions_with("1.0.0.0", &effective, None).unwrap();
+        let keep_refs: Vec<&str> = keep.iter().map(String::as_str).collect();
+        assert_eq!(cleanup_old_engine_versions(&cache, &keep_refs), 1);
+        assert!(cache.join("chromium-3.0.0.0").exists());
+        assert!(cache.join("chromium-1.0.0.0").exists());
+        assert!(!cache.join("chromium-2.0.0.0").exists());
+        let _ = std::fs::remove_dir_all(&cache);
     }
 
     #[test]
