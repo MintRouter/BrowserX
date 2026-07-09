@@ -12,7 +12,6 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
-tdlib-rs = { version = "1.4.0", features = ["download-tdlib"] }
 
 [dependencies]
 aes-gcm = "0.10"
