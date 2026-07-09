@@ -1,8 +1,8 @@
 name: Release
 
-# Build installer UNSIGNED cho 3 OS bằng tauri-action, đính vào GitHub Release
-# draft. Chưa ký code (chưa có cert) và chưa sinh updater latest.json — cần
-# TAURI_SIGNING_PRIVATE_KEY, để W23c xử lý.
+# Build installer cho 3 OS bằng tauri-action, đính vào GitHub Release draft.
+# Ký updater bằng TAURI_SIGNING_PRIVATE_KEY (secret) để sinh .sig + latest.json.
+# Chưa ký code OS-level (chưa có cert Apple/Windows).
 on:
   push:
     tags: ["v*"]
@@ -84,10 +84,13 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           tagName: v__VERSION__
           releaseName: BrowserX v__VERSION__
           releaseBody: See the assets to download this version and install.
           releaseDraft: true
           prerelease: false
+          updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
