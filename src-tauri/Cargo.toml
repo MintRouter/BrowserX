@@ -1,5 +1,6 @@
 [package]
 name = "browserx"
+default-run = "browserx"
 version = "0.1.0"
 description = "BrowserX — local antidetect browser manager (Tauri v2)"
 edition = "2021"
