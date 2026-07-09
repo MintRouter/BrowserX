@@ -765,6 +765,16 @@
     "errorTitle": "Engine update failed",
     "retry": "Retry"
   },
+  "appUpdate": {
+    "title": "App update",
+    "available": "BrowserX v{{current}} → v{{latest}}",
+    "update": "Update",
+    "dismiss": "Dismiss",
+    "downloading": "Downloading update",
+    "installing": "Installing update — the app will restart automatically.",
+    "errorTitle": "App update failed",
+    "retry": "Retry"
+  },
   "engineUpgrade": {
     "label": "Browser engine",
     "outdated": "A newer engine ({{latest}}) is available for new profiles.",

@@ -757,6 +757,16 @@
     "errorTitle": "Cập nhật engine thất bại",
     "retry": "Thử lại"
   },
+  "appUpdate": {
+    "title": "Cập nhật ứng dụng",
+    "available": "BrowserX v{{current}} → v{{latest}}",
+    "update": "Cập nhật",
+    "dismiss": "Đóng",
+    "downloading": "Đang tải bản cập nhật",
+    "installing": "Đang cài bản cập nhật — ứng dụng sẽ tự khởi động lại.",
+    "errorTitle": "Cập nhật ứng dụng thất bại",
+    "retry": "Thử lại"
+  },
   "engineUpgrade": {
     "label": "Engine trình duyệt",
     "outdated": "Đã có engine mới hơn ({{latest}}) cho profile tạo mới.",

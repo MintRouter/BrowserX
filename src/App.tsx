@@ -5,6 +5,7 @@ import {
   initialEngineState,
   type EngineState,
 } from "./components/EngineSetup";
+import { AppUpdateBanner } from "./components/AppUpdateBanner";
 import { CloudSyncView } from "./components/CloudSyncView";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { EngineUpdateBanner } from "./components/EngineUpdateBanner";
@@ -776,6 +777,7 @@ export default function App() {
             engineReady={engine.status === "ready"}
             onApplied={(version) => setDefaultEngineVersion(version)}
           />
+          <AppUpdateBanner />
           {loadError && (
             <p className="text-warning text-xs px-4 py-2 bg-warning/10 border-b border-warning/30" role="alert">
               {t("errors.loadFailed")}
