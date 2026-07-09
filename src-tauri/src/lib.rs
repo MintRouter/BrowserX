@@ -35,6 +35,7 @@ pub mod logging;
 pub mod metrics;
 pub mod models;
 pub mod process;
+pub mod profile_lock;
 pub mod proxy_check;
 pub mod storage;
 pub mod telegram_sync;

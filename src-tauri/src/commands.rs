@@ -38,7 +38,7 @@ use crate::process::ProcessManager;
 use crate::proxy_check::{self, ProxyCheckResult};
 use crate::{
     app_db_backup, archive, binary, cdp, cloud_transport, cookierobot, cookies, crypto,
-    extensions, geoip, launcher, storage, telegram_sync, userbot,
+    extensions, geoip, launcher, profile_lock, storage, telegram_sync, userbot,
 };
 
 /// State toàn app — khởi tạo trong `tauri::Builder::setup` (lib.rs) rồi `.manage()`.
@@ -837,6 +837,26 @@ async fn launch_profile_inner(
                     "launch_profile {profile_id}: archive restore panicked — launching fresh: {e}"
                 ),
             }
+        }
+    }
+
+    // (W56a) Dọn stale Chromium SingletonLock TRƯỚC khi spawn: phiên bị kill -9
+    // để lại lock → Chromium tưởng instance cũ còn sống và abort. PID trong lock
+    // còn sống thật → chặn launch với error rõ ràng (KHÔNG xoá lock — tránh 2
+    // Chromium ghi cùng user-data-dir); PID chết/malformed → dọn best-effort.
+    {
+        let dir = PathBuf::from(&profile.user_data_dir);
+        let id = profile_id.to_string();
+        match tokio::task::spawn_blocking(move || {
+            profile_lock::cleanup_stale_profile_lock(&dir, &id)
+        })
+        .await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => return Err(AppError::Launch(e.to_string())),
+            Err(e) => tracing::warn!(
+                "launch_profile {profile_id}: kiểm tra SingletonLock panicked — bỏ qua: {e}"
+            ),
         }
     }
 
