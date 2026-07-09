@@ -14,7 +14,11 @@ import { useTranslation } from "react-i18next";
 import type { Folder, Profile } from "../lib/api";
 import { Checkbox } from "./Checkbox";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { countActiveFilters, FilterPanel, type ProfileFilters } from "./FilterPanel";
+import {
+  countActiveFilters,
+  FilterPanel,
+  type ProfileFilters,
+} from "./FilterPanel";
 import { Popover } from "./Popover";
 import { TableFooter } from "./TableFooter";
 
@@ -86,7 +90,9 @@ export function TrashView({
     const d = new Date(iso);
     return isNaN(d.getTime())
       ? iso
-      : new Intl.DateTimeFormat(i18n.language, { dateStyle: "short" }).format(d);
+      : new Intl.DateTimeFormat(i18n.language, { dateStyle: "short" }).format(
+          d,
+        );
   };
 
   const folderName = (id: string | null) =>
@@ -191,7 +197,8 @@ export function TrashView({
     return t("trash.confirmPurgeMany", { count: purgeConfirm?.length ?? 0 });
   };
 
-  const th = "h-10 pl-2 pr-4 text-left align-middle text-xs font-medium text-fg";
+  const th =
+    "h-10 pl-2 pr-4 text-left align-middle text-xs font-medium text-fg";
 
   return (
     <div className="flex h-full flex-col pb-4 pl-2 pr-4 pt-0">
@@ -259,7 +266,10 @@ export function TrashView({
                       activeFilters > 0 ? "text-accent" : "text-fg-muted"
                     }`}
                   >
-                    <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+                    <SlidersHorizontal
+                      className="h-3.5 w-3.5"
+                      aria-hidden="true"
+                    />
                     {activeFilters > 0 && (
                       <span
                         aria-hidden="true"
@@ -308,9 +318,15 @@ export function TrashView({
                   <th scope="col" className="w-10 px-1 align-middle">
                     <span className="sr-only">{t("table.favorite")}</span>
                   </th>
-                  <th scope="col" className={th}>{t("table.profileName")}</th>
-                  <th scope="col" className={th}>{t("table.storage")}</th>
-                  <th scope="col" className={th}>{t("table.folder")}</th>
+                  <th scope="col" className={th}>
+                    {t("table.profileName")}
+                  </th>
+                  <th scope="col" className={th}>
+                    {t("table.storage")}
+                  </th>
+                  <th scope="col" className={th}>
+                    {t("table.folder")}
+                  </th>
                   <th scope="col" className={th}>
                     <button
                       type="button"
@@ -324,11 +340,16 @@ export function TrashView({
                       {sortDir === "asc" ? (
                         <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
                       ) : (
-                        <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                        <ChevronDown
+                          className="h-3.5 w-3.5"
+                          aria-hidden="true"
+                        />
                       )}
                     </button>
                   </th>
-                  <th scope="col" className={th}>{t("trash.created")}</th>
+                  <th scope="col" className={th}>
+                    {t("trash.created")}
+                  </th>
                   <th scope="col" className="w-24 px-3 text-right align-middle">
                     <span className="sr-only">{t("table.actions")}</span>
                   </th>
@@ -360,7 +381,10 @@ export function TrashView({
                         </span>
                       </td>
                       <td className="max-w-0 pl-2 pr-4 py-2">
-                        <span className="block truncate font-medium text-fg" title={p.name}>
+                        <span
+                          className="block truncate font-medium text-fg"
+                          title={p.name}
+                        >
                           {p.name}
                         </span>
                       </td>
@@ -369,7 +393,10 @@ export function TrashView({
                           className="inline-flex items-center gap-1.5"
                           title={t("table.local")}
                         >
-                          <Cloud className="h-5 w-5 text-accent" aria-hidden="true" />
+                          <Cloud
+                            className="h-5 w-5 text-accent"
+                            aria-hidden="true"
+                          />
                           {t("table.local")}
                         </span>
                       </td>
@@ -378,7 +405,9 @@ export function TrashView({
                       </td>
                       <td
                         className="whitespace-nowrap pl-2 pr-4 py-2 text-fg-muted"
-                        title={new Date(deletedAt(p)).toLocaleString(i18n.language)}
+                        title={new Date(deletedAt(p)).toLocaleString(
+                          i18n.language,
+                        )}
                       >
                         {fmtDate(deletedAt(p))}
                       </td>

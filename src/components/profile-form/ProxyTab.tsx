@@ -21,7 +21,12 @@ interface ProxyTabProps {
 /** Optional health status — present in newer backend payloads. */
 type ProxyWithHealth = Proxy & { health_status?: string | null };
 
-export function ProxyTab({ form, set, proxies, onProxiesChanged }: ProxyTabProps) {
+export function ProxyTab({
+  form,
+  set,
+  proxies,
+  onProxiesChanged,
+}: ProxyTabProps) {
   const { t } = useTranslation();
 
   const [checking, setChecking] = useState(false);
@@ -109,13 +114,16 @@ export function ProxyTab({ form, set, proxies, onProxiesChanged }: ProxyTabProps
           checked={form.proxy_id === null}
           onChange={() => set("proxy_id", null)}
         />
-        <span className="text-sm font-medium text-fg">{t("pform.noProxy")}</span>
+        <span className="text-sm font-medium text-fg">
+          {t("pform.noProxy")}
+        </span>
       </label>
 
       {proxies.map((p) => {
         const health = (p as ProxyWithHealth).health_status;
         const checked = form.proxy_id === p.id;
-        const showResult = checkedId === p.id && (checking || checkResult !== null);
+        const showResult =
+          checkedId === p.id && (checking || checkResult !== null);
         return (
           <div key={p.id}>
             <label className={option(checked)}>
@@ -127,7 +135,9 @@ export function ProxyTab({ form, set, proxies, onProxiesChanged }: ProxyTabProps
                 onChange={() => set("proxy_id", p.id)}
               />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium text-fg">{p.name}</span>
+                <span className="block truncate text-sm font-medium text-fg">
+                  {p.name}
+                </span>
                 <span className="block truncate font-mono text-xs text-fg-muted">
                   {p.protocol}://{p.host}:{p.port}
                 </span>
@@ -141,7 +151,9 @@ export function ProxyTab({ form, set, proxies, onProxiesChanged }: ProxyTabProps
                       : "bg-danger/10 text-danger",
                   ].join(" ")}
                 >
-                  {health === "ok" ? t("pform.healthOk") : t("pform.healthFail")}
+                  {health === "ok"
+                    ? t("pform.healthOk")
+                    : t("pform.healthFail")}
                 </span>
               )}
               {checked && (
@@ -155,7 +167,10 @@ export function ProxyTab({ form, set, proxies, onProxiesChanged }: ProxyTabProps
                   className="btn-secondary shrink-0 px-2.5 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {checking && checkedId === p.id ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                    <Loader2
+                      className="h-3.5 w-3.5 animate-spin"
+                      aria-hidden="true"
+                    />
                   ) : null}
                   {t("proxycheck.button")}
                 </button>
@@ -181,7 +196,9 @@ export function ProxyTab({ form, set, proxies, onProxiesChanged }: ProxyTabProps
                         checkResult.external_ip,
                         checkResult.country,
                         checkResult.latency_ms != null
-                          ? t("proxycheck.latency", { ms: checkResult.latency_ms })
+                          ? t("proxycheck.latency", {
+                              ms: checkResult.latency_ms,
+                            })
                           : null,
                       ]
                         .filter(Boolean)
@@ -241,13 +258,17 @@ export function ProxyTab({ form, set, proxies, onProxiesChanged }: ProxyTabProps
               className="btn-secondary h-9 shrink-0 px-3 text-xs disabled:cursor-not-allowed disabled:opacity-60"
             >
               {applying && (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                <Loader2
+                  className="h-3.5 w-3.5 animate-spin"
+                  aria-hidden="true"
+                />
               )}
               {t("pxtpl.apply")}
             </button>
           </div>
           {selectedTemplate &&
-            (selectedTemplate.sticky_session || selectedTemplate.traffic_saver) && (
+            (selectedTemplate.sticky_session ||
+              selectedTemplate.traffic_saver) && (
               <p className="mt-1.5 flex flex-wrap gap-1.5 text-xs text-fg-muted">
                 {selectedTemplate.sticky_session && (
                   <span className="rounded-full bg-accent/10 px-2 py-0.5 font-medium text-accent">
@@ -261,7 +282,9 @@ export function ProxyTab({ form, set, proxies, onProxiesChanged }: ProxyTabProps
                 )}
               </p>
             )}
-          <p className="mt-1.5 text-xs text-fg-muted">{t("pxtpl.useTemplateHint")}</p>
+          <p className="mt-1.5 text-xs text-fg-muted">
+            {t("pxtpl.useTemplateHint")}
+          </p>
           {applyError && (
             <p role="alert" className="mt-1.5 text-xs text-danger">
               {applyError}

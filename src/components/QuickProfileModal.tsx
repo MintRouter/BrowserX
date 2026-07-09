@@ -68,9 +68,13 @@ export function QuickProfileModal({
   const clampCount = (n: number) => Math.min(MAX_COUNT, Math.max(1, n));
 
   const screenDims = (): { screen_width: number; screen_height: number } => {
-    if (screenMode === "custom") return { screen_width: width, screen_height: height };
+    if (screenMode === "custom")
+      return { screen_width: width, screen_height: height };
     if (screenMode === "real")
-      return { screen_width: window.screen.width, screen_height: window.screen.height };
+      return {
+        screen_width: window.screen.width,
+        screen_height: window.screen.height,
+      };
     return { screen_width: 1920, screen_height: 1080 };
   };
 
@@ -195,7 +199,9 @@ export function QuickProfileModal({
                     min={1}
                     max={MAX_COUNT}
                     value={count}
-                    onChange={(e) => setCount(clampCount(Number(e.target.value) || 1))}
+                    onChange={(e) =>
+                      setCount(clampCount(Number(e.target.value) || 1))
+                    }
                     aria-labelledby="qp-count-label"
                     className="input w-20 text-center"
                   />
@@ -381,7 +387,10 @@ export function QuickProfileModal({
                 className="inline-flex h-10 items-center gap-1.5 rounded-full bg-accent/10 px-4 text-sm font-medium text-accent hover:bg-accent/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-50"
               >
                 {checking && (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                  <Loader2
+                    className="h-3.5 w-3.5 animate-spin"
+                    aria-hidden="true"
+                  />
                 )}
                 {t("proxycheck.button")}
               </button>
@@ -393,7 +402,10 @@ export function QuickProfileModal({
               className="btn-primary inline-flex h-10 items-center gap-1.5 px-4"
             >
               {busy && (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                <Loader2
+                  className="h-3.5 w-3.5 animate-spin"
+                  aria-hidden="true"
+                />
               )}
               {t("quick.start")}
             </button>

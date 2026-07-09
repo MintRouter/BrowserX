@@ -37,7 +37,8 @@ interface CloudSyncViewProps {
 function fmtBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024)
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
@@ -61,7 +62,9 @@ export function CloudSyncView({
   const { t, i18n } = useTranslation();
   const [backups, setBackups] = useState<CloudBackupInfo[]>([]);
   const [states, setStates] = useState<CloudUploadState[]>([]);
-  const [progress, setProgress] = useState<Record<string, CloudProgressEvent>>({});
+  const [progress, setProgress] = useState<Record<string, CloudProgressEvent>>(
+    {},
+  );
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
@@ -81,7 +84,9 @@ export function CloudSyncView({
   /** (W55c) App-DB backup card state + pending confirms. */
   const [appDb, setAppDb] = useState<AppDbCloudStatus | null>(null);
   const [appDbExpanded, setAppDbExpanded] = useState(false);
-  const [appDbRestoreConfirm, setAppDbRestoreConfirm] = useState<string | null>(null);
+  const [appDbRestoreConfirm, setAppDbRestoreConfirm] = useState<string | null>(
+    null,
+  );
 
   const refresh = useCallback(async () => {
     if (!isTauri()) return;
@@ -163,7 +168,8 @@ export function CloudSyncView({
   /** (W52-C C1) Upload state per profile. */
   const stateByProfile = useMemo(() => {
     const map = new Map<string, CloudUploadState>();
-    for (const s of states) if (!map.has(s.profile_id)) map.set(s.profile_id, s);
+    for (const s of states)
+      if (!map.has(s.profile_id)) map.set(s.profile_id, s);
     return map;
   }, [states]);
 
@@ -203,9 +209,16 @@ export function CloudSyncView({
 
   const totalPages = Math.max(1, Math.ceil(rows.length / rowsPerPage));
   const safePage = Math.min(page, totalPages - 1);
-  const paged = rows.slice(safePage * rowsPerPage, (safePage + 1) * rowsPerPage);
+  const paged = rows.slice(
+    safePage * rowsPerPage,
+    (safePage + 1) * rowsPerPage,
+  );
 
-  const runAction = async (id: string, fn: () => Promise<void>, doneMsg: string) => {
+  const runAction = async (
+    id: string,
+    fn: () => Promise<void>,
+    doneMsg: string,
+  ) => {
     setBusyId(id);
     setError(null);
     setNotice(null);
@@ -258,7 +271,11 @@ export function CloudSyncView({
 
   // (W55c) App-DB card actions — same runAction plumbing, sentinel busy id.
   const appDbBackupNow = () =>
-    void runAction(APP_DB_ID, () => api.backupAppDbNow(), t("cloudSync.appDbBackupDone"));
+    void runAction(
+      APP_DB_ID,
+      () => api.backupAppDbNow(),
+      t("cloudSync.appDbBackupDone"),
+    );
 
   const confirmAppDbRestore = () => {
     const uploadedAt = appDbRestoreConfirm;
@@ -302,7 +319,9 @@ export function CloudSyncView({
     appDbProgress && appDbProgress.bytesTotal > 0
       ? Math.min(
           100,
-          Math.round((appDbProgress.bytesDone / appDbProgress.bytesTotal) * 100),
+          Math.round(
+            (appDbProgress.bytesDone / appDbProgress.bytesTotal) * 100,
+          ),
         )
       : 0;
 
@@ -338,7 +357,10 @@ export function CloudSyncView({
                   ? "cloudSync.progressDownload"
                   : "cloudSync.progressUpload",
                 {
-                  part: Math.min(appDbProgress.partIndex + 1, appDbProgress.partCount),
+                  part: Math.min(
+                    appDbProgress.partIndex + 1,
+                    appDbProgress.partCount,
+                  ),
                   total: appDbProgress.partCount,
                 },
               )}
@@ -410,7 +432,10 @@ export function CloudSyncView({
                 key={v.uploaded_at}
                 className="flex items-center gap-4 text-xs text-fg-muted"
               >
-                <span className="whitespace-nowrap" title={`sha256: ${v.sha256}`}>
+                <span
+                  className="whitespace-nowrap"
+                  title={`sha256: ${v.sha256}`}
+                >
                   {fmtDate(v.uploaded_at)}
                 </span>
                 <span className="whitespace-nowrap">{fmtBytes(v.size)}</span>
@@ -479,7 +504,9 @@ export function CloudSyncView({
           <div className="flex flex-1 flex-col items-center justify-center gap-2 p-12 text-center">
             <Cloud className="h-8 w-8 text-fg-muted/50" aria-hidden="true" />
             <p className="text-sm text-fg-muted">{t("cloudSync.empty")}</p>
-            <p className="max-w-md text-xs text-fg-muted">{t("cloudSync.emptyHint")}</p>
+            <p className="max-w-md text-xs text-fg-muted">
+              {t("cloudSync.emptyHint")}
+            </p>
           </div>
         ) : rows.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 p-12 text-center">
@@ -494,11 +521,21 @@ export function CloudSyncView({
                   <th scope="col" className="w-8 px-2 align-middle">
                     <span className="sr-only">{t("cloudSync.history")}</span>
                   </th>
-                  <th scope="col" className={th}>{t("table.profileName")}</th>
-                  <th scope="col" className={th}>{t("cloudSync.lastBackup")}</th>
-                  <th scope="col" className={th}>{t("cloudSync.size")}</th>
-                  <th scope="col" className={th}>{t("cloudSync.parts")}</th>
-                  <th scope="col" className={th}>{t("cloudSync.uploadStatus")}</th>
+                  <th scope="col" className={th}>
+                    {t("table.profileName")}
+                  </th>
+                  <th scope="col" className={th}>
+                    {t("cloudSync.lastBackup")}
+                  </th>
+                  <th scope="col" className={th}>
+                    {t("cloudSync.size")}
+                  </th>
+                  <th scope="col" className={th}>
+                    {t("cloudSync.parts")}
+                  </th>
+                  <th scope="col" className={th}>
+                    {t("cloudSync.uploadStatus")}
+                  </th>
                   <th scope="col" className="w-56 px-3 text-right align-middle">
                     <span className="sr-only">{t("table.actions")}</span>
                   </th>
@@ -513,7 +550,10 @@ export function CloudSyncView({
                   const open = expanded.has(p.id);
                   const pct =
                     pr && pr.bytesTotal > 0
-                      ? Math.min(100, Math.round((pr.bytesDone / pr.bytesTotal) * 100))
+                      ? Math.min(
+                          100,
+                          Math.round((pr.bytesDone / pr.bytesTotal) * 100),
+                        )
                       : 0;
                   return (
                     <Fragment key={p.id}>
@@ -529,21 +569,32 @@ export function CloudSyncView({
                               className="grid h-6 w-6 place-items-center rounded text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
                             >
                               {open ? (
-                                <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                                <ChevronDown
+                                  className="h-4 w-4"
+                                  aria-hidden="true"
+                                />
                               ) : (
-                                <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                                <ChevronRight
+                                  className="h-4 w-4"
+                                  aria-hidden="true"
+                                />
                               )}
                             </button>
                           )}
                         </td>
                         <td className="max-w-0 px-3 py-2">
-                          <span className="block truncate font-medium text-fg" title={p.name}>
+                          <span
+                            className="block truncate font-medium text-fg"
+                            title={p.name}
+                          >
                             {p.name}
                           </span>
                         </td>
                         <td
                           className="whitespace-nowrap px-3 py-2 text-fg-muted"
-                          title={latest ? `sha256: ${latest.sha256}` : undefined}
+                          title={
+                            latest ? `sha256: ${latest.sha256}` : undefined
+                          }
                         >
                           {latest ? fmtDate(latest.uploaded_at) : "—"}
                         </td>
@@ -562,7 +613,10 @@ export function CloudSyncView({
                                     ? "cloudSync.progressDownload"
                                     : "cloudSync.progressUpload",
                                   {
-                                    part: Math.min(pr.partIndex + 1, pr.partCount),
+                                    part: Math.min(
+                                      pr.partIndex + 1,
+                                      pr.partCount,
+                                    ),
                                     total: pr.partCount,
                                   },
                                 )}
@@ -613,18 +667,28 @@ export function CloudSyncView({
                               onClick={() => retryUpload(p.id)}
                               className="mr-3 inline-flex items-center gap-1 rounded text-sm font-medium text-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-50"
                             >
-                              <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                              <RotateCcw
+                                className="h-4 w-4"
+                                aria-hidden="true"
+                              />
                               {t("cloudSync.retryUpload")}
                             </button>
                           )}
                           <button
                             type="button"
                             disabled={busy || running}
-                            title={running ? t("cloudSync.backupNowWhileRunning") : undefined}
+                            title={
+                              running
+                                ? t("cloudSync.backupNowWhileRunning")
+                                : undefined
+                            }
                             onClick={() => syncNow(p.id)}
                             className="inline-flex items-center gap-1 rounded text-sm font-medium text-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            <CloudUpload className="h-4 w-4" aria-hidden="true" />
+                            <CloudUpload
+                              className="h-4 w-4"
+                              aria-hidden="true"
+                            />
                             {t("cloudSync.backupNow")}
                           </button>
                         </td>
@@ -647,7 +711,9 @@ export function CloudSyncView({
                                     >
                                       {fmtDate(v.uploaded_at)}
                                     </span>
-                                    <span className="whitespace-nowrap">{fmtBytes(v.size)}</span>
+                                    <span className="whitespace-nowrap">
+                                      {fmtBytes(v.size)}
+                                    </span>
                                     <span className="whitespace-nowrap">
                                       {t("cloudSync.parts")}: {v.part_count}
                                     </span>
@@ -673,7 +739,10 @@ export function CloudSyncView({
                                         }
                                         className="mr-3 inline-flex items-center gap-1 rounded text-xs font-medium text-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-50"
                                       >
-                                        <CloudDownload className="h-3.5 w-3.5" aria-hidden="true" />
+                                        <CloudDownload
+                                          className="h-3.5 w-3.5"
+                                          aria-hidden="true"
+                                        />
                                         {t("cloudSync.restore")}
                                       </button>
                                       <button
@@ -687,7 +756,10 @@ export function CloudSyncView({
                                         }
                                         className="inline-flex items-center gap-1 rounded text-xs font-medium text-danger hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-50"
                                       >
-                                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                                        <Trash2
+                                          className="h-3.5 w-3.5"
+                                          aria-hidden="true"
+                                        />
                                         {t("cloudSync.delete")}
                                       </button>
                                     </span>

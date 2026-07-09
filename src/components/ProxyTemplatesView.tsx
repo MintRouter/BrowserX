@@ -100,7 +100,10 @@ export function ProxyTemplatesView(props: ProxyTemplatesViewProps) {
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / rowsPerPage));
   const safePage = Math.min(page, totalPages - 1);
-  const paged = filtered.slice(safePage * rowsPerPage, (safePage + 1) * rowsPerPage);
+  const paged = filtered.slice(
+    safePage * rowsPerPage,
+    (safePage + 1) * rowsPerPage,
+  );
   const pageIds = paged.map((p) => p.id);
   const allChecked = paged.length > 0 && paged.every((p) => selected.has(p.id));
   const someChecked = paged.some((p) => selected.has(p.id));
@@ -210,16 +213,63 @@ export function ProxyTemplatesView(props: ProxyTemplatesViewProps) {
               fill="none"
               aria-hidden="true"
             >
-              <rect x="26" y="22" width="62" height="72" rx="6" fill="#F1EDED" transform="rotate(-8 26 22)" />
-              <rect x="50" y="10" width="62" height="80" rx="6" fill="#FFFFFF" stroke="#E5E1E1" strokeWidth="1.5" />
-              <rect x="60" y="24" width="34" height="5" rx="2.5" fill="#E5E1E1" />
-              <rect x="60" y="36" width="42" height="5" rx="2.5" fill="#F1EDED" />
-              <rect x="60" y="48" width="26" height="5" rx="2.5" fill="#F1EDED" />
+              <rect
+                x="26"
+                y="22"
+                width="62"
+                height="72"
+                rx="6"
+                fill="#F1EDED"
+                transform="rotate(-8 26 22)"
+              />
+              <rect
+                x="50"
+                y="10"
+                width="62"
+                height="80"
+                rx="6"
+                fill="#FFFFFF"
+                stroke="#E5E1E1"
+                strokeWidth="1.5"
+              />
+              <rect
+                x="60"
+                y="24"
+                width="34"
+                height="5"
+                rx="2.5"
+                fill="#E5E1E1"
+              />
+              <rect
+                x="60"
+                y="36"
+                width="42"
+                height="5"
+                rx="2.5"
+                fill="#F1EDED"
+              />
+              <rect
+                x="60"
+                y="48"
+                width="26"
+                height="5"
+                rx="2.5"
+                fill="#F1EDED"
+              />
               <circle cx="106" cy="72" r="16" fill="#F0F6FF" />
-              <path d="M106 66v12M100 72h12" stroke="#2563EB" strokeWidth="2.5" strokeLinecap="round" />
+              <path
+                d="M106 66v12M100 72h12"
+                stroke="#2563EB"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+              />
             </svg>
-            <p className="text-xl font-medium text-fg">{t("pxtpl.emptyTitle")}</p>
-            <p className="max-w-xs text-sm text-fg-muted">{t("pxtpl.emptyHint")}</p>
+            <p className="text-xl font-medium text-fg">
+              {t("pxtpl.emptyTitle")}
+            </p>
+            <p className="max-w-xs text-sm text-fg-muted">
+              {t("pxtpl.emptyHint")}
+            </p>
             <button
               type="button"
               onClick={() => setDialog("new")}
@@ -251,11 +301,21 @@ export function ProxyTemplatesView(props: ProxyTemplatesViewProps) {
                       className="h-4 w-4 cursor-pointer rounded border-border accent-accent"
                     />
                   </th>
-                  <th scope="col" className={th}>{t("proxy.name")}</th>
-                  <th scope="col" className={th}>{t("proxy.details")}</th>
-                  <th scope="col" className={th}>{t("proxy.protocol")}</th>
-                  <th scope="col" className={th}>{t("pxtpl.stickySession")}</th>
-                  <th scope="col" className={th}>{t("pxtpl.trafficSaver")}</th>
+                  <th scope="col" className={th}>
+                    {t("proxy.name")}
+                  </th>
+                  <th scope="col" className={th}>
+                    {t("proxy.details")}
+                  </th>
+                  <th scope="col" className={th}>
+                    {t("proxy.protocol")}
+                  </th>
+                  <th scope="col" className={th}>
+                    {t("pxtpl.stickySession")}
+                  </th>
+                  <th scope="col" className={th}>
+                    {t("pxtpl.trafficSaver")}
+                  </th>
                   <th scope="col" className="w-10 px-1 align-middle">
                     <span className="sr-only">{t("table.rowMenu")}</span>
                   </th>
@@ -282,10 +342,15 @@ export function ProxyTemplatesView(props: ProxyTemplatesViewProps) {
                       </td>
                       <td className="max-w-0 px-3 py-2">
                         <div className="flex items-center gap-2">
-                          <span className="truncate font-medium text-fg">{p.name}</span>
+                          <span className="truncate font-medium text-fg">
+                            {p.name}
+                          </span>
                           {p.credentials_invalid && (
                             <span className="inline-flex shrink-0 items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-600 dark:text-amber-400">
-                              <TriangleAlert className="h-3 w-3" aria-hidden="true" />
+                              <TriangleAlert
+                                className="h-3 w-3"
+                                aria-hidden="true"
+                              />
                               {t("proxy.credentialsInvalid")}
                             </span>
                           )}
@@ -295,7 +360,9 @@ export function ProxyTemplatesView(props: ProxyTemplatesViewProps) {
                         {p.masked_username ? `${p.masked_username}@` : ""}
                         {p.host}:{p.port}
                       </td>
-                      <td className="px-3 py-2 text-fg-muted">{PROTOCOL_LABELS[p.protocol]}</td>
+                      <td className="px-3 py-2 text-fg-muted">
+                        {PROTOCOL_LABELS[p.protocol]}
+                      </td>
                       <td className="px-3 py-2 text-fg-muted">
                         {p.sticky_session ? t("pxtpl.on") : "—"}
                       </td>
@@ -314,16 +381,26 @@ export function ProxyTemplatesView(props: ProxyTemplatesViewProps) {
                               aria-label={`${t("table.rowMenu")}: ${p.name}`}
                               aria-haspopup="menu"
                               aria-expanded={menuId === p.id}
-                              onClick={() => setMenuId(menuId === p.id ? null : p.id)}
+                              onClick={() =>
+                                setMenuId(menuId === p.id ? null : p.id)
+                              }
                               className="grid h-8 w-8 place-items-center rounded-full text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
                             >
-                              <EllipsisVertical className="h-4 w-4" aria-hidden="true" />
+                              <EllipsisVertical
+                                className="h-4 w-4"
+                                aria-hidden="true"
+                              />
                             </button>
                           }
                         >
                           <div role="menu" className="w-44">
                             <MenuItem
-                              icon={<Pencil className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+                              icon={
+                                <Pencil
+                                  className="h-4 w-4 text-fg-muted"
+                                  aria-hidden="true"
+                                />
+                              }
                               onClick={() => {
                                 setMenuId(null);
                                 setDialog(p);
@@ -333,7 +410,12 @@ export function ProxyTemplatesView(props: ProxyTemplatesViewProps) {
                             </MenuItem>
                             <MenuItem
                               danger
-                              icon={<Trash2 className="h-4 w-4" aria-hidden="true" />}
+                              icon={
+                                <Trash2
+                                  className="h-4 w-4"
+                                  aria-hidden="true"
+                                />
+                              }
                               onClick={() => {
                                 setMenuId(null);
                                 handleDelete([p.id]);
@@ -502,7 +584,9 @@ function ProxyTemplateDialog({
 
         <div className="mt-4 grid grid-cols-2 gap-3">
           <div className="col-span-2">
-            <label className="label" htmlFor="pxt-name">{t("proxy.name")}</label>
+            <label className="label" htmlFor="pxt-name">
+              {t("proxy.name")}
+            </label>
             <input
               id="pxt-name"
               className="input"
@@ -512,7 +596,9 @@ function ProxyTemplateDialog({
             />
           </div>
           <div>
-            <label className="label" htmlFor="pxt-protocol">{t("proxy.protocol")}</label>
+            <label className="label" htmlFor="pxt-protocol">
+              {t("proxy.protocol")}
+            </label>
             <select
               id="pxt-protocol"
               className="input"
@@ -527,7 +613,9 @@ function ProxyTemplateDialog({
             </select>
           </div>
           <div>
-            <label className="label" htmlFor="pxt-port">{t("proxy.port")}</label>
+            <label className="label" htmlFor="pxt-port">
+              {t("proxy.port")}
+            </label>
             <input
               id="pxt-port"
               className="input no-spin"
@@ -540,7 +628,9 @@ function ProxyTemplateDialog({
             />
           </div>
           <div className="col-span-2">
-            <label className="label" htmlFor="pxt-host">{t("proxy.host")}</label>
+            <label className="label" htmlFor="pxt-host">
+              {t("proxy.host")}
+            </label>
             <input
               id="pxt-host"
               className="input"
@@ -563,7 +653,9 @@ function ProxyTemplateDialog({
               autoComplete="off"
             />
             {template?.masked_username && !template.credentials_invalid && (
-              <p className="mt-1 text-xs text-fg-muted">{t("proxy.usernameKeep")}</p>
+              <p className="mt-1 text-xs text-fg-muted">
+                {t("proxy.usernameKeep")}
+              </p>
             )}
           </div>
           <div>
@@ -581,7 +673,9 @@ function ProxyTemplateDialog({
               autoComplete="new-password"
             />
             {template?.has_password && !template.credentials_invalid && (
-              <p className="mt-1 text-xs text-fg-muted">{t("proxy.passwordKeep")}</p>
+              <p className="mt-1 text-xs text-fg-muted">
+                {t("proxy.passwordKeep")}
+              </p>
             )}
           </div>
           {hasStoredCreds && (
@@ -599,7 +693,10 @@ function ProxyTemplateDialog({
           {/* Provider metadata (P3-3a): not applied at launch */}
           <div className="col-span-2 space-y-3 rounded-md bg-surface-2 px-3 py-3">
             <div className="flex items-center justify-between gap-3">
-              <label htmlFor="pxt-sticky" className="cursor-pointer text-sm text-fg">
+              <label
+                htmlFor="pxt-sticky"
+                className="cursor-pointer text-sm text-fg"
+              >
                 {t("pxtpl.stickySession")}
               </label>
               <Toggle
@@ -610,7 +707,10 @@ function ProxyTemplateDialog({
               />
             </div>
             <div className="flex items-center justify-between gap-3">
-              <label htmlFor="pxt-saver" className="cursor-pointer text-sm text-fg">
+              <label
+                htmlFor="pxt-saver"
+                className="cursor-pointer text-sm text-fg"
+              >
                 {t("pxtpl.trafficSaver")}
               </label>
               <Toggle

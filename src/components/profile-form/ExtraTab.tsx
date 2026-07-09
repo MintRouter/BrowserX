@@ -72,9 +72,21 @@ export function ExtraTab({
         <div className="space-y-3">
           {(
             [
-              { key: "store_history", id: "pf-store-history", label: t("pstorage.history") },
-              { key: "store_passwords", id: "pf-store-passwords", label: t("pstorage.passwords") },
-              { key: "store_sw_cache", id: "pf-store-sw-cache", label: t("pstorage.swCache") },
+              {
+                key: "store_history",
+                id: "pf-store-history",
+                label: t("pstorage.history"),
+              },
+              {
+                key: "store_passwords",
+                id: "pf-store-passwords",
+                label: t("pstorage.passwords"),
+              },
+              {
+                key: "store_sw_cache",
+                id: "pf-store-sw-cache",
+                label: t("pstorage.swCache"),
+              },
             ] as const
           ).map(({ key, id, label }) => (
             <div key={key} className="flex items-center justify-between gap-3">
@@ -94,7 +106,9 @@ export function ExtraTab({
 
       {/* Store extensions (P3-1b): tick-list of the central extension store */}
       <div>
-        <span className="label" id="pf-store-ext-label">{t("ext.formTitle")}</span>
+        <span className="label" id="pf-store-ext-label">
+          {t("ext.formTitle")}
+        </span>
         <p className="mb-2 text-xs text-fg-muted">{t("ext.formHint")}</p>
         {storeExtensions.length === 0 ? (
           <p className="rounded-md bg-surface-2 px-2.5 py-2 text-xs text-fg-muted">
@@ -118,7 +132,9 @@ export function ExtraTab({
                     className={`h-4 w-4 shrink-0 ${ext.enabled ? "text-accent" : "text-fg-muted"}`}
                     aria-hidden="true"
                   />
-                  <span className={`truncate ${ext.enabled ? "" : "text-fg-muted"}`}>
+                  <span
+                    className={`truncate ${ext.enabled ? "" : "text-fg-muted"}`}
+                  >
                     {ext.name}
                   </span>
                   {!ext.enabled && (
@@ -135,7 +151,9 @@ export function ExtraTab({
 
       {/* Extensions (W24b): local unpacked extension dirs, passed as --load-extension */}
       <div>
-        <span className="label" id="pf-ext-label">{t("pform.extTitle")}</span>
+        <span className="label" id="pf-ext-label">
+          {t("pform.extTitle")}
+        </span>
         <p className="mb-2 text-xs text-fg-muted">{t("pform.extHint")}</p>
         {form.extensions.length > 0 && (
           <ul aria-label={t("pform.extTitle")} className="mb-2 space-y-1.5">
@@ -144,11 +162,16 @@ export function ExtraTab({
                 key={path}
                 className="flex items-center gap-2 rounded-md bg-surface-2 px-2.5 py-1.5 text-sm text-fg"
               >
-                <span className="min-w-0 flex-1 truncate font-mono text-xs">{path}</span>
+                <span className="min-w-0 flex-1 truncate font-mono text-xs">
+                  {path}
+                </span>
                 <button
                   type="button"
                   onClick={() =>
-                    set("extensions", form.extensions.filter((_, j) => j !== i))
+                    set(
+                      "extensions",
+                      form.extensions.filter((_, j) => j !== i),
+                    )
                   }
                   className="rounded-full text-fg-muted hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
                   aria-label={t("pform.extRemove", { path })}
@@ -176,14 +199,20 @@ export function ExtraTab({
             aria-labelledby="pf-ext-label"
             spellCheck={false}
           />
-          <button type="button" onClick={addExtension} className="btn-secondary px-2.5">
+          <button
+            type="button"
+            onClick={addExtension}
+            className="btn-secondary px-2.5"
+          >
             {t("pform.extAdd")}
           </button>
         </div>
       </div>
 
       <div>
-        <label className="label" htmlFor="pf-args">{t("pform.launchArgs")}</label>
+        <label className="label" htmlFor="pf-args">
+          {t("pform.launchArgs")}
+        </label>
         <textarea
           id="pf-args"
           className={[
@@ -200,7 +229,11 @@ export function ExtraTab({
           aria-describedby={argsError ? "pf-args-error" : "pf-args-hint"}
         />
         {argsError ? (
-          <p id="pf-args-error" role="alert" className="mt-1 text-xs text-danger">
+          <p
+            id="pf-args-error"
+            role="alert"
+            className="mt-1 text-xs text-danger"
+          >
             {argsError}
           </p>
         ) : (

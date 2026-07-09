@@ -49,7 +49,10 @@ export function EngineSetup({
           <span className="shrink-0 font-medium text-danger">
             {t("engine.errorTitle")}
           </span>
-          <span className="flex-1 truncate text-danger/80" title={engine.error ?? ""}>
+          <span
+            className="flex-1 truncate text-danger/80"
+            title={engine.error ?? ""}
+          >
             {engine.error}
           </span>
           <button

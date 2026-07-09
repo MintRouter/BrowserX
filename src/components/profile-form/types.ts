@@ -88,7 +88,12 @@ export const RESOLUTION_PRESETS: ReadonlyArray<{
 export const HARDWARE_CONCURRENCY_OPTIONS = [2, 4, 8, 12, 16] as const;
 
 /** (P3-5b) Brands supported by --fingerprint-brand. */
-export const NAV_BRAND_OPTIONS = ["Chrome", "Edge", "Opera", "Vivaldi"] as const;
+export const NAV_BRAND_OPTIONS = [
+  "Chrome",
+  "Edge",
+  "Opera",
+  "Vivaldi",
+] as const;
 
 /** (P3-5b) Valid navigator.deviceMemory values (GB). */
 export const DEVICE_MEMORY_OPTIONS = [0.5, 1, 2, 4, 8] as const;

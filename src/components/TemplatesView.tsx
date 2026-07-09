@@ -107,7 +107,10 @@ export function TemplatesView(props: TemplatesViewProps) {
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / rowsPerPage));
   const safePage = Math.min(page, totalPages - 1);
-  const paged = filtered.slice(safePage * rowsPerPage, (safePage + 1) * rowsPerPage);
+  const paged = filtered.slice(
+    safePage * rowsPerPage,
+    (safePage + 1) * rowsPerPage,
+  );
   const pageIds = paged.map((x) => x.id);
   const allChecked = paged.length > 0 && paged.every((x) => selected.has(x.id));
   const someChecked = paged.some((x) => selected.has(x.id));
@@ -206,16 +209,61 @@ export function TemplatesView(props: TemplatesViewProps) {
               fill="none"
               aria-hidden="true"
             >
-              <rect x="26" y="22" width="62" height="72" rx="6" fill="#F1EDED" transform="rotate(-8 26 22)" />
-              <rect x="50" y="10" width="62" height="80" rx="6" fill="#FFFFFF" stroke="#E5E1E1" strokeWidth="1.5" />
-              <rect x="60" y="24" width="34" height="5" rx="2.5" fill="#E5E1E1" />
-              <rect x="60" y="36" width="42" height="5" rx="2.5" fill="#F1EDED" />
-              <rect x="60" y="48" width="26" height="5" rx="2.5" fill="#F1EDED" />
+              <rect
+                x="26"
+                y="22"
+                width="62"
+                height="72"
+                rx="6"
+                fill="#F1EDED"
+                transform="rotate(-8 26 22)"
+              />
+              <rect
+                x="50"
+                y="10"
+                width="62"
+                height="80"
+                rx="6"
+                fill="#FFFFFF"
+                stroke="#E5E1E1"
+                strokeWidth="1.5"
+              />
+              <rect
+                x="60"
+                y="24"
+                width="34"
+                height="5"
+                rx="2.5"
+                fill="#E5E1E1"
+              />
+              <rect
+                x="60"
+                y="36"
+                width="42"
+                height="5"
+                rx="2.5"
+                fill="#F1EDED"
+              />
+              <rect
+                x="60"
+                y="48"
+                width="26"
+                height="5"
+                rx="2.5"
+                fill="#F1EDED"
+              />
               <circle cx="106" cy="72" r="16" fill="#F0F6FF" />
-              <path d="M106 66v12M100 72h12" stroke="#2563EB" strokeWidth="2.5" strokeLinecap="round" />
+              <path
+                d="M106 66v12M100 72h12"
+                stroke="#2563EB"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+              />
             </svg>
             <p className="text-xl font-medium text-fg">{t("tpl.emptyTitle")}</p>
-            <p className="max-w-xs text-sm text-fg-muted">{t("tpl.emptyHint")}</p>
+            <p className="max-w-xs text-sm text-fg-muted">
+              {t("tpl.emptyHint")}
+            </p>
             <button
               type="button"
               onClick={() => setDialog("new")}
@@ -247,9 +295,15 @@ export function TemplatesView(props: TemplatesViewProps) {
                       className="h-4 w-4 cursor-pointer rounded border-border accent-accent"
                     />
                   </th>
-                  <th scope="col" className={th}>{t("tpl.name")}</th>
-                  <th scope="col" className={th}>{t("tpl.storage")}</th>
-                  <th scope="col" className={th}>{t("tpl.notes")}</th>
+                  <th scope="col" className={th}>
+                    {t("tpl.name")}
+                  </th>
+                  <th scope="col" className={th}>
+                    {t("tpl.storage")}
+                  </th>
+                  <th scope="col" className={th}>
+                    {t("tpl.notes")}
+                  </th>
                   <th scope="col" className="w-40 px-3 align-middle">
                     <span className="sr-only">{t("tpl.setDefault")}</span>
                   </th>
@@ -270,7 +324,10 @@ export function TemplatesView(props: TemplatesViewProps) {
                         isSelected ? "bg-[#F0F6FF]" : "hover:bg-accent/[0.03]"
                       }`}
                     >
-                      <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                      <td
+                        className="px-3 py-2"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <input
                           type="checkbox"
                           aria-label={`${t("table.selectRow")}: ${x.name}`}
@@ -281,15 +338,25 @@ export function TemplatesView(props: TemplatesViewProps) {
                       </td>
                       <td className="max-w-0 px-3 py-2">
                         <div className="flex items-center gap-2">
-                          <span className="truncate font-medium text-fg">{x.name}</span>
-                          <Laptop className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+                          <span className="truncate font-medium text-fg">
+                            {x.name}
+                          </span>
+                          <Laptop
+                            className="h-4 w-4 shrink-0 text-accent"
+                            aria-hidden="true"
+                          />
                         </div>
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2 text-fg-muted">{t("tpl.storageLocal")}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-fg-muted">
+                        {t("tpl.storageLocal")}
+                      </td>
                       <td className="max-w-0 truncate px-3 py-2 text-fg-muted">
                         {x.config.notes?.trim() || "—"}
                       </td>
-                      <td className="px-3 text-right" onClick={(e) => e.stopPropagation()}>
+                      <td
+                        className="px-3 text-right"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         {isDefault ? (
                           <span className="inline-flex h-8 items-center rounded-md px-3 align-middle text-sm font-medium text-fg-muted">
                             {t("tpl.default")}
@@ -304,7 +371,10 @@ export function TemplatesView(props: TemplatesViewProps) {
                           </button>
                         )}
                       </td>
-                      <td className="px-1 py-2" onClick={(e) => e.stopPropagation()}>
+                      <td
+                        className="px-1 py-2"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <Popover
                           open={menuId === x.id}
                           onClose={() => setMenuId(null)}
@@ -316,16 +386,26 @@ export function TemplatesView(props: TemplatesViewProps) {
                               aria-label={`${t("table.rowMenu")}: ${x.name}`}
                               aria-haspopup="menu"
                               aria-expanded={menuId === x.id}
-                              onClick={() => setMenuId(menuId === x.id ? null : x.id)}
+                              onClick={() =>
+                                setMenuId(menuId === x.id ? null : x.id)
+                              }
                               className="grid h-8 w-8 place-items-center rounded-full text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
                             >
-                              <EllipsisVertical className="h-4 w-4" aria-hidden="true" />
+                              <EllipsisVertical
+                                className="h-4 w-4"
+                                aria-hidden="true"
+                              />
                             </button>
                           }
                         >
                           <div role="menu" className="w-44">
                             <MenuItem
-                              icon={<Pencil className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+                              icon={
+                                <Pencil
+                                  className="h-4 w-4 text-fg-muted"
+                                  aria-hidden="true"
+                                />
+                              }
                               onClick={() => {
                                 setMenuId(null);
                                 setDialog(x);
@@ -334,7 +414,12 @@ export function TemplatesView(props: TemplatesViewProps) {
                               {t("tpl.editTemplate")}
                             </MenuItem>
                             <MenuItem
-                              icon={<CopyPlus className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+                              icon={
+                                <CopyPlus
+                                  className="h-4 w-4 text-fg-muted"
+                                  aria-hidden="true"
+                                />
+                              }
                               onClick={() => {
                                 setMenuId(null);
                                 setBulkFor(x);
@@ -344,7 +429,12 @@ export function TemplatesView(props: TemplatesViewProps) {
                             </MenuItem>
                             {!isDefault && (
                               <MenuItem
-                                icon={<Laptop className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+                                icon={
+                                  <Laptop
+                                    className="h-4 w-4 text-fg-muted"
+                                    aria-hidden="true"
+                                  />
+                                }
                                 onClick={() => {
                                   setMenuId(null);
                                   void props.onSetDefault(x.id);
@@ -355,7 +445,12 @@ export function TemplatesView(props: TemplatesViewProps) {
                             )}
                             <MenuItem
                               danger
-                              icon={<Trash2 className="h-4 w-4" aria-hidden="true" />}
+                              icon={
+                                <Trash2
+                                  className="h-4 w-4"
+                                  aria-hidden="true"
+                                />
+                              }
                               onClick={() => {
                                 setMenuId(null);
                                 handleDelete([x.id]);
@@ -439,7 +534,9 @@ function TemplateDialog({
   const { t } = useTranslation();
   const cfg = template?.config;
   const [name, setName] = useState(template?.name ?? "");
-  const [platform, setPlatform] = useState<Platform>(cfg?.platform ?? "windows");
+  const [platform, setPlatform] = useState<Platform>(
+    cfg?.platform ?? "windows",
+  );
   const [proxyId, setProxyId] = useState<string>(cfg?.proxy_id ?? "");
   const [startUrl, setStartUrl] = useState(cfg?.startup_urls?.[0] ?? "");
   const [notes, setNotes] = useState(cfg?.notes ?? "");
@@ -493,7 +590,9 @@ function TemplateDialog({
 
         <div className="mt-4 grid grid-cols-2 gap-3">
           <div className="col-span-2">
-            <label className="label" htmlFor="tpl-name">{t("tpl.templateName")}</label>
+            <label className="label" htmlFor="tpl-name">
+              {t("tpl.templateName")}
+            </label>
             <input
               id="tpl-name"
               className="input"
@@ -504,7 +603,9 @@ function TemplateDialog({
             />
           </div>
           <div>
-            <label className="label" htmlFor="tpl-os">{t("tpl.os")}</label>
+            <label className="label" htmlFor="tpl-os">
+              {t("tpl.os")}
+            </label>
             <select
               id="tpl-os"
               className="input"
@@ -517,7 +618,9 @@ function TemplateDialog({
             </select>
           </div>
           <div>
-            <label className="label" htmlFor="tpl-proxy">{t("tpl.proxy")}</label>
+            <label className="label" htmlFor="tpl-proxy">
+              {t("tpl.proxy")}
+            </label>
             <select
               id="tpl-proxy"
               className="input"
@@ -597,7 +700,11 @@ interface BulkCreateDialogProps {
 }
 
 /** (W29a) Small dialog: create N (1-1000) profiles from one template. */
-function BulkCreateDialog({ template, onClose, onCreate }: BulkCreateDialogProps) {
+function BulkCreateDialog({
+  template,
+  onClose,
+  onCreate,
+}: BulkCreateDialogProps) {
   const { t } = useTranslation();
   const [count, setCount] = useState("10");
   const [prefix, setPrefix] = useState(template.name);

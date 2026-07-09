@@ -33,7 +33,14 @@ import { useTranslation } from "react-i18next";
 import type { Folder, Platform, Profile } from "../lib/api";
 import { detectHostPlatform } from "../lib/host";
 import { Checkbox } from "./Checkbox";
-import { ExtensionsPanel, FolderPanel, MenuDivider, MenuItem, Popover, TagPanel } from "./Popover";
+import {
+  ExtensionsPanel,
+  FolderPanel,
+  MenuDivider,
+  MenuItem,
+  Popover,
+  TagPanel,
+} from "./Popover";
 
 export type ProfilesSort = { key: "name" | "updated"; dir: "asc" | "desc" };
 
@@ -175,7 +182,8 @@ function ChromiumIcon({ className }: { className?: string }) {
 function OsIcon({ platform }: { platform: Platform }) {
   const cls = "h-4 w-4 text-fg-muted";
   if (platform === "macos") return <Apple className={cls} aria-hidden="true" />;
-  if (platform === "windows") return <AppWindow className={cls} aria-hidden="true" />;
+  if (platform === "windows")
+    return <AppWindow className={cls} aria-hidden="true" />;
   return <Terminal className={cls} aria-hidden="true" />;
 }
 
@@ -327,7 +335,9 @@ function RowMenu({
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<"root" | "move" | "tags" | "extensions">("root");
+  const [mode, setMode] = useState<"root" | "move" | "tags" | "extensions">(
+    "root",
+  );
   // (W50G) Display-only shortcut hints, mod key per host OS (MLX parity).
   const mod = detectHostPlatform() === "macos" ? "Cmd" : "Ctrl";
 
@@ -367,7 +377,9 @@ function RowMenu({
         <>
           {/* Group 1 — proxies / cookies / extensions */}
           <MenuItem
-            icon={<Shuffle className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+            icon={
+              <Shuffle className="h-4 w-4 text-fg-muted" aria-hidden="true" />
+            }
             onClick={() => {
               close();
               onRotateProxy();
@@ -376,7 +388,9 @@ function RowMenu({
             {t("toolbar.rotateProxy")}
           </MenuItem>
           <MenuItem
-            icon={<Cookie className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+            icon={
+              <Cookie className="h-4 w-4 text-fg-muted" aria-hidden="true" />
+            }
             onClick={() => {
               close();
               onExportCookies();
@@ -385,7 +399,9 @@ function RowMenu({
             {t("cookies.menuExport")}
           </MenuItem>
           <MenuItem
-            icon={<Cookie className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+            icon={
+              <Cookie className="h-4 w-4 text-fg-muted" aria-hidden="true" />
+            }
             onClick={() => {
               close();
               onImportCookies();
@@ -403,7 +419,9 @@ function RowMenu({
             {t("robot.menu")}
           </MenuItem>
           <MenuItem
-            icon={<Puzzle className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+            icon={
+              <Puzzle className="h-4 w-4 text-fg-muted" aria-hidden="true" />
+            }
             onClick={() => setMode("extensions")}
           >
             {t("ext.rowMenu")}
@@ -411,7 +429,9 @@ function RowMenu({
           <MenuDivider />
           {/* Group 2 — profile actions */}
           <MenuItem
-            icon={<Pencil className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+            icon={
+              <Pencil className="h-4 w-4 text-fg-muted" aria-hidden="true" />
+            }
             shortcut={`${mod}+E`}
             onClick={() => {
               close();
@@ -421,7 +441,9 @@ function RowMenu({
             {t("toolbar.editSelected")}
           </MenuItem>
           <MenuItem
-            icon={<PenLine className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+            icon={
+              <PenLine className="h-4 w-4 text-fg-muted" aria-hidden="true" />
+            }
             shortcut="F2"
             onClick={() => {
               close();
@@ -441,7 +463,12 @@ function RowMenu({
             {t("toolbar.clone")}
           </MenuItem>
           <MenuItem
-            icon={<FolderInput className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+            icon={
+              <FolderInput
+                className="h-4 w-4 text-fg-muted"
+                aria-hidden="true"
+              />
+            }
             shortcut={`${mod}+Shift+M`}
             onClick={() => setMode("move")}
           >
@@ -459,7 +486,12 @@ function RowMenu({
           >
             <MenuItem
               disabled={!running}
-              icon={<MonitorUp className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+              icon={
+                <MonitorUp
+                  className="h-4 w-4 text-fg-muted"
+                  aria-hidden="true"
+                />
+              }
               onClick={() => {
                 close();
                 onBringToFront();
@@ -472,7 +504,10 @@ function RowMenu({
           {/* Group 3 — copy / export / maintenance */}
           <MenuItem
             icon={
-              <ClipboardCopy className="h-4 w-4 text-fg-muted" aria-hidden="true" />
+              <ClipboardCopy
+                className="h-4 w-4 text-fg-muted"
+                aria-hidden="true"
+              />
             }
             onClick={() => {
               close();
@@ -487,7 +522,9 @@ function RowMenu({
           >
             <MenuItem
               disabled={!running}
-              icon={<Link2 className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+              icon={
+                <Link2 className="h-4 w-4 text-fg-muted" aria-hidden="true" />
+              }
               onClick={() => {
                 close();
                 onCopyCdpUrl();
@@ -502,7 +539,12 @@ function RowMenu({
           >
             <MenuItem
               disabled={running}
-              icon={<Download className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+              icon={
+                <Download
+                  className="h-4 w-4 text-fg-muted"
+                  aria-hidden="true"
+                />
+              }
               onClick={() => {
                 close();
                 onExport();
@@ -517,7 +559,9 @@ function RowMenu({
           >
             <MenuItem
               disabled={running}
-              icon={<Eraser className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+              icon={
+                <Eraser className="h-4 w-4 text-fg-muted" aria-hidden="true" />
+              }
               onClick={() => {
                 close();
                 onClearCache();
@@ -659,7 +703,8 @@ export function ProfileTable({
       dir: sort.key === "name" && sort.dir === "asc" ? "desc" : "asc",
     });
 
-  const th = "h-10 pl-2 pr-4 text-left align-middle text-xs font-medium text-fg";
+  const th =
+    "h-10 pl-2 pr-4 text-left align-middle text-xs font-medium text-fg";
 
   return (
     <div
@@ -667,305 +712,370 @@ export function ProfileTable({
       onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
       className="min-h-0 flex-1 overflow-auto"
     >
-    <table className="w-full text-xs">
-      <thead className="sticky top-0 z-10 border-b border-border bg-surface-2">
-        <tr className="h-10 border-b border-border">
-          <th scope="col" className="w-10 pl-2 pr-4 align-middle">
-            <Checkbox
-              ariaLabel={t("table.selectAll")}
-              checked={allChecked}
-              indeterminate={someChecked && !allChecked}
-              onChange={() => onTogglePage(pageIds, !allChecked)}
-            />
-          </th>
-          <th scope="col" className="w-9 px-1 align-middle">
-            <span className="sr-only">{t("table.favorite")}</span>
-          </th>
-          <th scope="col" className="w-11 px-1 align-middle">
-            <span className="sr-only">{t("table.launch")}</span>
-          </th>
-          <th scope="col" className={th}>
-            <button
-              type="button"
-              onClick={toggleNameSort}
-              className="inline-flex items-center gap-1 rounded hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
-              aria-sort={
-                sort.key === "name"
-                  ? sort.dir === "asc"
-                    ? "ascending"
-                    : "descending"
-                  : undefined
-              }
-            >
-              {t("table.profileName")}
-              {sort.key === "name" ? (
-                sort.dir === "asc" ? (
-                  <ArrowUp className="h-3 w-3" aria-hidden="true" />
+      <table className="w-full text-xs">
+        <thead className="sticky top-0 z-10 border-b border-border bg-surface-2">
+          <tr className="h-10 border-b border-border">
+            <th scope="col" className="w-10 pl-2 pr-4 align-middle">
+              <Checkbox
+                ariaLabel={t("table.selectAll")}
+                checked={allChecked}
+                indeterminate={someChecked && !allChecked}
+                onChange={() => onTogglePage(pageIds, !allChecked)}
+              />
+            </th>
+            <th scope="col" className="w-9 px-1 align-middle">
+              <span className="sr-only">{t("table.favorite")}</span>
+            </th>
+            <th scope="col" className="w-11 px-1 align-middle">
+              <span className="sr-only">{t("table.launch")}</span>
+            </th>
+            <th scope="col" className={th}>
+              <button
+                type="button"
+                onClick={toggleNameSort}
+                className="inline-flex items-center gap-1 rounded hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                aria-sort={
+                  sort.key === "name"
+                    ? sort.dir === "asc"
+                      ? "ascending"
+                      : "descending"
+                    : undefined
+                }
+              >
+                {t("table.profileName")}
+                {sort.key === "name" ? (
+                  sort.dir === "asc" ? (
+                    <ArrowUp className="h-3 w-3" aria-hidden="true" />
+                  ) : (
+                    <ArrowDown className="h-3 w-3" aria-hidden="true" />
+                  )
                 ) : (
-                  <ArrowDown className="h-3 w-3" aria-hidden="true" />
-                )
-              ) : (
-                <ArrowUpDown className="h-3 w-3 opacity-50" aria-hidden="true" />
-              )}
-            </button>
-          </th>
-          {columns.app && <th scope="col" className={th}>{t("table.app")}</th>}
-          {columns.serialNo && <th scope="col" className={th}>{t("table.serialNo")}</th>}
-          {columns.profileId && <th scope="col" className={th}>{t("table.profileId")}</th>}
-          {columns.folder && <th scope="col" className={th}>{t("table.folder")}</th>}
-          {columns.tags && <th scope="col" className={th}>{t("table.tags")}</th>}
-          {columns.storage && <th scope="col" className={th}>{t("table.storage")}</th>}
-          {columns.notes && <th scope="col" className={th}>{t("table.notes")}</th>}
-          {columns.os && <th scope="col" className={th}>{t("table.os")}</th>}
-          {columns.lastStart && <th scope="col" className={th}>{t("table.lastStart")}</th>}
-          <th scope="col" className="w-10 px-1 align-middle">
-            <Popover
-              open={pickerOpen}
-              onClose={() => setPickerOpen(false)}
-              align="end"
-              label={t("table.columns")}
-              trigger={
-                <button
-                  type="button"
-                  aria-label={t("table.columns")}
-                  title={t("table.columns")}
-                  aria-haspopup="dialog"
-                  aria-expanded={pickerOpen}
-                  onClick={() => setPickerOpen((v) => !v)}
-                  className="grid h-7 w-7 place-items-center rounded-lg text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
-                >
-                  <Columns3 className="h-4 w-4" aria-hidden="true" />
-                </button>
-              }
-            >
-              <div className="p-1">
-                {ALL_COLUMNS.map((key) => (
-                  <label
-                    key={key}
-                    className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-fg hover:bg-surface-2"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={columns[key]}
-                      onChange={() =>
-                        onColumnsChange({ ...columns, [key]: !columns[key] })
-                      }
-                      className="h-4 w-4 rounded border-border accent-accent"
-                    />
-                    {t(`table.${key}`)}
-                  </label>
-                ))}
-              </div>
-            </Popover>
-          </th>
-          <th scope="col" className="w-10 px-1 align-middle">
-            <span className="sr-only">{t("table.rowMenu")}</span>
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {padTop > 0 && (
-          <tr aria-hidden="true">
-            <td colSpan={colCount} className="p-0" style={{ height: padTop }} />
-          </tr>
-        )}
-        {visibleRows.map((p, i) => {
-          const running = runningIds.has(p.id);
-          const isSelected = selected.has(p.id);
-          return (
-            <tr
-              key={p.id}
-              className={`h-[49px] border-b border-border transition-colors [&>td]:align-middle ${
-                isSelected ? "bg-[#F0F6FF]" : "hover:bg-[#F0F6FF]"
-              }`}
-            >
-              <td className="pl-2 pr-4 py-2">
-                <Checkbox
-                  ariaLabel={`${t("table.selectRow")}: ${p.name}`}
-                  checked={isSelected}
-                  onChange={() => onToggleRow(p.id)}
-                />
-              </td>
-              <td className="px-1 py-2">
-                <button
-                  type="button"
-                  aria-label={`${p.favorite ? t("table.unfavorite") : t("table.favorite")}: ${p.name}`}
-                  aria-pressed={p.favorite}
-                  onClick={() => onToggleFavorite(p)}
-                  className="grid h-10 w-10 place-items-center rounded-full bg-transparent text-[#ADA9A9] transition-colors hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
-                >
-                  <Star
-                    className={`h-5 w-5 ${p.favorite ? "fill-[#F5A623] text-[#F5A623]" : ""}`}
+                  <ArrowUpDown
+                    className="h-3 w-3 opacity-50"
                     aria-hidden="true"
                   />
-                </button>
-              </td>
-              <td className="px-1 py-2">
-                <RowPlayButton
-                  name={p.name}
-                  running={running}
-                  onLaunch={() => onLaunch(p.id)}
-                  onStop={() => onStop(p.id)}
-                />
-              </td>
-              <td className="max-w-0 pl-2 pr-4 py-2">
-                {renamingId === p.id ? (
-                  <RenameInput
-                    initial={p.name}
-                    onSubmit={(name) => onRenameSubmit(p.id, name)}
-                    onCancel={onRenameCancel}
-                  />
-                ) : (
-                  <span
-                    className="inline-flex max-w-full items-center gap-1.5 text-fg"
-                    onDoubleClick={() => onRenameStart(p.id)}
-                  >
-                    <span className="truncate" title={p.name}>{p.name}</span>
-                    {running && (
-                      <>
-                        <span
-                          className="h-1.5 w-1.5 shrink-0 rounded-full bg-success"
-                          aria-hidden="true"
-                        />
-                        <span className="sr-only">{t("table.running")}</span>
-                      </>
-                    )}
-                    {!running && crashedIds.has(p.id) && (
-                      <span className="shrink-0 rounded bg-danger/10 px-1.5 py-0.5 text-[10px] font-semibold text-danger">
-                        {t("table.crashed")}
-                      </span>
-                    )}
-                  </span>
                 )}
-              </td>
-              {columns.app && (
-                <td className="whitespace-nowrap pl-2 pr-4 py-2 text-fg-muted">
-                  <span className="inline-flex items-center gap-1.5" title="Chromium">
-                    <ChromiumIcon className="h-4 w-4" />
-                    Chromium
-                  </span>
-                </td>
-              )}
-              {columns.serialNo && (
-                /* (W50A) MLX uses a backend serial; no such field yet, so 1-based index within the page. */
-                <td className="whitespace-nowrap pl-2 pr-4 py-2 text-fg-muted">
-                  {start + i + 1}
-                </td>
-              )}
-              {columns.profileId && (
-                <td className="whitespace-nowrap pl-2 pr-4 py-2 text-fg-muted">
+              </button>
+            </th>
+            {columns.app && (
+              <th scope="col" className={th}>
+                {t("table.app")}
+              </th>
+            )}
+            {columns.serialNo && (
+              <th scope="col" className={th}>
+                {t("table.serialNo")}
+              </th>
+            )}
+            {columns.profileId && (
+              <th scope="col" className={th}>
+                {t("table.profileId")}
+              </th>
+            )}
+            {columns.folder && (
+              <th scope="col" className={th}>
+                {t("table.folder")}
+              </th>
+            )}
+            {columns.tags && (
+              <th scope="col" className={th}>
+                {t("table.tags")}
+              </th>
+            )}
+            {columns.storage && (
+              <th scope="col" className={th}>
+                {t("table.storage")}
+              </th>
+            )}
+            {columns.notes && (
+              <th scope="col" className={th}>
+                {t("table.notes")}
+              </th>
+            )}
+            {columns.os && (
+              <th scope="col" className={th}>
+                {t("table.os")}
+              </th>
+            )}
+            {columns.lastStart && (
+              <th scope="col" className={th}>
+                {t("table.lastStart")}
+              </th>
+            )}
+            <th scope="col" className="w-10 px-1 align-middle">
+              <Popover
+                open={pickerOpen}
+                onClose={() => setPickerOpen(false)}
+                align="end"
+                label={t("table.columns")}
+                trigger={
                   <button
                     type="button"
-                    title={p.id}
-                    aria-label={`${t("listUtils.copyId")}: ${p.id}`}
-                    onClick={() => onCopyId(p.id)}
-                    className="rounded font-mono text-xs hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                    aria-label={t("table.columns")}
+                    title={t("table.columns")}
+                    aria-haspopup="dialog"
+                    aria-expanded={pickerOpen}
+                    onClick={() => setPickerOpen((v) => !v)}
+                    className="grid h-7 w-7 place-items-center rounded-lg text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
                   >
-                    {p.id.slice(0, 8)}
+                    <Columns3 className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                }
+              >
+                <div className="p-1">
+                  {ALL_COLUMNS.map((key) => (
+                    <label
+                      key={key}
+                      className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-fg hover:bg-surface-2"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={columns[key]}
+                        onChange={() =>
+                          onColumnsChange({ ...columns, [key]: !columns[key] })
+                        }
+                        className="h-4 w-4 rounded border-border accent-accent"
+                      />
+                      {t(`table.${key}`)}
+                    </label>
+                  ))}
+                </div>
+              </Popover>
+            </th>
+            <th scope="col" className="w-10 px-1 align-middle">
+              <span className="sr-only">{t("table.rowMenu")}</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {padTop > 0 && (
+            <tr aria-hidden="true">
+              <td
+                colSpan={colCount}
+                className="p-0"
+                style={{ height: padTop }}
+              />
+            </tr>
+          )}
+          {visibleRows.map((p, i) => {
+            const running = runningIds.has(p.id);
+            const isSelected = selected.has(p.id);
+            return (
+              <tr
+                key={p.id}
+                className={`h-[49px] border-b border-border transition-colors [&>td]:align-middle ${
+                  isSelected ? "bg-[#F0F6FF]" : "hover:bg-[#F0F6FF]"
+                }`}
+              >
+                <td className="pl-2 pr-4 py-2">
+                  <Checkbox
+                    ariaLabel={`${t("table.selectRow")}: ${p.name}`}
+                    checked={isSelected}
+                    onChange={() => onToggleRow(p.id)}
+                  />
+                </td>
+                <td className="px-1 py-2">
+                  <button
+                    type="button"
+                    aria-label={`${p.favorite ? t("table.unfavorite") : t("table.favorite")}: ${p.name}`}
+                    aria-pressed={p.favorite}
+                    onClick={() => onToggleFavorite(p)}
+                    className="grid h-10 w-10 place-items-center rounded-full bg-transparent text-[#ADA9A9] transition-colors hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                  >
+                    <Star
+                      className={`h-5 w-5 ${p.favorite ? "fill-[#F5A623] text-[#F5A623]" : ""}`}
+                      aria-hidden="true"
+                    />
                   </button>
                 </td>
-              )}
-              {columns.folder && (
-                <td
-                  className="max-w-[14rem] truncate pl-2 pr-4 py-2 text-fg-muted"
-                  title={folderName(p.folder_id)}
-                >
-                  {folderName(p.folder_id)}
+                <td className="px-1 py-2">
+                  <RowPlayButton
+                    name={p.name}
+                    running={running}
+                    onLaunch={() => onLaunch(p.id)}
+                    onStop={() => onStop(p.id)}
+                  />
                 </td>
-              )}
-              {columns.tags && (
-                <td className="pl-2 pr-4 py-2">
-                  <span
-                    className="flex max-w-[14rem] items-center gap-1 overflow-hidden"
-                    title={p.tags.join(", ") || undefined}
-                  >
-                    {p.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="whitespace-nowrap rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-fg-muted"
-                      >
-                        {tag}
+                <td className="max-w-0 pl-2 pr-4 py-2">
+                  {renamingId === p.id ? (
+                    <RenameInput
+                      initial={p.name}
+                      onSubmit={(name) => onRenameSubmit(p.id, name)}
+                      onCancel={onRenameCancel}
+                    />
+                  ) : (
+                    <span
+                      className="inline-flex max-w-full items-center gap-1.5 text-fg"
+                      onDoubleClick={() => onRenameStart(p.id)}
+                    >
+                      <span className="truncate" title={p.name}>
+                        {p.name}
                       </span>
-                    ))}
-                  </span>
+                      {running && (
+                        <>
+                          <span
+                            className="h-1.5 w-1.5 shrink-0 rounded-full bg-success"
+                            aria-hidden="true"
+                          />
+                          <span className="sr-only">{t("table.running")}</span>
+                        </>
+                      )}
+                      {!running && crashedIds.has(p.id) && (
+                        <span className="shrink-0 rounded bg-danger/10 px-1.5 py-0.5 text-[10px] font-semibold text-danger">
+                          {t("table.crashed")}
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </td>
-              )}
-              {columns.storage && (
-                <td className="whitespace-nowrap pl-2 pr-4 py-2 text-fg-muted">
-                  <span
-                    className="inline-flex items-center gap-1.5"
-                    title={t("table.local")}
+                {columns.app && (
+                  <td className="whitespace-nowrap pl-2 pr-4 py-2 text-fg-muted">
+                    <span
+                      className="inline-flex items-center gap-1.5"
+                      title="Chromium"
+                    >
+                      <ChromiumIcon className="h-4 w-4" />
+                      Chromium
+                    </span>
+                  </td>
+                )}
+                {columns.serialNo && (
+                  /* (W50A) MLX uses a backend serial; no such field yet, so 1-based index within the page. */
+                  <td className="whitespace-nowrap pl-2 pr-4 py-2 text-fg-muted">
+                    {start + i + 1}
+                  </td>
+                )}
+                {columns.profileId && (
+                  <td className="whitespace-nowrap pl-2 pr-4 py-2 text-fg-muted">
+                    <button
+                      type="button"
+                      title={p.id}
+                      aria-label={`${t("listUtils.copyId")}: ${p.id}`}
+                      onClick={() => onCopyId(p.id)}
+                      className="rounded font-mono text-xs hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                    >
+                      {p.id.slice(0, 8)}
+                    </button>
+                  </td>
+                )}
+                {columns.folder && (
+                  <td
+                    className="max-w-[14rem] truncate pl-2 pr-4 py-2 text-fg-muted"
+                    title={folderName(p.folder_id)}
                   >
-                    <Cloud className="h-5 w-5 text-accent" aria-hidden="true" />
-                    {sizes[p.id] !== undefined ? formatBytes(sizes[p.id] ?? 0) : "—"}
-                    <span className="sr-only">{t("table.local")}</span>
-                  </span>
+                    {folderName(p.folder_id)}
+                  </td>
+                )}
+                {columns.tags && (
+                  <td className="pl-2 pr-4 py-2">
+                    <span
+                      className="flex max-w-[14rem] items-center gap-1 overflow-hidden"
+                      title={p.tags.join(", ") || undefined}
+                    >
+                      {p.tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="whitespace-nowrap rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-fg-muted"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </span>
+                  </td>
+                )}
+                {columns.storage && (
+                  <td className="whitespace-nowrap pl-2 pr-4 py-2 text-fg-muted">
+                    <span
+                      className="inline-flex items-center gap-1.5"
+                      title={t("table.local")}
+                    >
+                      <Cloud
+                        className="h-5 w-5 text-accent"
+                        aria-hidden="true"
+                      />
+                      {sizes[p.id] !== undefined
+                        ? formatBytes(sizes[p.id] ?? 0)
+                        : "—"}
+                      <span className="sr-only">{t("table.local")}</span>
+                    </span>
+                  </td>
+                )}
+                {columns.notes && (
+                  <td
+                    className="max-w-[14rem] truncate pl-2 pr-4 py-2 text-fg-muted"
+                    title={p.notes ?? undefined}
+                  >
+                    {p.notes ?? ""}
+                  </td>
+                )}
+                {columns.os && (
+                  <td className="pl-2 pr-4 py-2">
+                    <span
+                      className="inline-flex items-center"
+                      title={OS_LABEL[p.platform]}
+                    >
+                      <OsIcon platform={p.platform} />
+                      <span className="sr-only">{OS_LABEL[p.platform]}</span>
+                    </span>
+                  </td>
+                )}
+                {columns.lastStart && (
+                  <td
+                    className="whitespace-nowrap pl-2 pr-4 py-2 text-fg-muted"
+                    title={
+                      p.last_start_at
+                        ? new Date(p.last_start_at).toLocaleString(
+                            i18n.language,
+                          )
+                        : undefined
+                    }
+                  >
+                    {p.last_start_at
+                      ? relativeTime(p.last_start_at, i18n.language)
+                      : "—"}
+                  </td>
+                )}
+                <td className="px-1 py-2" />
+                <td className="px-1 py-2">
+                  <RowMenu
+                    profile={p}
+                    folders={folders}
+                    running={running}
+                    onEdit={() => onEdit(p)}
+                    onRename={() => onRenameStart(p.id)}
+                    onCopyId={() => onCopyId(p.id)}
+                    onCopyCdpUrl={() => onCopyCdpUrl(p.id)}
+                    onBringToFront={() => onBringToFront(p.id)}
+                    onClone={() => onClone(p)}
+                    onRotateProxy={() => onRotateProxy(p)}
+                    onExport={() => onExport(p)}
+                    onExportCookies={() => onExportCookies(p)}
+                    onImportCookies={() => onImportCookies(p)}
+                    onCookieRobot={() => onCookieRobot(p)}
+                    onMove={(folderId) => onMove([p.id], folderId)}
+                    onAddTags={(tags) => onAddTags([p.id], tags)}
+                    onClearCache={() => onClearCache([p.id])}
+                    onTrash={() => onTrash([p.id])}
+                    onOpenChange={(o) => setMenuOpenId(o ? p.id : null)}
+                    onSelect={() => {
+                      if (!isSelected) onToggleRow(p.id);
+                    }}
+                  />
                 </td>
-              )}
-              {columns.notes && (
-                <td className="max-w-[14rem] truncate pl-2 pr-4 py-2 text-fg-muted" title={p.notes ?? undefined}>
-                  {p.notes ?? ""}
-                </td>
-              )}
-              {columns.os && (
-                <td className="pl-2 pr-4 py-2">
-                  <span className="inline-flex items-center" title={OS_LABEL[p.platform]}>
-                    <OsIcon platform={p.platform} />
-                    <span className="sr-only">{OS_LABEL[p.platform]}</span>
-                  </span>
-                </td>
-              )}
-              {columns.lastStart && (
-                <td
-                  className="whitespace-nowrap pl-2 pr-4 py-2 text-fg-muted"
-                  title={
-                    p.last_start_at
-                      ? new Date(p.last_start_at).toLocaleString(i18n.language)
-                      : undefined
-                  }
-                >
-                  {p.last_start_at
-                    ? relativeTime(p.last_start_at, i18n.language)
-                    : "—"}
-                </td>
-              )}
-              <td className="px-1 py-2" />
-              <td className="px-1 py-2">
-                <RowMenu
-                  profile={p}
-                  folders={folders}
-                  running={running}
-                  onEdit={() => onEdit(p)}
-                  onRename={() => onRenameStart(p.id)}
-                  onCopyId={() => onCopyId(p.id)}
-                  onCopyCdpUrl={() => onCopyCdpUrl(p.id)}
-                  onBringToFront={() => onBringToFront(p.id)}
-                  onClone={() => onClone(p)}
-                  onRotateProxy={() => onRotateProxy(p)}
-                  onExport={() => onExport(p)}
-                  onExportCookies={() => onExportCookies(p)}
-                  onImportCookies={() => onImportCookies(p)}
-                  onCookieRobot={() => onCookieRobot(p)}
-                  onMove={(folderId) => onMove([p.id], folderId)}
-                  onAddTags={(tags) => onAddTags([p.id], tags)}
-                  onClearCache={() => onClearCache([p.id])}
-                  onTrash={() => onTrash([p.id])}
-                  onOpenChange={(o) => setMenuOpenId(o ? p.id : null)}
-                  onSelect={() => {
-                    if (!isSelected) onToggleRow(p.id);
-                  }}
-                />
-              </td>
+              </tr>
+            );
+          })}
+          {padBottom > 0 && (
+            <tr aria-hidden="true">
+              <td
+                colSpan={colCount}
+                className="p-0"
+                style={{ height: padBottom }}
+              />
             </tr>
-          );
-        })}
-        {padBottom > 0 && (
-          <tr aria-hidden="true">
-            <td colSpan={colCount} className="p-0" style={{ height: padBottom }} />
-          </tr>
-        )}
-      </tbody>
-    </table>
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }

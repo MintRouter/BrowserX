@@ -87,12 +87,13 @@ export default function App() {
   /** (W58c) Default engine version for new profiles — derived from the ensured
    * binary path, bumped after a successful global engine update. Drives the
    * per-profile "outdated → Upgrade" affordance in the profile editor. */
-  const [defaultEngineVersion, setDefaultEngineVersion] = useState<string | null>(
-    null,
-  );
+  const [defaultEngineVersion, setDefaultEngineVersion] = useState<
+    string | null
+  >(null);
 
   /** Engine cache probe/download in flight — hold off launches to avoid concurrent downloads. */
-  const engineBusy = engine.status === "checking" || engine.status === "downloading";
+  const engineBusy =
+    engine.status === "checking" || engine.status === "downloading";
 
   /** Pre-warm the Chromium engine (download on first run) instead of waiting for Launch. */
   const ensureEngine = useCallback(async () => {
@@ -182,7 +183,17 @@ export default function App() {
       api.getSettings().then(setSettings),
     ]);
     setLoadError([p, x, r].some((res) => res.status === "rejected"));
-  }, [refetchProfiles, refetchProxies, refetchRunning, refetchFolders, refetchTrash, refetchTemplates, refetchExtensions, refetchProxyTemplates, refetchCloudBackups]);
+  }, [
+    refetchProfiles,
+    refetchProxies,
+    refetchRunning,
+    refetchFolders,
+    refetchTrash,
+    refetchTemplates,
+    refetchExtensions,
+    refetchProxyTemplates,
+    refetchCloudBackups,
+  ]);
 
   useEffect(() => {
     void loadAll();
@@ -217,7 +228,10 @@ export default function App() {
           return next;
         });
       }
-      api.listRunning().then(setRunning).catch(() => {});
+      api
+        .listRunning()
+        .then(setRunning)
+        .catch(() => {});
     })
       .then((fn) => {
         unlisten = fn;
@@ -263,15 +277,15 @@ export default function App() {
   const visibleProfiles = useMemo(() => {
     if (view === "favorites") return favoriteProfiles;
     // (W50E) Running is the same table filtered to live sessions (MLX parity).
-    if (view === "running")
-      return profiles.filter((p) => runningIds.has(p.id));
+    if (view === "running") return profiles.filter((p) => runningIds.has(p.id));
     if (activeFolderId)
       return profiles.filter((p) => p.folder_id === activeFolderId);
     return profiles;
   }, [profiles, favoriteProfiles, view, activeFolderId, runningIds]);
 
   const sidebarFolders = useMemo(
-    () => folders.map((f) => ({ id: f.id, name: f.name, count: f.profile_count })),
+    () =>
+      folders.map((f) => ({ id: f.id, name: f.name, count: f.profile_count })),
     [folders],
   );
 
@@ -293,7 +307,17 @@ export default function App() {
       templates: templates.length,
       extensions: extensions.length,
     }),
-    [profiles.length, running.length, cloudSyncCount, favoriteProfiles.length, trash.length, proxies.length, proxyTemplates.length, templates.length, extensions.length],
+    [
+      profiles.length,
+      running.length,
+      cloudSyncCount,
+      favoriteProfiles.length,
+      trash.length,
+      proxies.length,
+      proxyTemplates.length,
+      templates.length,
+      extensions.length,
+    ],
   );
 
   const navigate = (v: MainView) => {
@@ -779,12 +803,18 @@ export default function App() {
           />
           <AppUpdateBanner />
           {loadError && (
-            <p className="text-warning text-xs px-4 py-2 bg-warning/10 border-b border-warning/30" role="alert">
+            <p
+              className="text-warning text-xs px-4 py-2 bg-warning/10 border-b border-warning/30"
+              role="alert"
+            >
               {t("errors.loadFailed")}
             </p>
           )}
           {actionError && (
-            <p className="text-danger text-xs px-4 py-2 bg-danger/10 border-b border-danger/30" role="alert">
+            <p
+              className="text-danger text-xs px-4 py-2 bg-danger/10 border-b border-danger/30"
+              role="alert"
+            >
               {actionError}
             </p>
           )}
@@ -818,12 +848,18 @@ export default function App() {
               onDelete={editing !== "new" ? handleDeleteProfile : undefined}
               onCancel={() => setEditing(null)}
               onTrashed={async () => {
-                await refetch(refetchProfiles(), refetchFolders(), refetchTrash());
+                await refetch(
+                  refetchProfiles(),
+                  refetchFolders(),
+                  refetchTrash(),
+                );
               }}
               onProxiesChanged={refetchProxies}
               onEngineUpgraded={refetchProfiles}
             />
-          ) : view === "profiles" || view === "favorites" || view === "running" ? (
+          ) : view === "profiles" ||
+            view === "favorites" ||
+            view === "running" ? (
             <ProfileList
               profiles={visibleProfiles}
               folders={folders}

@@ -66,7 +66,10 @@ export function QuickStopDialog({
             onClick={onCloseDelete}
           >
             {busy && (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              <Loader2
+                className="h-3.5 w-3.5 animate-spin"
+                aria-hidden="true"
+              />
             )}
             {t("quickStop.closeDelete")}
           </button>

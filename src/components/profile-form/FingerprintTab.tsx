@@ -95,7 +95,9 @@ export function FingerprintTab({
     <div className="space-y-5">
       {/* Seed */}
       <div>
-        <label className="label" htmlFor="pf-seed">{t("pform.fingerprintSeed")}</label>
+        <label className="label" htmlFor="pf-seed">
+          {t("pform.fingerprintSeed")}
+        </label>
         <div className="flex gap-2">
           <input
             id="pf-seed"
@@ -142,14 +144,18 @@ export function FingerprintTab({
 
       {/* Screen resolution */}
       <div>
-        <label className="label" htmlFor="pf-res">{t("pform.screenResolution")}</label>
+        <label className="label" htmlFor="pf-res">
+          {t("pform.screenResolution")}
+        </label>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <select
             id="pf-res"
             className="input"
             value={presetLabel}
             onChange={(e) => {
-              const preset = RESOLUTION_PRESETS.find((p) => p.label === e.target.value);
+              const preset = RESOLUTION_PRESETS.find(
+                (p) => p.label === e.target.value,
+              );
               if (preset) {
                 set("screen_width", preset.width);
                 set("screen_height", preset.height);
@@ -157,7 +163,9 @@ export function FingerprintTab({
             }}
           >
             {RESOLUTION_PRESETS.map((p) => (
-              <option key={p.label} value={p.label}>{p.label}</option>
+              <option key={p.label} value={p.label}>
+                {p.label}
+              </option>
             ))}
             <option value="custom">{t("pform.custom")}</option>
           </select>
@@ -170,13 +178,17 @@ export function FingerprintTab({
               onChange={(e) => set("screen_width", Number(e.target.value) || 0)}
               aria-label={t("pform.width")}
             />
-            <span className="text-fg-muted" aria-hidden="true">×</span>
+            <span className="text-fg-muted" aria-hidden="true">
+              ×
+            </span>
             <input
               className="input no-spin"
               type="number"
               min={320}
               value={form.screen_height}
-              onChange={(e) => set("screen_height", Number(e.target.value) || 0)}
+              onChange={(e) =>
+                set("screen_height", Number(e.target.value) || 0)
+              }
               aria-label={t("pform.height")}
             />
           </div>
@@ -186,7 +198,9 @@ export function FingerprintTab({
       {/* Timezone + Locale */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
-          <label className="label" htmlFor="pf-tz">{t("pform.timezone")}</label>
+          <label className="label" htmlFor="pf-tz">
+            {t("pform.timezone")}
+          </label>
           <input
             id="pf-tz"
             className="input"
@@ -196,7 +210,9 @@ export function FingerprintTab({
           />
         </div>
         <div>
-          <label className="label" htmlFor="pf-locale">{t("pform.locale")}</label>
+          <label className="label" htmlFor="pf-locale">
+            {t("pform.locale")}
+          </label>
           <input
             id="pf-locale"
             className="input"
@@ -211,7 +227,9 @@ export function FingerprintTab({
       <div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <label className="label" htmlFor="pf-gpu-v">{t("pform.gpuVendor")}</label>
+            <label className="label" htmlFor="pf-gpu-v">
+              {t("pform.gpuVendor")}
+            </label>
             <input
               id="pf-gpu-v"
               className="input"
@@ -221,7 +239,9 @@ export function FingerprintTab({
             />
           </div>
           <div>
-            <label className="label" htmlFor="pf-gpu-r">{t("pform.gpuRenderer")}</label>
+            <label className="label" htmlFor="pf-gpu-r">
+              {t("pform.gpuRenderer")}
+            </label>
             <div className="flex gap-2">
               <input
                 id="pf-gpu-r"
@@ -252,23 +272,32 @@ export function FingerprintTab({
       {/* Hardware concurrency + Color scheme */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
-          <label className="label" htmlFor="pf-hc">{t("pform.hardwareConcurrency")}</label>
+          <label className="label" htmlFor="pf-hc">
+            {t("pform.hardwareConcurrency")}
+          </label>
           <select
             id="pf-hc"
             className="input"
             value={form.hardware_concurrency ?? ""}
             onChange={(e) =>
-              set("hardware_concurrency", e.target.value ? Number(e.target.value) : null)
+              set(
+                "hardware_concurrency",
+                e.target.value ? Number(e.target.value) : null,
+              )
             }
           >
             <option value="">{t("pform.autoFromSeed")}</option>
             {hcOptions.map((n) => (
-              <option key={n} value={n}>{n}</option>
+              <option key={n} value={n}>
+                {n}
+              </option>
             ))}
           </select>
         </div>
         <div>
-          <label className="label" htmlFor="pf-cs">{t("pform.colorScheme")}</label>
+          <label className="label" htmlFor="pf-cs">
+            {t("pform.colorScheme")}
+          </label>
           <select
             id="pf-cs"
             className="input"
@@ -296,7 +325,9 @@ export function FingerprintTab({
       </div>
       {form.humanize && (
         <div>
-          <label className="label" htmlFor="pf-human-preset">{t("pform.humanPreset")}</label>
+          <label className="label" htmlFor="pf-human-preset">
+            {t("pform.humanPreset")}
+          </label>
           <select
             id="pf-human-preset"
             className="input"
@@ -336,7 +367,9 @@ export function FingerprintTab({
         />
         {form.webrtc_mode === "masked" && (
           <div className="mt-2">
-            <label className="label" htmlFor="pf-webrtc-ip">{t("pform.webrtcIp")}</label>
+            <label className="label" htmlFor="pf-webrtc-ip">
+              {t("pform.webrtcIp")}
+            </label>
             <input
               id="pf-webrtc-ip"
               className="input"
@@ -363,7 +396,9 @@ export function FingerprintTab({
         {form.geolocation_mode === "manual" && (
           <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="label" htmlFor="pf-geo-lat">{t("pform.geoLatitude")}</label>
+              <label className="label" htmlFor="pf-geo-lat">
+                {t("pform.geoLatitude")}
+              </label>
               <input
                 id="pf-geo-lat"
                 className="input"
@@ -373,7 +408,9 @@ export function FingerprintTab({
               />
             </div>
             <div>
-              <label className="label" htmlFor="pf-geo-lon">{t("pform.geoLongitude")}</label>
+              <label className="label" htmlFor="pf-geo-lon">
+                {t("pform.geoLongitude")}
+              </label>
               <input
                 id="pf-geo-lon"
                 className="input"
@@ -389,10 +426,14 @@ export function FingerprintTab({
       {/* Navigator (P3-5b) */}
       <div>
         <span className="label">{t("pform.navSection")}</span>
-        <p className="mb-2 text-xs text-fg-muted">{t("pform.navSectionHint")}</p>
+        <p className="mb-2 text-xs text-fg-muted">
+          {t("pform.navSectionHint")}
+        </p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <label className="label" htmlFor="pf-nav-brand">{t("pform.navBrand")}</label>
+            <label className="label" htmlFor="pf-nav-brand">
+              {t("pform.navBrand")}
+            </label>
             <select
               id="pf-nav-brand"
               className="input"
@@ -401,12 +442,16 @@ export function FingerprintTab({
             >
               <option value="">{t("pform.autoDefault")}</option>
               {brandOptions.map((b) => (
-                <option key={b} value={b}>{b}</option>
+                <option key={b} value={b}>
+                  {b}
+                </option>
               ))}
             </select>
           </div>
           <div>
-            <label className="label" htmlFor="pf-nav-brand-ver">{t("pform.navBrandVersion")}</label>
+            <label className="label" htmlFor="pf-nav-brand-ver">
+              {t("pform.navBrandVersion")}
+            </label>
             <input
               id="pf-nav-brand-ver"
               className="input"
@@ -416,7 +461,9 @@ export function FingerprintTab({
             />
           </div>
           <div>
-            <label className="label" htmlFor="pf-platform-ver">{t("pform.platformVersion")}</label>
+            <label className="label" htmlFor="pf-platform-ver">
+              {t("pform.platformVersion")}
+            </label>
             <input
               id="pf-platform-ver"
               className="input"
@@ -426,18 +473,25 @@ export function FingerprintTab({
             />
           </div>
           <div>
-            <label className="label" htmlFor="pf-device-mem">{t("pform.deviceMemory")}</label>
+            <label className="label" htmlFor="pf-device-mem">
+              {t("pform.deviceMemory")}
+            </label>
             <select
               id="pf-device-mem"
               className="input"
               value={form.device_memory ?? ""}
               onChange={(e) =>
-                set("device_memory", e.target.value ? Number(e.target.value) : null)
+                set(
+                  "device_memory",
+                  e.target.value ? Number(e.target.value) : null,
+                )
               }
             >
               <option value="">{t("pform.autoDefault")}</option>
               {dmOptions.map((n) => (
-                <option key={n} value={n}>{n}</option>
+                <option key={n} value={n}>
+                  {n}
+                </option>
               ))}
             </select>
           </div>
@@ -449,7 +503,9 @@ export function FingerprintTab({
         <span className="label">{t("pform.fontsSection")}</span>
         <div className="space-y-3">
           <div>
-            <label className="label" htmlFor="pf-fonts-dir">{t("pform.fontsDir")}</label>
+            <label className="label" htmlFor="pf-fonts-dir">
+              {t("pform.fontsDir")}
+            </label>
             <input
               id="pf-fonts-dir"
               className="input font-mono text-xs"
@@ -459,7 +515,10 @@ export function FingerprintTab({
             />
           </div>
           <div className="flex items-center justify-between gap-3">
-            <label htmlFor="pf-win-fonts" className="text-sm text-fg cursor-pointer">
+            <label
+              htmlFor="pf-win-fonts"
+              className="text-sm text-fg cursor-pointer"
+            >
               {t("pform.windowsFontMetrics")}
             </label>
             <Toggle
@@ -475,7 +534,9 @@ export function FingerprintTab({
       {/* Storage (P3-5b) */}
       <div>
         <span className="label">{t("pform.storageSection")}</span>
-        <label className="label" htmlFor="pf-storage-quota">{t("pform.storageQuota")}</label>
+        <label className="label" htmlFor="pf-storage-quota">
+          {t("pform.storageQuota")}
+        </label>
         <input
           id="pf-storage-quota"
           className="input no-spin"
@@ -495,7 +556,9 @@ export function FingerprintTab({
 
       {/* Taskbar height (W44) */}
       <div>
-        <label className="label" htmlFor="pf-taskbar-height">{t("pform.taskbarHeight")}</label>
+        <label className="label" htmlFor="pf-taskbar-height">
+          {t("pform.taskbarHeight")}
+        </label>
         <input
           id="pf-taskbar-height"
           className="input no-spin"

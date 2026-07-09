@@ -23,7 +23,8 @@ export function LaunchButton({ status, onLaunch, onStop }: LaunchButtonProps) {
         await onLaunch();
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err ?? t("launch.failed"));
+      const msg =
+        err instanceof Error ? err.message : String(err ?? t("launch.failed"));
       setError(msg);
       console.error("Action failed:", err);
     } finally {
@@ -35,7 +36,9 @@ export function LaunchButton({ status, onLaunch, onStop }: LaunchButtonProps) {
     return (
       <button disabled className="btn-secondary opacity-60 cursor-not-allowed">
         <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-        <span>{status === "running" ? t("launch.stopping") : t("launch.launching")}</span>
+        <span>
+          {status === "running" ? t("launch.stopping") : t("launch.launching")}
+        </span>
       </button>
     );
   }

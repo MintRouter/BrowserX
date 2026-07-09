@@ -124,10 +124,16 @@ export function AuditLog() {
             return (
               <tr key={e.id} className="border-b border-border align-top">
                 <td className="py-3.5 pr-3 text-fg-muted">{formatTs(e.ts)}</td>
-                <td className="truncate py-3.5 pr-3 font-medium text-fg" title={e.action}>
+                <td
+                  className="truncate py-3.5 pr-3 font-medium text-fg"
+                  title={e.action}
+                >
                   {e.action}
                 </td>
-                <td className="truncate py-3.5 pr-3 text-fg-muted" title={e.target_id ?? ""}>
+                <td
+                  className="truncate py-3.5 pr-3 text-fg-muted"
+                  title={e.target_id ?? ""}
+                >
                   {e.target_id ?? "—"}
                 </td>
                 <td className="py-3.5 text-fg-muted">
@@ -136,7 +142,9 @@ export function AuditLog() {
                       type="button"
                       onClick={() => toggleExpand(e.id)}
                       aria-expanded={open}
-                      title={t(open ? "audit.metaCollapse" : "audit.metaExpand")}
+                      title={t(
+                        open ? "audit.metaCollapse" : "audit.metaExpand",
+                      )}
                       className="block w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
                     >
                       {open ? (
@@ -144,7 +152,9 @@ export function AuditLog() {
                           {JSON.stringify(e.meta, null, 2)}
                         </pre>
                       ) : (
-                        <span className="block truncate font-mono text-xs">{preview}</span>
+                        <span className="block truncate font-mono text-xs">
+                          {preview}
+                        </span>
                       )}
                     </button>
                   ) : (

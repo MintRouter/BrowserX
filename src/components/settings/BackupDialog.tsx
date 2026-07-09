@@ -1,11 +1,7 @@
 import { Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  api,
-  onBackupProgress,
-  type BackupProgressEvent,
-} from "../../lib/api";
+import { api, onBackupProgress, type BackupProgressEvent } from "../../lib/api";
 
 interface BackupDialogProps {
   /** "create" encrypts ~/.browserx into a file; "restore" replaces it from one. */
@@ -45,12 +41,11 @@ export function BackupDialog({ mode, onClose }: BackupDialogProps) {
     return () => unlisten?.();
   }, []);
 
-  const mismatch = mode === "create" && confirm.length > 0 && confirm !== passphrase;
+  const mismatch =
+    mode === "create" && confirm.length > 0 && confirm !== passphrase;
   const canSubmit =
     passphrase.length > 0 &&
-    (mode === "create"
-      ? passphrase === confirm
-      : filePath.trim().length > 0);
+    (mode === "create" ? passphrase === confirm : filePath.trim().length > 0);
 
   const handleSubmit = async () => {
     if (!canSubmit || busy) return;
@@ -74,7 +69,8 @@ export function BackupDialog({ mode, onClose }: BackupDialogProps) {
     }
   };
 
-  const title = mode === "create" ? t("backup.createTitle") : t("backup.restoreTitle");
+  const title =
+    mode === "create" ? t("backup.createTitle") : t("backup.restoreTitle");
 
   return (
     <div
@@ -89,7 +85,9 @@ export function BackupDialog({ mode, onClose }: BackupDialogProps) {
       <div className="card w-full max-w-md p-5">
         <h2 className="text-base font-semibold text-fg">{title}</h2>
         <p className="mt-1.5 text-xs text-fg-muted">
-          {mode === "create" ? t("backup.createWarning") : t("backup.restoreWarning")}
+          {mode === "create"
+            ? t("backup.createWarning")
+            : t("backup.restoreWarning")}
         </p>
 
         {done ? (
@@ -136,7 +134,10 @@ export function BackupDialog({ mode, onClose }: BackupDialogProps) {
                     className="input h-11 w-full"
                   />
                   {mismatch && (
-                    <span className="mt-1 block text-xs text-danger" role="alert">
+                    <span
+                      className="mt-1 block text-xs text-danger"
+                      role="alert"
+                    >
                       {t("backup.passphraseMismatch")}
                     </span>
                   )}
@@ -191,7 +192,10 @@ export function BackupDialog({ mode, onClose }: BackupDialogProps) {
                 className="btn-primary h-9 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy && (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  <Loader2
+                    className="h-4 w-4 animate-spin"
+                    aria-hidden="true"
+                  />
                 )}
                 {mode === "create"
                   ? t("backup.createButton")
@@ -237,7 +241,11 @@ function DoneView({
             </p>
           )}
           <div className="mt-5 flex justify-end gap-2">
-            <button type="button" onClick={onClose} className="btn-secondary h-9">
+            <button
+              type="button"
+              onClick={onClose}
+              className="btn-secondary h-9"
+            >
               {t("backup.close")}
             </button>
             <button

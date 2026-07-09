@@ -25,7 +25,11 @@ import {
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DOCS_URL, openExternal, type Folder } from "../lib/api";
-import { countActiveFilters, FilterPanel, type ProfileFilters } from "./FilterPanel";
+import {
+  countActiveFilters,
+  FilterPanel,
+  type ProfileFilters,
+} from "./FilterPanel";
 import { FolderPanel, MenuItem, Popover, TagPanel } from "./Popover";
 import type { ProfilesSort } from "./ProfileTable";
 
@@ -105,12 +109,7 @@ export function ProfilesToolbar(props: ProfilesToolbarProps) {
     setMenu((m) => (m === key ? null : key));
   const close = () => setMenu(null);
 
-  const {
-    selectedCount,
-    hasRunningSelected,
-    sort,
-    onSortChange,
-  } = props;
+  const { selectedCount, hasRunningSelected, sort, onSortChange } = props;
   const none = selectedCount === 0;
   const notSingle = selectedCount !== 1;
   const activeFilters = countActiveFilters(props.filters);
@@ -442,7 +441,10 @@ export function ProfilesToolbar(props: ProfilesToolbarProps) {
                     activeFilters > 0 ? "text-accent" : "text-fg-muted"
                   }`}
                 >
-                  <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+                  <SlidersHorizontal
+                    className="h-3.5 w-3.5"
+                    aria-hidden="true"
+                  />
                   {activeFilters > 0 && (
                     <span
                       aria-hidden="true"

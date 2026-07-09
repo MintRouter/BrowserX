@@ -1,7 +1,12 @@
 import { Plus, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { api, type Folder, type Platform, type ProfileFilter } from "../lib/api";
+import {
+  api,
+  type Folder,
+  type Platform,
+  type ProfileFilter,
+} from "../lib/api";
 
 /**
  * (P3-2b) Toolbar filter state. os/hasProxy/tag/folderId map to the backend
@@ -38,7 +43,14 @@ const OS_OPTIONS: { value: Platform; label: string }[] = [
 
 /** Attributes selectable in the filter-builder rows (MLX order). */
 type FilterAttr = "name" | "os" | "hasProxy" | "tag" | "folderId" | "runtime";
-const ATTRS: FilterAttr[] = ["name", "os", "hasProxy", "tag", "folderId", "runtime"];
+const ATTRS: FilterAttr[] = [
+  "name",
+  "os",
+  "hasProxy",
+  "tag",
+  "folderId",
+  "runtime",
+];
 const ATTR_LABEL_KEY: Record<FilterAttr, string> = {
   name: "toolbar.filterName",
   os: "toolbar.filterOs",
@@ -133,7 +145,10 @@ export function FilterPanel({
             value={draft.name ?? ""}
             placeholder={t("toolbar.filterEnterText")}
             onChange={(e) =>
-              setValue("name", e.target.value === "" ? undefined : e.target.value)
+              setValue(
+                "name",
+                e.target.value === "" ? undefined : e.target.value,
+              )
             }
             className={selectCls}
           />
@@ -147,7 +162,9 @@ export function FilterPanel({
             onChange={(e) =>
               setValue(
                 "os",
-                e.target.value === "" ? undefined : (e.target.value as Platform),
+                e.target.value === ""
+                  ? undefined
+                  : (e.target.value as Platform),
               )
             }
           >
@@ -164,7 +181,9 @@ export function FilterPanel({
           <select
             id={id}
             className={selectCls}
-            value={draft.hasProxy === undefined ? "" : draft.hasProxy ? "yes" : "no"}
+            value={
+              draft.hasProxy === undefined ? "" : draft.hasProxy ? "yes" : "no"
+            }
             onChange={(e) =>
               setValue(
                 "hasProxy",
@@ -184,7 +203,10 @@ export function FilterPanel({
             className={selectCls}
             value={draft.tag ?? ""}
             onChange={(e) =>
-              setValue("tag", e.target.value === "" ? undefined : e.target.value)
+              setValue(
+                "tag",
+                e.target.value === "" ? undefined : e.target.value,
+              )
             }
           >
             <option value="">{t("toolbar.filterAny")}</option>

@@ -30,7 +30,12 @@ const safeName = (name: string) => name.replace(/[\\/:*?"<>|]+/g, "_");
  * Cookie import/export dialog (W24a) — CDP-backed, format JSON or Netscape.
  * Import accepts a file or pasted text (auto-detected by the backend).
  */
-export function CookieDialog({ mode, profiles, onClose, onDone }: CookieDialogProps) {
+export function CookieDialog({
+  mode,
+  profiles,
+  onClose,
+  onDone,
+}: CookieDialogProps) {
   const { t } = useTranslation();
   const [format, setFormat] = useState<CookieFormat>("json");
   const [tab, setTab] = useState<"file" | "text">("file");
@@ -116,7 +121,9 @@ export function CookieDialog({ mode, profiles, onClose, onDone }: CookieDialogPr
     >
       <div className="card w-full max-w-md p-5">
         <h2 className="text-base font-semibold text-fg">{title}</h2>
-        <p className="mt-1.5 text-xs text-fg-muted">{t("cookies.headlessHint")}</p>
+        <p className="mt-1.5 text-xs text-fg-muted">
+          {t("cookies.headlessHint")}
+        </p>
 
         {mode === "export" ? (
           <fieldset className="mt-4">
@@ -134,7 +141,9 @@ export function CookieDialog({ mode, profiles, onClose, onDone }: CookieDialogPr
                       : "border-border bg-surface-2 text-fg hover:bg-surface-3"
                   }`}
                 >
-                  {f === "json" ? t("cookies.formatJson") : t("cookies.formatNetscape")}
+                  {f === "json"
+                    ? t("cookies.formatJson")
+                    : t("cookies.formatNetscape")}
                 </button>
               ))}
             </div>
@@ -190,7 +199,9 @@ export function CookieDialog({ mode, profiles, onClose, onDone }: CookieDialogPr
                     if (file) void handleFile(file);
                   }}
                 />
-                <p className="mt-1.5 text-xs text-fg-muted">{t("cookies.fileHint")}</p>
+                <p className="mt-1.5 text-xs text-fg-muted">
+                  {t("cookies.fileHint")}
+                </p>
               </div>
             ) : (
               <textarea
@@ -224,10 +235,19 @@ export function CookieDialog({ mode, profiles, onClose, onDone }: CookieDialogPr
             type="button"
             className="btn-primary h-9"
             disabled={busy || (mode === "import" && !data.trim())}
-            onClick={() => void (mode === "export" ? handleExport() : handleImport())}
+            onClick={() =>
+              void (mode === "export" ? handleExport() : handleImport())
+            }
           >
-            {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
-            {mode === "export" ? t("cookies.exportButton") : t("cookies.importButton")}
+            {busy && (
+              <Loader2
+                className="h-3.5 w-3.5 animate-spin"
+                aria-hidden="true"
+              />
+            )}
+            {mode === "export"
+              ? t("cookies.exportButton")
+              : t("cookies.importButton")}
           </button>
         </div>
       </div>

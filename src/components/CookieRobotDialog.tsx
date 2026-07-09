@@ -35,7 +35,10 @@ const PHASE_KEYS: Record<CookieRobotProgressEvent["phase"], string> = {
  * cookies. Live progress via `cookierobot://progress`; Cancel stops the robot
  * (the browser session stays open unless "close when done" already fired).
  */
-export function CookieRobotDialog({ profile, onClose }: CookieRobotDialogProps) {
+export function CookieRobotDialog({
+  profile,
+  onClose,
+}: CookieRobotDialogProps) {
   const { t } = useTranslation();
   const [urlsText, setUrlsText] = useState("");
   const [dwellSecs, setDwellSecs] = useState(0);
@@ -44,7 +47,9 @@ export function CookieRobotDialog({ profile, onClose }: CookieRobotDialogProps) 
   const [closeWhenDone, setCloseWhenDone] = useState(false);
   const [running, setRunning] = useState(false);
   const [stopping, setStopping] = useState(false);
-  const [progress, setProgress] = useState<CookieRobotProgressEvent | null>(null);
+  const [progress, setProgress] = useState<CookieRobotProgressEvent | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
 
   const urls = useMemo(
@@ -221,7 +226,10 @@ export function CookieRobotDialog({ profile, onClose }: CookieRobotDialogProps) 
               />
             </div>
             {progress.url && (
-              <p className="mt-2 truncate text-xs text-fg-muted" title={progress.url}>
+              <p
+                className="mt-2 truncate text-xs text-fg-muted"
+                title={progress.url}
+              >
                 {progress.url}
               </p>
             )}
@@ -245,7 +253,10 @@ export function CookieRobotDialog({ profile, onClose }: CookieRobotDialogProps) 
               onClick={() => void handleStop()}
             >
               {stopping && (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                <Loader2
+                  className="h-3.5 w-3.5 animate-spin"
+                  aria-hidden="true"
+                />
               )}
               {t("robot.stopButton")}
             </button>

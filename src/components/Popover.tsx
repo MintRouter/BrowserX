@@ -70,7 +70,15 @@ interface MenuItemProps {
   shortcut?: string;
 }
 
-export function MenuItem({ icon, children, onClick, disabled, danger, title, shortcut }: MenuItemProps) {
+export function MenuItem({
+  icon,
+  children,
+  onClick,
+  disabled,
+  danger,
+  title,
+  shortcut,
+}: MenuItemProps) {
   return (
     <button
       type="button"
@@ -85,7 +93,10 @@ export function MenuItem({ icon, children, onClick, disabled, danger, title, sho
       {icon}
       <span className="flex-1 truncate">{children}</span>
       {shortcut && (
-        <span aria-hidden="true" className="ml-4 shrink-0 text-xs text-fg-muted">
+        <span
+          aria-hidden="true"
+          className="ml-4 shrink-0 text-xs text-fg-muted"
+        >
           {shortcut}
         </span>
       )}
@@ -95,7 +106,13 @@ export function MenuItem({ icon, children, onClick, disabled, danger, title, sho
 
 /** (W50G) Thin divider between menu groups (MLX parity). */
 export function MenuDivider() {
-  return <div role="separator" className="mx-1 my-1 h-px bg-border" aria-hidden="true" />;
+  return (
+    <div
+      role="separator"
+      className="mx-1 my-1 h-px bg-border"
+      aria-hidden="true"
+    />
+  );
 }
 
 /** Folder picker list: "Default folder" (null) + user folders. */
@@ -110,7 +127,12 @@ export function FolderPanel({
   return (
     <div className="max-h-64 w-56 overflow-auto" role="menu">
       <MenuItem
-        icon={<Folder className="h-4 w-4 shrink-0 text-fg-muted" aria-hidden="true" />}
+        icon={
+          <Folder
+            className="h-4 w-4 shrink-0 text-fg-muted"
+            aria-hidden="true"
+          />
+        }
         onClick={() => onPick(null)}
       >
         {t("toolbar.defaultFolder")}
@@ -118,7 +140,12 @@ export function FolderPanel({
       {folders.map((f) => (
         <MenuItem
           key={f.id}
-          icon={<Folder className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />}
+          icon={
+            <Folder
+              className="h-4 w-4 shrink-0 text-accent"
+              aria-hidden="true"
+            />
+          }
           onClick={() => onPick(f.id)}
         >
           {f.name}
@@ -189,7 +216,10 @@ export function ExtensionsPanel({
   if (extensions === null) {
     return (
       <div className="grid w-56 place-items-center p-4">
-        <Loader2 className="h-4 w-4 animate-spin text-fg-muted" aria-hidden="true" />
+        <Loader2
+          className="h-4 w-4 animate-spin text-fg-muted"
+          aria-hidden="true"
+        />
         <span className="sr-only">{t("ext.loading")}</span>
       </div>
     );
@@ -210,27 +240,32 @@ export function ExtensionsPanel({
 
   return (
     <div className="w-60 p-2">
-      <ul className="max-h-56 space-y-0.5 overflow-auto" aria-label={t("ext.title")}>
-      {extensions.map((ext) => (
-        <li key={ext.id}>
-          <label className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1.5 text-sm text-fg hover:bg-surface-2">
-            <input
-              type="checkbox"
-              checked={checked.has(ext.id)}
-              onChange={() => toggle(ext.id)}
-              disabled={busy}
-              className="h-4 w-4 rounded border-border accent-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
-            />
-            <Puzzle
-              className={`h-4 w-4 shrink-0 ${ext.enabled ? "text-accent" : "text-fg-muted"}`}
-              aria-hidden="true"
-            />
-            <span className={`truncate ${ext.enabled ? "" : "text-fg-muted"}`}>
-              {ext.name}
-            </span>
-          </label>
-        </li>
-      ))}
+      <ul
+        className="max-h-56 space-y-0.5 overflow-auto"
+        aria-label={t("ext.title")}
+      >
+        {extensions.map((ext) => (
+          <li key={ext.id}>
+            <label className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1.5 text-sm text-fg hover:bg-surface-2">
+              <input
+                type="checkbox"
+                checked={checked.has(ext.id)}
+                onChange={() => toggle(ext.id)}
+                disabled={busy}
+                className="h-4 w-4 rounded border-border accent-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+              />
+              <Puzzle
+                className={`h-4 w-4 shrink-0 ${ext.enabled ? "text-accent" : "text-fg-muted"}`}
+                aria-hidden="true"
+              />
+              <span
+                className={`truncate ${ext.enabled ? "" : "text-fg-muted"}`}
+              >
+                {ext.name}
+              </span>
+            </label>
+          </li>
+        ))}
       </ul>
       {error && (
         <p role="alert" className="mt-2 text-xs text-danger">
@@ -243,7 +278,9 @@ export function ExtensionsPanel({
         disabled={busy}
         onClick={() => void apply()}
       >
-        {busy && <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />}
+        {busy && (
+          <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+        )}
         {t("toolbar.apply")}
       </button>
     </div>

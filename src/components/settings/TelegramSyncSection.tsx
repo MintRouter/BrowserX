@@ -45,12 +45,18 @@ export function TelegramSyncSection() {
       .getSettings()
       .then((s) => setEnabled(s[TELEGRAM_SYNC_ENABLED_SETTING] === "true"))
       .catch(() => {});
-    api.telegramCredentialsStatus().then(setConfigured).catch(() => {});
+    api
+      .telegramCredentialsStatus()
+      .then(setConfigured)
+      .catch(() => {});
     api
       .listCloudBackups()
       .then((list) => setLastBackup(list[0] ?? null))
       .catch(() => {});
-    api.cloudGetTransport().then(setTransport).catch(() => {});
+    api
+      .cloudGetTransport()
+      .then(setTransport)
+      .catch(() => {});
   }, []);
 
   const handleTransport = (next: CloudTransport) => {
@@ -128,8 +134,12 @@ export function TelegramSyncSection() {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-fg">{t("telegram.enableLabel")}</p>
-          <p className="mt-0.5 text-xs text-fg-muted">{t("telegram.enableHint")}</p>
+          <p className="text-sm font-medium text-fg">
+            {t("telegram.enableLabel")}
+          </p>
+          <p className="mt-0.5 text-xs text-fg-muted">
+            {t("telegram.enableHint")}
+          </p>
         </div>
         <div className="shrink-0">
           <Toggle
@@ -143,8 +153,12 @@ export function TelegramSyncSection() {
       {/* (W55b-UI) Transport: Bot API (default) | Userbot (MTProto). */}
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-fg">{t("telegram.transportLabel")}</p>
-          <p className="mt-0.5 text-xs text-fg-muted">{t("telegram.transportHint")}</p>
+          <p className="text-sm font-medium text-fg">
+            {t("telegram.transportLabel")}
+          </p>
+          <p className="mt-0.5 text-xs text-fg-muted">
+            {t("telegram.transportHint")}
+          </p>
         </div>
         <div className="shrink-0">
           <Segmented
@@ -168,28 +182,42 @@ export function TelegramSyncSection() {
         <>
           <div className="space-y-3">
             <label className="block">
-              <span className="text-sm font-medium text-fg">{t("telegram.botToken")}</span>
+              <span className="text-sm font-medium text-fg">
+                {t("telegram.botToken")}
+              </span>
               <input
                 type="password"
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
                 autoComplete="off"
-                placeholder={configured ? t("telegram.tokenSavedPlaceholder") : "123456:ABC-…"}
+                placeholder={
+                  configured
+                    ? t("telegram.tokenSavedPlaceholder")
+                    : "123456:ABC-…"
+                }
                 className="input mt-1 w-full py-1.5 text-sm"
               />
             </label>
             <label className="block">
-              <span className="text-sm font-medium text-fg">{t("telegram.chatId")}</span>
+              <span className="text-sm font-medium text-fg">
+                {t("telegram.chatId")}
+              </span>
               <input
                 type="text"
                 value={chatId}
                 onChange={(e) => setChatId(e.target.value)}
                 autoComplete="off"
-                placeholder={configured ? t("telegram.tokenSavedPlaceholder") : "-1001234567890"}
+                placeholder={
+                  configured
+                    ? t("telegram.tokenSavedPlaceholder")
+                    : "-1001234567890"
+                }
                 className="input mt-1 w-full py-1.5 text-sm"
               />
             </label>
-            <p className="text-xs text-fg-muted">{t("telegram.credentialsHint")}</p>
+            <p className="text-xs text-fg-muted">
+              {t("telegram.credentialsHint")}
+            </p>
           </div>
 
           <div className="flex items-center gap-2">

@@ -77,8 +77,7 @@ export function TableFooter({
   const from = total === 0 ? 0 : page * rowsPerPage + 1;
   const to = Math.min(total, (page + 1) * rowsPerPage);
 
-  const version =
-    settings?.app_version ?? settings?.version ?? "0.1.0";
+  const version = settings?.app_version ?? settings?.version ?? "0.1.0";
   const cap =
     settings?.max_concurrent_profiles ??
     settings?.max_concurrent ??
@@ -117,7 +116,9 @@ export function TableFooter({
             </div>
             <div className="flex justify-between gap-3">
               <dt className="text-fg-muted">{t("footer.profiles")}</dt>
-              <dd className="font-medium text-fg tabular-nums">{profileCount}</dd>
+              <dd className="font-medium text-fg tabular-nums">
+                {profileCount}
+              </dd>
             </div>
             {cap !== null && (
               <div className="flex justify-between gap-3">
@@ -133,7 +134,10 @@ export function TableFooter({
             aria-live="polite"
             className={`inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-sm font-medium ${ENGINE_PILL_CLASS[engine]}`}
           >
-            <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+            <span
+              className="h-1.5 w-1.5 rounded-full bg-current"
+              aria-hidden="true"
+            />
             <span>{t(ENGINE_PILL_KEY[engine])}</span>
           </span>
         )}

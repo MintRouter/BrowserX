@@ -224,7 +224,9 @@ export function ExtensionsView({
               <Puzzle className="h-8 w-8 text-accent" aria-hidden="true" />
             </div>
             <p className="text-xl font-medium text-fg">{t("ext.emptyTitle")}</p>
-            <p className="max-w-xs text-sm text-fg-muted">{t("ext.emptyHint")}</p>
+            <p className="max-w-xs text-sm text-fg-muted">
+              {t("ext.emptyHint")}
+            </p>
             <button
               type="button"
               onClick={() => setDialog("add")}
@@ -256,10 +258,18 @@ export function ExtensionsView({
                       className="h-4 w-4 cursor-pointer rounded border-border accent-accent"
                     />
                   </th>
-                  <th scope="col" className={th}>{t("ext.name")}</th>
-                  <th scope="col" className={th}>{t("ext.source")}</th>
-                  <th scope="col" className={th}>{t("ext.enabled")}</th>
-                  <th scope="col" className={th}>{t("ext.profilesCol")}</th>
+                  <th scope="col" className={th}>
+                    {t("ext.name")}
+                  </th>
+                  <th scope="col" className={th}>
+                    {t("ext.source")}
+                  </th>
+                  <th scope="col" className={th}>
+                    {t("ext.enabled")}
+                  </th>
+                  <th scope="col" className={th}>
+                    {t("ext.profilesCol")}
+                  </th>
                   <th scope="col" className="w-10 px-1 align-middle">
                     <span className="sr-only">{t("table.rowMenu")}</span>
                   </th>
@@ -301,16 +311,25 @@ export function ExtensionsView({
                     <td className="max-w-0 px-3 py-2">
                       <div className="flex items-center gap-2 text-fg-muted">
                         {ext.source_type === "folder" ? (
-                          <Folder className="h-4 w-4 shrink-0" aria-hidden="true" />
+                          <Folder
+                            className="h-4 w-4 shrink-0"
+                            aria-hidden="true"
+                          />
                         ) : (
-                          <Globe className="h-4 w-4 shrink-0" aria-hidden="true" />
+                          <Globe
+                            className="h-4 w-4 shrink-0"
+                            aria-hidden="true"
+                          />
                         )}
                         <span className="shrink-0">
                           {ext.source_type === "folder"
                             ? t("ext.sourceFolder")
                             : t("ext.sourceStore")}
                         </span>
-                        <span className="truncate font-mono text-xs" title={ext.source_ref}>
+                        <span
+                          className="truncate font-mono text-xs"
+                          title={ext.source_ref}
+                        >
                           {ext.source_ref}
                         </span>
                       </div>
@@ -337,16 +356,26 @@ export function ExtensionsView({
                             aria-label={`${t("table.rowMenu")}: ${ext.name}`}
                             aria-haspopup="menu"
                             aria-expanded={menuId === ext.id}
-                            onClick={() => setMenuId(menuId === ext.id ? null : ext.id)}
+                            onClick={() =>
+                              setMenuId(menuId === ext.id ? null : ext.id)
+                            }
                             className="grid h-8 w-8 place-items-center rounded-full text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
                           >
-                            <EllipsisVertical className="h-4 w-4" aria-hidden="true" />
+                            <EllipsisVertical
+                              className="h-4 w-4"
+                              aria-hidden="true"
+                            />
                           </button>
                         }
                       >
                         <div role="menu" className="w-56">
                           <MenuItem
-                            icon={<Users2 className="h-4 w-4 text-fg-muted" aria-hidden="true" />}
+                            icon={
+                              <Users2
+                                className="h-4 w-4 text-fg-muted"
+                                aria-hidden="true"
+                              />
+                            }
                             onClick={() => {
                               setMenuId(null);
                               setDialog(ext);
@@ -356,7 +385,9 @@ export function ExtensionsView({
                           </MenuItem>
                           <MenuItem
                             danger
-                            icon={<Trash2 className="h-4 w-4" aria-hidden="true" />}
+                            icon={
+                              <Trash2 className="h-4 w-4" aria-hidden="true" />
+                            }
                             onClick={() => {
                               setMenuId(null);
                               setRemoveConfirm(ext);
@@ -530,7 +561,10 @@ function AddExtensionDialog({
             disabled={!canSubmit}
           >
             {busy && (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              <Loader2
+                className="h-3.5 w-3.5 animate-spin"
+                aria-hidden="true"
+              />
             )}
             {busy && mode === "store" ? t("ext.downloading") : t("ext.add")}
           </button>
@@ -724,7 +758,10 @@ function AssignProfilesDialog({
             onClick={() => void handleSave()}
           >
             {busy && (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              <Loader2
+                className="h-3.5 w-3.5 animate-spin"
+                aria-hidden="true"
+              />
             )}
             {t("ext.save")}
           </button>

@@ -583,8 +583,10 @@ export const api = {
   // Proxies
   listProxies: () => invoke<Proxy[]>("list_proxies"),
   createProxy: (input: ProxyInput) => invoke<Proxy>("create_proxy", { input }),
-  updateProxy: (id: string, input: Partial<ProxyInput> & { clear_credentials?: boolean }) =>
-    invoke<Proxy>("update_proxy", { id, input }),
+  updateProxy: (
+    id: string,
+    input: Partial<ProxyInput> & { clear_credentials?: boolean },
+  ) => invoke<Proxy>("update_proxy", { id, input }),
   /** (W23b) Call once per app open — backend detects a changed master key and logs it. */
   masterKeyStatus: () => invoke<{ changed: boolean }>("master_key_status"),
   deleteProxy: (id: string) => invoke<void>("delete_proxy", { id }),
@@ -742,7 +744,10 @@ export const api = {
   // Backup/Restore (W25a) — AES-256-GCM + Argon2id over the whole ~/.browserx.
   // Both refuse while sessions are running; progress on `backup://progress`.
   createBackup: (passphrase: string, destDir?: string | null) =>
-    invoke<BackupResult>("create_backup", { passphrase, destDir: destDir ?? null }),
+    invoke<BackupResult>("create_backup", {
+      passphrase,
+      destDir: destDir ?? null,
+    }),
   restoreBackup: (backupPath: string, passphrase: string) =>
     invoke<RestoreResult>("restore_backup", { backupPath, passphrase }),
   /** Restart the app — required after restoreBackup to load the new data dir. */
@@ -894,9 +899,7 @@ export function onBackupProgress(
 export function onCloudProgress(
   cb: (e: CloudProgressEvent) => void,
 ): Promise<UnlistenFn> {
-  return listen<CloudProgressEvent>("cloud://progress", (ev) =>
-    cb(ev.payload),
-  );
+  return listen<CloudProgressEvent>("cloud://progress", (ev) => cb(ev.payload));
 }
 
 /** (W55b) Userbot auth state changes (emitted on every TDLib state transition). */

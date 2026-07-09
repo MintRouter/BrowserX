@@ -89,7 +89,8 @@ export function SystemPanel() {
     perSession.length > 0
       ? `${Math.round(perSession.reduce((a, b) => a + b, 0) / perSession.length)} MB`
       : na;
-  const p95 = metrics?.launch_p95_ms != null ? `${metrics.launch_p95_ms} ms` : na;
+  const p95 =
+    metrics?.launch_p95_ms != null ? `${metrics.launch_p95_ms} ms` : na;
   const attempts = (metrics?.launch_success ?? 0) + (metrics?.launch_fail ?? 0);
   const errorRate =
     metrics && attempts > 0

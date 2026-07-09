@@ -11,13 +11,7 @@ import {
 const MY_TELEGRAM_URL = "https://my.telegram.org/apps";
 
 /** Labeled input row shared by every auth step (36px input like the section). */
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block">
       <span className="text-sm font-medium text-fg">{label}</span>
@@ -53,7 +47,10 @@ export function UserbotPanel() {
     if (!isTauri()) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    api.userbotGetStatus().then(setStatus).catch(() => {});
+    api
+      .userbotGetStatus()
+      .then(setStatus)
+      .catch(() => {});
     void onUserbotAuthState((s) => {
       setStatus(s);
       setBusy(false);
@@ -97,7 +94,10 @@ export function UserbotPanel() {
 
   const handleSaveCreds = () =>
     run(async () => {
-      await api.userbotSetCredentials(Number.parseInt(apiId, 10), apiHash.trim());
+      await api.userbotSetCredentials(
+        Number.parseInt(apiId, 10),
+        apiHash.trim(),
+      );
       setApiId("");
       setApiHash("");
       setStatus(await api.userbotGetStatus());

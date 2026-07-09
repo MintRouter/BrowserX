@@ -30,10 +30,7 @@ export function OverviewPanel({ form, proxies }: OverviewPanelProps) {
     [t("pform.ov.geoAccess"), t("pform.ov.prompt")],
     [t("pform.ov.geoData"), masked],
     [t("pform.ov.languages"), form.locale || masked],
-    [
-      t("pform.ov.resolution"),
-      `${form.screen_width} × ${form.screen_height}`,
-    ],
+    [t("pform.ov.resolution"), `${form.screen_width} × ${form.screen_height}`],
     [t("pform.ov.fontData"), masked],
     [t("pform.ov.media"), t("pform.ov.real")],
     [t("pform.ov.userAgent"), masked],
@@ -63,7 +60,9 @@ export function OverviewPanel({ form, proxies }: OverviewPanelProps) {
             key={label}
             className="flex items-baseline justify-between gap-4 py-1.5"
           >
-            <dt className="shrink-0 text-xs text-[#1D192B] dark:text-fg">{label}</dt>
+            <dt className="shrink-0 text-xs text-[#1D192B] dark:text-fg">
+              {label}
+            </dt>
             <dd
               className="truncate text-right text-xs text-[#1D192B] dark:text-fg"
               title={value}

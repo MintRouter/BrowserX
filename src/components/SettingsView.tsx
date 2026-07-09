@@ -116,9 +116,7 @@ function AccountInfoBlock() {
           {t("settings.dataFolder")}
         </p>
         <div className="mt-1.5 flex items-center gap-1.5">
-          <span className="font-mono text-sm text-fg-muted">
-            {DATA_FOLDER}
-          </span>
+          <span className="font-mono text-sm text-fg-muted">{DATA_FOLDER}</span>
           <button
             type="button"
             onClick={handleCopy}

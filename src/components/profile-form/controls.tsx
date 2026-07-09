@@ -11,7 +11,14 @@ interface ToggleProps {
 }
 
 /** Accessible switch (role="switch") in the W12 theme: blue track when on. */
-export function Toggle({ checked, onChange, disabled, label, id, title }: ToggleProps) {
+export function Toggle({
+  checked,
+  onChange,
+  disabled,
+  label,
+  id,
+  title,
+}: ToggleProps) {
   return (
     <button
       type="button"

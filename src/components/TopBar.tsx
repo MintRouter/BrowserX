@@ -48,10 +48,30 @@ const PILLS: {
     labelKey: "topbar.profiles",
     match: ["profiles", "running", "cloudSync", "favorites", "trash"],
   },
-  { view: "proxies", icon: ArrowUpDown, labelKey: "topbar.proxies", match: ["proxies"] },
-  { view: "proxyTemplates", icon: Network, labelKey: "topbar.proxyTemplates", match: ["proxyTemplates"] },
-  { view: "templates", icon: ClipboardList, labelKey: "topbar.profileTemplates", match: ["templates"] },
-  { view: "extensions", icon: Puzzle, labelKey: "topbar.extensions", match: ["extensions"] },
+  {
+    view: "proxies",
+    icon: ArrowUpDown,
+    labelKey: "topbar.proxies",
+    match: ["proxies"],
+  },
+  {
+    view: "proxyTemplates",
+    icon: Network,
+    labelKey: "topbar.proxyTemplates",
+    match: ["proxyTemplates"],
+  },
+  {
+    view: "templates",
+    icon: ClipboardList,
+    labelKey: "topbar.profileTemplates",
+    match: ["templates"],
+  },
+  {
+    view: "extensions",
+    icon: Puzzle,
+    labelKey: "topbar.extensions",
+    match: ["extensions"],
+  },
 ];
 
 export function TopBar(props: TopBarProps) {
@@ -84,7 +104,10 @@ export function TopBar(props: TopBarProps) {
         </button>
 
         {/* (W53c) Direct icon-pill row (MLX audit §2) — one pill per main view; spaced from the logo by margin, no divider. */}
-        <nav className="ml-3 flex items-center gap-1.5" aria-label={t("topbar.appSwitcher")}>
+        <nav
+          className="ml-3 flex items-center gap-1.5"
+          aria-label={t("topbar.appSwitcher")}
+        >
           {PILLS.map(({ view: v, icon: Icon, labelKey, match }) => {
             const active = view !== undefined && match.includes(view);
             return (
@@ -178,7 +201,12 @@ export function TopBar(props: TopBarProps) {
         >
           <div role="menu" className="w-44">
             <MenuItem
-              icon={<Settings className="h-4 w-4 shrink-0 text-fg-muted" aria-hidden="true" />}
+              icon={
+                <Settings
+                  className="h-4 w-4 shrink-0 text-fg-muted"
+                  aria-hidden="true"
+                />
+              }
               onClick={() => {
                 setAccountOpen(false);
                 onNavigate?.("settings");

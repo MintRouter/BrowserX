@@ -107,7 +107,9 @@ function NavRow({
       {icon}
       <span className="flex-1 truncate">{label}</span>
       {count !== undefined && (
-        <span className={`text-xs tabular-nums ${active ? "text-accent" : "text-fg-muted"}`}>
+        <span
+          className={`text-xs tabular-nums ${active ? "text-accent" : "text-fg-muted"}`}
+        >
           {count}
         </span>
       )}
@@ -132,7 +134,9 @@ export function Sidebar({
 
   const visibleFolders = useMemo(() => {
     const q = folderSearch.trim().toLowerCase();
-    return q ? folders.filter((f) => f.name.toLowerCase().includes(q)) : folders;
+    return q
+      ? folders.filter((f) => f.name.toLowerCase().includes(q))
+      : folders;
   }, [folders, folderSearch]);
 
   const commitCreate = () => {
@@ -151,7 +155,12 @@ export function Sidebar({
       >
         <div className="space-y-0.5">
           <NavRow
-            icon={<Laptop className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />}
+            icon={
+              <Laptop
+                className="h-[18px] w-[18px] shrink-0"
+                aria-hidden="true"
+              />
+            }
             label={t("sidebar.allTemplates")}
             count={counts.templates}
             active
@@ -172,7 +181,12 @@ export function Sidebar({
       >
         <div className="space-y-0.5">
           <NavRow
-            icon={<Puzzle className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />}
+            icon={
+              <Puzzle
+                className="h-[18px] w-[18px] shrink-0"
+                aria-hidden="true"
+              />
+            }
             label={t("sidebar.allExtensions")}
             count={counts.extensions}
             active
@@ -194,14 +208,24 @@ export function Sidebar({
       >
         <div className="space-y-0.5">
           <NavRow
-            icon={<Network className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />}
+            icon={
+              <Network
+                className="h-[18px] w-[18px] shrink-0"
+                aria-hidden="true"
+              />
+            }
             label={t("sidebar.allProxies")}
             count={counts.proxies}
             active={view === "proxies"}
             onClick={() => onNavigate("proxies")}
           />
           <NavRow
-            icon={<BookmarkPlus className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />}
+            icon={
+              <BookmarkPlus
+                className="h-[18px] w-[18px] shrink-0"
+                aria-hidden="true"
+              />
+            }
             label={t("sidebar.proxyTemplates")}
             count={counts.proxyTemplates}
             active={view === "proxyTemplates"}
@@ -218,7 +242,11 @@ export function Sidebar({
       className="card mb-4 ml-4 mt-0 flex w-[270px] shrink-0 flex-col overflow-y-auto p-3"
       aria-label={t("sidebar.folders")}
     >
-      <div className="flex h-9 shrink-0 rounded-lg bg-surface-3 p-1" role="group" aria-label={t("sidebar.deviceType")}>
+      <div
+        className="flex h-9 shrink-0 rounded-lg bg-surface-3 p-1"
+        role="group"
+        aria-label={t("sidebar.deviceType")}
+      >
         {(["mobile", "browser"] as const).map((d) => (
           <button
             key={d}
@@ -238,7 +266,12 @@ export function Sidebar({
 
       <div className="mt-3 space-y-0.5">
         <NavRow
-          icon={<LayoutGrid className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />}
+          icon={
+            <LayoutGrid
+              className="h-[18px] w-[18px] shrink-0"
+              aria-hidden="true"
+            />
+          }
           label={t("sidebar.allProfiles")}
           count={counts.all}
           active={view === "profiles" && activeFolderId === null}
@@ -248,21 +281,27 @@ export function Sidebar({
           }}
         />
         <NavRow
-          icon={<User className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />}
+          icon={
+            <User className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+          }
           label={t("sidebar.runningProfiles")}
           count={counts.running}
           active={view === "running"}
           onClick={() => onNavigate("running")}
         />
         <NavRow
-          icon={<Cloud className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />}
+          icon={
+            <Cloud className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+          }
           label={t("sidebar.cloudSyncProfiles")}
           count={counts.cloudSync}
           active={view === "cloudSync"}
           onClick={() => onNavigate("cloudSync")}
         />
         <NavRow
-          icon={<Star className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />}
+          icon={
+            <Star className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+          }
           label={t("sidebar.favorites")}
           count={counts.favorites}
           active={view === "favorites"}
@@ -338,7 +377,9 @@ export function Sidebar({
                 aria-hidden="true"
               />
               <span className="flex-1 truncate">{f.name}</span>
-              <span className={`text-xs tabular-nums ${active ? "text-accent" : "text-fg-muted"}`}>
+              <span
+                className={`text-xs tabular-nums ${active ? "text-accent" : "text-fg-muted"}`}
+              >
                 {f.count}
               </span>
             </button>
@@ -348,7 +389,9 @@ export function Sidebar({
 
       <hr className="my-2 border-border" aria-hidden="true" />
       <NavRow
-        icon={<Trash2 className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />}
+        icon={
+          <Trash2 className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+        }
         label={t("sidebar.trashBin")}
         count={counts.trash}
         active={view === "trash"}
@@ -372,7 +415,10 @@ function SidebarStats({ counts }: { counts: SidebarProps["counts"] }) {
       .then((s) => {
         if (cancelled) return;
         setCap(
-          s.max_concurrent_profiles ?? s.max_concurrent ?? s.concurrent_cap ?? null,
+          s.max_concurrent_profiles ??
+            s.max_concurrent ??
+            s.concurrent_cap ??
+            null,
         );
       })
       .catch(() => {});
@@ -395,17 +441,23 @@ function SidebarStats({ counts }: { counts: SidebarProps["counts"] }) {
           value={counts.proxies}
         />
         <StatRow
-          icon={<Building2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+          icon={
+            <Building2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          }
           label={t("sidebar.statIspProxies")}
           value="0"
         />
         <StatRow
-          icon={<Smartphone className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+          icon={
+            <Smartphone className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          }
           label={t("sidebar.statMinutes")}
           value={t("system.na")}
         />
         <StatRow
-          icon={<LayoutGrid className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+          icon={
+            <LayoutGrid className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          }
           label={t("sidebar.profilesStat")}
           value={cap !== null ? `${counts.all}/${cap}` : counts.all}
         />

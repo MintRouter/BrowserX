@@ -59,7 +59,13 @@ export function AppUpdateBanner() {
   }, []);
 
   const apply = useCallback((update: Update) => {
-    setBanner({ update, status: "downloading", pct: 0, hasTotal: false, error: null });
+    setBanner({
+      update,
+      status: "downloading",
+      pct: 0,
+      hasTotal: false,
+      error: null,
+    });
     let total = 0;
     let downloaded = 0;
     update

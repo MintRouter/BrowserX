@@ -277,7 +277,9 @@ export function ProfileForm({
     if (profile) {
       setForm(initialState(profile, ""));
       setArgsText(
-        profile.launch_args.length > 0 ? JSON.stringify(profile.launch_args) : "",
+        profile.launch_args.length > 0
+          ? JSON.stringify(profile.launch_args)
+          : "",
       );
     }
   }, [profile?.id]);
@@ -370,7 +372,8 @@ export function ProfileForm({
   useEffect(() => {
     if (isEdit || defaultFolderApplied.current || folders.length === 0) return;
     defaultFolderApplied.current = true;
-    const def = folders.find((f) => f.name === DEFAULT_FOLDER_NAME) ?? folders[0];
+    const def =
+      folders.find((f) => f.name === DEFAULT_FOLDER_NAME) ?? folders[0];
     if (!def) return;
     setForm((prev) => (prev.folder_id ? prev : { ...prev, folder_id: def.id }));
   }, [folders, isEdit]);
@@ -616,7 +619,10 @@ export function ProfileForm({
       const el = sectionRefs.current[tab];
       if (el && el.getBoundingClientRect().top - cTop <= 96) current = tab;
     }
-    if (container.scrollTop + container.clientHeight >= container.scrollHeight - 4) {
+    if (
+      container.scrollTop + container.clientHeight >=
+      container.scrollHeight - 4
+    ) {
       current = "extra";
     }
     setActiveTab(current);
@@ -626,7 +632,8 @@ export function ProfileForm({
     const idx = TABS.indexOf(activeTab);
     let next: TabId | null = null;
     if (e.key === "ArrowRight") next = TABS[(idx + 1) % TABS.length] ?? null;
-    else if (e.key === "ArrowLeft") next = TABS[(idx - 1 + TABS.length) % TABS.length] ?? null;
+    else if (e.key === "ArrowLeft")
+      next = TABS[(idx - 1 + TABS.length) % TABS.length] ?? null;
     else if (e.key === "Home") next = TABS[0] ?? null;
     else if (e.key === "End") next = TABS[TABS.length - 1] ?? null;
     if (next) {
@@ -641,204 +648,208 @@ export function ProfileForm({
       {/* (R6 2.1) White card wrapper: full-height, 16px margin, 8px radius,
           footer inside the card. */}
       <div className="card flex min-h-0 flex-1 flex-col overflow-hidden">
-      {/* Header */}
-      <div className="px-6 pb-3 pt-5">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="inline-flex items-center gap-0.5 rounded text-sm font-medium text-accent hover:text-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
-        >
-          <ChevronLeft className="h-4 w-4" aria-hidden="true" />
-          {t("pform.back")}
-        </button>
-        <h1 className="mt-1 text-lg font-medium leading-6 text-[#1D192B] dark:text-fg">
-          {isEdit ? t("pform.editTitle") : t("pform.createTitle")}
-        </h1>
-      </div>
-
-      {/* (W50G) Anchor-tab bar: MLX parity — tabs scroll to sections in one long page */}
-      <nav
-        aria-label={t("pform.tabsLabel")}
-        onKeyDown={handleTabKeyDown}
-        className="flex border-b border-border px-6"
-      >
-        {TABS.map((tab) => {
-          const active = tab === activeTab;
-          return (
-            <button
-              key={tab}
-              ref={(el) => {
-                tabRefs.current[tab] = el;
-              }}
-              type="button"
-              id={`pf-tab-${tab}`}
-              aria-current={active ? "true" : undefined}
-              onClick={() => scrollToSection(tab)}
-              className={[
-                "-mb-px inline-flex h-12 items-center border-b-2 px-8 text-sm font-medium",
-                "transition-colors motion-reduce:transition-none",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60",
-                active
-                  ? "border-accent text-accent"
-                  : "border-transparent text-[#1D192B] hover:text-fg dark:text-fg",
-              ].join(" ")}
-            >
-              {t(`pform.tabs.${tab}`)}
-            </button>
-          );
-        })}
-      </nav>
-
-      {/* (W50G) Content: one long scroll page — all sections stacked in the
-          ~560px form column, overview panel sticky on the right. */}
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="min-h-0 flex-1 overflow-y-auto"
-      >
-        <div className="flex flex-col gap-6 px-6 py-5 lg:flex-row lg:items-start">
-          <div className="min-w-0 flex-1 space-y-8 lg:max-w-[560px]">
-            <section
-              id="pf-section-general"
-              aria-label={t("pform.tabs.general")}
-              ref={(el) => {
-                sectionRefs.current.general = el;
-              }}
-            >
-              <GeneralTab
-                form={form}
-                set={set}
-                folders={folders}
-                allTags={allTags}
-                autoFocusName={!isEdit}
-                templates={templates}
-                selectedTemplateId={selectedTemplateId}
-                onApplyTemplate={isEdit ? undefined : applyTemplate}
-                saveAsTemplate={saveAsTemplate}
-                onSaveAsTemplateChange={setSaveAsTemplate}
-              />
-            </section>
-            <section
-              id="pf-section-proxy"
-              aria-label={t("pform.tabs.proxy")}
-              ref={(el) => {
-                sectionRefs.current.proxy = el;
-              }}
-            >
-              <SectionHeading label={t("pform.tabs.proxy")} />
-              <ProxyTab
-                form={form}
-                set={set}
-                proxies={proxies}
-                onProxiesChanged={onProxiesChanged}
-              />
-            </section>
-            <section
-              id="pf-section-fingerprint"
-              aria-label={t("pform.tabs.fingerprint")}
-              ref={(el) => {
-                sectionRefs.current.fingerprint = el;
-              }}
-            >
-              <SectionHeading label={t("pform.tabs.fingerprint")} />
-              <FingerprintTab
-                form={form}
-                set={set}
-                onRerollSeed={handleRerollSeed}
-                onPlatformChange={handlePlatformChange}
-              />
-            </section>
-            <section
-              id="pf-section-extra"
-              aria-label={t("pform.tabs.extra")}
-              ref={(el) => {
-                sectionRefs.current.extra = el;
-              }}
-            >
-              <SectionHeading label={t("pform.tabs.extra")} />
-              <ExtraTab
-                form={form}
-                set={set}
-                argsText={argsText}
-                onArgsChange={setArgsText}
-                argsError={argsInvalid ? t("pform.launchArgsError") : null}
-                storeExtensions={storeExtensions}
-                assignedExtIds={assignedExtIds}
-                onToggleExtension={toggleExtension}
-              />
-            </section>
-          </div>
-          <aside
-            aria-label={t("pform.ov.title")}
-            className="w-full shrink-0 lg:sticky lg:top-0 lg:w-[340px]"
-          >
-            <OverviewPanel form={form} proxies={proxies} />
-            {isEdit && engineVersion !== null && (
-              <div className="mt-4 rounded-lg border border-border bg-surface-1 px-4 py-3">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium text-fg-muted">
-                    {t("engineUpgrade.label")}
-                  </span>
-                  <span className="rounded bg-surface-2 px-2 py-0.5 text-xs font-medium text-fg">
-                    {engineVersion}
-                  </span>
-                </div>
-                {engineOutdated && (
-                  <>
-                    <p className="mt-2 text-xs text-fg-muted">
-                      {t("engineUpgrade.outdated", {
-                        latest: defaultEngineVersion,
-                      })}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setEngineUpgradeConfirm(true)}
-                      disabled={isRunning}
-                      title={isRunning ? t("engineUpgrade.runningHint") : ""}
-                      className="btn-secondary mt-2 h-9 w-full px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {t("engineUpgrade.button")}
-                    </button>
-                    {isRunning && (
-                      <p className="mt-1.5 text-xs text-warning">
-                        {t("engineUpgrade.runningHint")}
-                      </p>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-          </aside>
-        </div>
-      </div>
-
-      {/* Sticky footer */}
-      <div className="flex items-center gap-3 border-t border-border bg-surface-1 px-6 py-3">
-        <button type="submit" disabled={!canSave} className="btn-primary h-10 px-3">
-          {saving
-            ? t("pform.saving")
-            : isEdit
-              ? t("pform.save")
-              : t("pform.create")}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="inline-flex h-10 items-center rounded px-3 text-sm font-medium text-accent hover:text-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
-        >
-          {t("pform.cancel")}
-        </button>
-        {isEdit && (
+        {/* Header */}
+        <div className="px-6 pb-3 pt-5">
           <button
             type="button"
-            onClick={() => setTrashConfirm(true)}
-            disabled={trashing}
-            className="btn-danger ml-auto"
+            onClick={onCancel}
+            className="inline-flex items-center gap-0.5 rounded text-sm font-medium text-accent hover:text-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
           >
-            {trashing ? t("pform.trashing") : t("pform.moveToTrash")}
+            <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+            {t("pform.back")}
           </button>
-        )}
-      </div>
+          <h1 className="mt-1 text-lg font-medium leading-6 text-[#1D192B] dark:text-fg">
+            {isEdit ? t("pform.editTitle") : t("pform.createTitle")}
+          </h1>
+        </div>
+
+        {/* (W50G) Anchor-tab bar: MLX parity — tabs scroll to sections in one long page */}
+        <nav
+          aria-label={t("pform.tabsLabel")}
+          onKeyDown={handleTabKeyDown}
+          className="flex border-b border-border px-6"
+        >
+          {TABS.map((tab) => {
+            const active = tab === activeTab;
+            return (
+              <button
+                key={tab}
+                ref={(el) => {
+                  tabRefs.current[tab] = el;
+                }}
+                type="button"
+                id={`pf-tab-${tab}`}
+                aria-current={active ? "true" : undefined}
+                onClick={() => scrollToSection(tab)}
+                className={[
+                  "-mb-px inline-flex h-12 items-center border-b-2 px-8 text-sm font-medium",
+                  "transition-colors motion-reduce:transition-none",
+                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60",
+                  active
+                    ? "border-accent text-accent"
+                    : "border-transparent text-[#1D192B] hover:text-fg dark:text-fg",
+                ].join(" ")}
+              >
+                {t(`pform.tabs.${tab}`)}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* (W50G) Content: one long scroll page — all sections stacked in the
+          ~560px form column, overview panel sticky on the right. */}
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="min-h-0 flex-1 overflow-y-auto"
+        >
+          <div className="flex flex-col gap-6 px-6 py-5 lg:flex-row lg:items-start">
+            <div className="min-w-0 flex-1 space-y-8 lg:max-w-[560px]">
+              <section
+                id="pf-section-general"
+                aria-label={t("pform.tabs.general")}
+                ref={(el) => {
+                  sectionRefs.current.general = el;
+                }}
+              >
+                <GeneralTab
+                  form={form}
+                  set={set}
+                  folders={folders}
+                  allTags={allTags}
+                  autoFocusName={!isEdit}
+                  templates={templates}
+                  selectedTemplateId={selectedTemplateId}
+                  onApplyTemplate={isEdit ? undefined : applyTemplate}
+                  saveAsTemplate={saveAsTemplate}
+                  onSaveAsTemplateChange={setSaveAsTemplate}
+                />
+              </section>
+              <section
+                id="pf-section-proxy"
+                aria-label={t("pform.tabs.proxy")}
+                ref={(el) => {
+                  sectionRefs.current.proxy = el;
+                }}
+              >
+                <SectionHeading label={t("pform.tabs.proxy")} />
+                <ProxyTab
+                  form={form}
+                  set={set}
+                  proxies={proxies}
+                  onProxiesChanged={onProxiesChanged}
+                />
+              </section>
+              <section
+                id="pf-section-fingerprint"
+                aria-label={t("pform.tabs.fingerprint")}
+                ref={(el) => {
+                  sectionRefs.current.fingerprint = el;
+                }}
+              >
+                <SectionHeading label={t("pform.tabs.fingerprint")} />
+                <FingerprintTab
+                  form={form}
+                  set={set}
+                  onRerollSeed={handleRerollSeed}
+                  onPlatformChange={handlePlatformChange}
+                />
+              </section>
+              <section
+                id="pf-section-extra"
+                aria-label={t("pform.tabs.extra")}
+                ref={(el) => {
+                  sectionRefs.current.extra = el;
+                }}
+              >
+                <SectionHeading label={t("pform.tabs.extra")} />
+                <ExtraTab
+                  form={form}
+                  set={set}
+                  argsText={argsText}
+                  onArgsChange={setArgsText}
+                  argsError={argsInvalid ? t("pform.launchArgsError") : null}
+                  storeExtensions={storeExtensions}
+                  assignedExtIds={assignedExtIds}
+                  onToggleExtension={toggleExtension}
+                />
+              </section>
+            </div>
+            <aside
+              aria-label={t("pform.ov.title")}
+              className="w-full shrink-0 lg:sticky lg:top-0 lg:w-[340px]"
+            >
+              <OverviewPanel form={form} proxies={proxies} />
+              {isEdit && engineVersion !== null && (
+                <div className="mt-4 rounded-lg border border-border bg-surface-1 px-4 py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium text-fg-muted">
+                      {t("engineUpgrade.label")}
+                    </span>
+                    <span className="rounded bg-surface-2 px-2 py-0.5 text-xs font-medium text-fg">
+                      {engineVersion}
+                    </span>
+                  </div>
+                  {engineOutdated && (
+                    <>
+                      <p className="mt-2 text-xs text-fg-muted">
+                        {t("engineUpgrade.outdated", {
+                          latest: defaultEngineVersion,
+                        })}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setEngineUpgradeConfirm(true)}
+                        disabled={isRunning}
+                        title={isRunning ? t("engineUpgrade.runningHint") : ""}
+                        className="btn-secondary mt-2 h-9 w-full px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {t("engineUpgrade.button")}
+                      </button>
+                      {isRunning && (
+                        <p className="mt-1.5 text-xs text-warning">
+                          {t("engineUpgrade.runningHint")}
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </aside>
+          </div>
+        </div>
+
+        {/* Sticky footer */}
+        <div className="flex items-center gap-3 border-t border-border bg-surface-1 px-6 py-3">
+          <button
+            type="submit"
+            disabled={!canSave}
+            className="btn-primary h-10 px-3"
+          >
+            {saving
+              ? t("pform.saving")
+              : isEdit
+                ? t("pform.save")
+                : t("pform.create")}
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="inline-flex h-10 items-center rounded px-3 text-sm font-medium text-accent hover:text-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+          >
+            {t("pform.cancel")}
+          </button>
+          {isEdit && (
+            <button
+              type="button"
+              onClick={() => setTrashConfirm(true)}
+              disabled={trashing}
+              className="btn-danger ml-auto"
+            >
+              {trashing ? t("pform.trashing") : t("pform.moveToTrash")}
+            </button>
+          )}
+        </div>
       </div>
       {trashConfirm && (
         <ConfirmDialog

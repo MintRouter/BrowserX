@@ -95,7 +95,9 @@ export function GeneralTab({
     <div className="space-y-5">
       {/* (R6 2.2) Save as template: 44×20 toggle switch, label left / switch right */}
       <div className="flex items-center justify-between gap-3">
-        <span className="text-xs font-medium text-[#1D192B] dark:text-fg">{t("pform.saveTemplate")}</span>
+        <span className="text-xs font-medium text-[#1D192B] dark:text-fg">
+          {t("pform.saveTemplate")}
+        </span>
         <Toggle
           id="pf-save-template"
           checked={saveAsTemplate ?? false}
@@ -107,7 +109,9 @@ export function GeneralTab({
 
       {/* Profile name */}
       <div>
-        <label className="label" htmlFor="pf-name">{t("pform.profileName")}</label>
+        <label className="label" htmlFor="pf-name">
+          {t("pform.profileName")}
+        </label>
         <input
           ref={nameRef}
           id="pf-name"
@@ -122,7 +126,9 @@ export function GeneralTab({
       {/* Template + Folder */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
-          <label className="label" htmlFor="pf-template">{t("pform.profileTemplate")}</label>
+          <label className="label" htmlFor="pf-template">
+            {t("pform.profileTemplate")}
+          </label>
           <select
             id="pf-template"
             className="input"
@@ -132,12 +138,16 @@ export function GeneralTab({
           >
             <option value="">{t("ptpl.none")}</option>
             {(templates ?? []).map((tp) => (
-              <option key={tp.id} value={tp.id}>{tp.name}</option>
+              <option key={tp.id} value={tp.id}>
+                {tp.name}
+              </option>
             ))}
           </select>
         </div>
         <div>
-          <label className="label" htmlFor="pf-folder">{t("pform.folder")}</label>
+          <label className="label" htmlFor="pf-folder">
+            {t("pform.folder")}
+          </label>
           <select
             id="pf-folder"
             className="input"
@@ -146,7 +156,9 @@ export function GeneralTab({
           >
             <option value="">{t("pform.noFolder")}</option>
             {folders.map((f) => (
-              <option key={f.id} value={f.id}>{f.name}</option>
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
             ))}
           </select>
         </div>
@@ -154,7 +166,9 @@ export function GeneralTab({
 
       {/* Tags combobox */}
       <div>
-        <label className="label" htmlFor="pf-tags">{t("pform.tags")}</label>
+        <label className="label" htmlFor="pf-tags">
+          {t("pform.tags")}
+        </label>
         {form.tags.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-1.5">
             {form.tags.map((tag) => (
@@ -165,7 +179,12 @@ export function GeneralTab({
                 {tag}
                 <button
                   type="button"
-                  onClick={() => set("tags", form.tags.filter((x) => x !== tag))}
+                  onClick={() =>
+                    set(
+                      "tags",
+                      form.tags.filter((x) => x !== tag),
+                    )
+                  }
                   className="rounded-full text-fg-muted hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
                   aria-label={t("pform.removeTag", { tag })}
                 >
@@ -188,11 +207,17 @@ export function GeneralTab({
             aria-controls="pf-tags-listbox"
             aria-autocomplete="list"
             value={tagQuery}
-            onChange={(e) => { setTagQuery(e.target.value); setTagOpen(true); }}
+            onChange={(e) => {
+              setTagQuery(e.target.value);
+              setTagOpen(true);
+            }}
             onFocus={() => setTagOpen(true)}
             onBlur={() => setTagOpen(false)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") { e.preventDefault(); addTag(tagQuery); }
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addTag(tagQuery);
+              }
               if (e.key === "Escape") setTagOpen(false);
             }}
             placeholder={t("pform.tagsPlaceholder")}
@@ -224,7 +249,9 @@ export function GeneralTab({
 
       {/* Note with (coming soon) toolbar + counter */}
       <div>
-        <label className="label" htmlFor="pf-note">{t("pform.note")}</label>
+        <label className="label" htmlFor="pf-note">
+          {t("pform.note")}
+        </label>
         <div className="rounded-md border border-border bg-surface-1 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/50">
           <div
             className="flex items-center gap-0.5 border-b border-border px-1.5 py-1"
@@ -236,9 +263,17 @@ export function GeneralTab({
               { Icon: Bold, key: "bold", fallback: "Bold" },
               { Icon: Italic, key: "italic", fallback: "Italic" },
               { Icon: Underline, key: "underline", fallback: "Underline" },
-              { Icon: Strikethrough, key: "strikethrough", fallback: "Strikethrough" },
+              {
+                Icon: Strikethrough,
+                key: "strikethrough",
+                fallback: "Strikethrough",
+              },
               { Icon: Code, key: "code", fallback: "Code" },
-              { Icon: RemoveFormatting, key: "clear", fallback: "Clear formatting" },
+              {
+                Icon: RemoveFormatting,
+                key: "clear",
+                fallback: "Clear formatting",
+              },
               { Icon: Undo2, key: "undo", fallback: "Undo" },
               { Icon: Redo2, key: "redo", fallback: "Redo" },
             ].map(({ Icon, key, fallback }) => (
@@ -274,7 +309,9 @@ export function GeneralTab({
 
       {/* Startup behavior: restore previous session or open custom URLs */}
       <div>
-        <span className="label" id="pf-startup-label">{t("pform.startupBehavior")}</span>
+        <span className="label" id="pf-startup-label">
+          {t("pform.startupBehavior")}
+        </span>
         <Segmented
           options={[
             { value: "restore", label: t("pform.startupRestore") },
@@ -288,7 +325,10 @@ export function GeneralTab({
         {form.startup_behavior === "custom" && (
           <div className="mt-3">
             {form.startup_urls.length > 0 && (
-              <ul aria-label={t("pform.startupUrlsLabel")} className="mb-2 space-y-1.5">
+              <ul
+                aria-label={t("pform.startupUrlsLabel")}
+                className="mb-2 space-y-1.5"
+              >
                 {form.startup_urls.map((url, i) => (
                   <li
                     key={url}
@@ -298,7 +338,10 @@ export function GeneralTab({
                     <button
                       type="button"
                       onClick={() =>
-                        set("startup_urls", form.startup_urls.filter((_, j) => j !== i))
+                        set(
+                          "startup_urls",
+                          form.startup_urls.filter((_, j) => j !== i),
+                        )
                       }
                       className="rounded-full text-fg-muted hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
                       aria-label={t("pform.startupUrlRemove", { url })}
@@ -331,12 +374,20 @@ export function GeneralTab({
                 aria-invalid={urlError}
                 aria-describedby={urlError ? "pf-startup-url-error" : undefined}
               />
-              <button type="button" onClick={addStartupUrl} className="btn-secondary px-2.5">
+              <button
+                type="button"
+                onClick={addStartupUrl}
+                className="btn-secondary px-2.5"
+              >
                 {t("pform.startupUrlAdd")}
               </button>
             </div>
             {urlError && (
-              <p id="pf-startup-url-error" role="alert" className="mt-1 text-xs text-danger">
+              <p
+                id="pf-startup-url-error"
+                role="alert"
+                className="mt-1 text-xs text-danger"
+              >
                 {t("pform.startupUrlInvalid")}
               </p>
             )}
