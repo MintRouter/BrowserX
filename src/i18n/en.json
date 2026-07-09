@@ -555,7 +555,22 @@
     "support": "Support",
     "logs": "Application logs",
     "logsHint": "Log files are stored locally in ~/.browserx/logs and never leave your machine.",
-    "openLogsFolder": "Open logs folder"
+    "openLogsFolder": "Open logs folder",
+    "appVersion": "App version",
+    "dataFolder": "Data folder",
+    "copy": "Copy",
+    "copied": "Copied",
+    "nav": {
+      "backupSecurity": "Backup & Security",
+      "cloudSync": "Cloud Sync",
+      "subscription": "Subscription",
+      "pricing": "Pricing",
+      "invoices": "Invoices",
+      "buyIspProxy": "Buy ISP proxy",
+      "buyProxyTraffic": "Buy proxy traffic",
+      "buyMobileMinutes": "Buy mobile minutes",
+      "beta": "Beta"
+    }
   },
   "backup": {
     "sectionTitle": "Backup & restore",

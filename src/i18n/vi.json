@@ -547,7 +547,22 @@
     "support": "Hỗ trợ",
     "logs": "Log ứng dụng",
     "logsHint": "File log lưu cục bộ tại ~/.browserx/logs và không bao giờ rời khỏi máy của bạn.",
-    "openLogsFolder": "Mở thư mục log"
+    "openLogsFolder": "Mở thư mục log",
+    "appVersion": "Phiên bản ứng dụng",
+    "dataFolder": "Thư mục dữ liệu",
+    "copy": "Sao chép",
+    "copied": "Đã sao chép",
+    "nav": {
+      "backupSecurity": "Sao lưu & Bảo mật",
+      "cloudSync": "Đồng bộ cloud",
+      "subscription": "Gói đăng ký",
+      "pricing": "Bảng giá",
+      "invoices": "Hoá đơn",
+      "buyIspProxy": "Mua proxy ISP",
+      "buyProxyTraffic": "Mua lưu lượng proxy",
+      "buyMobileMinutes": "Mua phút di động",
+      "beta": "Beta"
+    }
   },
   "backup": {
     "sectionTitle": "Sao lưu & khôi phục",

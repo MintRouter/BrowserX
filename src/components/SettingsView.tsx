@@ -1,3 +1,5 @@
+import { getVersion } from "@tauri-apps/api/app";
+import { Check, Copy } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SUPPORTED_LOCALES, setLocale } from "../i18n";
@@ -13,6 +15,33 @@ import { ThemeCards } from "./settings/ThemeCards";
 
 /** Fallback persistence when running outside Tauri (plain browser dev). */
 const AUTO_CLEAR_STORAGE_KEY = "browserx.autoClearCache";
+
+/** Shown when getVersion() is unavailable (plain browser dev). */
+const FALLBACK_APP_VERSION = "0.1.0";
+
+/** All app data lives here — shown in the account info block (copyable). */
+const DATA_FOLDER = "~/.browserx";
+
+type SettingsPage = "account" | "backup" | "cloudSync" | "system" | "audit";
+
+/** Functional sidebar entries — each maps to one content page. */
+const NAV_ITEMS: { page: SettingsPage; labelKey: string }[] = [
+  { page: "account", labelKey: "settings.accountSettings" },
+  { page: "backup", labelKey: "settings.nav.backupSecurity" },
+  { page: "cloudSync", labelKey: "settings.nav.cloudSync" },
+  { page: "system", labelKey: "system.title" },
+  { page: "audit", labelKey: "audit.title" },
+];
+
+/** Billing entries kept disabled for Multilogin visual parity (n/a locally). */
+const BILLING_ITEMS: { labelKey: string; beta?: boolean }[] = [
+  { labelKey: "settings.nav.subscription" },
+  { labelKey: "settings.nav.pricing" },
+  { labelKey: "settings.nav.invoices" },
+  { labelKey: "settings.nav.buyIspProxy", beta: true },
+  { labelKey: "settings.nav.buyProxyTraffic" },
+  { labelKey: "settings.nav.buyMobileMinutes" },
+];
 
 /** Section title 18px/500 without bottom border (audit R6 §5.1/§5.4). */
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -45,13 +74,75 @@ function SettingRow({
 }
 
 /**
+ * ML-style account info block (audit R6 màn 5): App version as a filled
+ * disabled input + Data folder value with a copy button — replaces
+ * Email / Workspace ID (no cloud account in a local-only app).
+ */
+function AccountInfoBlock() {
+  const { t } = useTranslation();
+  const [version, setVersion] = useState(FALLBACK_APP_VERSION);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (isTauri()) {
+      getVersion()
+        .then(setVersion)
+        .catch(() => {});
+    }
+  }, []);
+
+  const handleCopy = () => {
+    navigator.clipboard
+      .writeText(DATA_FOLDER)
+      .then(() => setCopied(true))
+      .catch(() => {});
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="text-sm font-medium text-fg">
+          {t("settings.appVersion")}
+        </p>
+        <input
+          disabled
+          value={version}
+          aria-label={t("settings.appVersion")}
+          className="input mt-1.5 w-64 cursor-default py-1.5"
+        />
+      </div>
+      <div>
+        <p className="text-sm font-medium text-fg">
+          {t("settings.dataFolder")}
+        </p>
+        <div className="mt-1.5 flex items-center gap-1.5">
+          <span className="font-mono text-sm text-fg-muted">
+            {DATA_FOLDER}
+          </span>
+          <button
+            type="button"
+            onClick={handleCopy}
+            aria-label={copied ? t("settings.copied") : t("settings.copy")}
+            title={copied ? t("settings.copied") : t("settings.copy")}
+            className="rounded p-1 text-fg-muted hover:bg-surface-2 hover:text-fg"
+          >
+            {copied ? (
+              <Check className="h-4 w-4 text-success" aria-hidden="true" />
+            ) : (
+              <Copy className="h-4 w-4" aria-hidden="true" />
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Account/Settings screen — Multilogin-style 2-column layout (audit R6 màn 5):
- * account sidebar card (left) + white content card (right).
- *
- * Intentionally omitted vs Multilogin (n/a for a local-only app):
- * - Sidebar items Subscription / Pricing / Invoices / Buy ISP proxy /
- *   Buy proxy traffic / Buy mobile minutes (cloud billing).
- * - Email / Default workspace / Workspace ID + copy blocks (no cloud account).
+ * account sidebar card (left, multi-item nav) + white content card (right,
+ * one page per nav item). Billing items are rendered disabled for visual
+ * parity only (cloud billing is n/a in a local-only app).
  */
 export function SettingsView() {
   const { t, i18n } = useTranslation();
@@ -62,6 +153,8 @@ export function SettingsView() {
   const [backupDialog, setBackupDialog] = useState<"create" | "restore" | null>(
     null,
   );
+  // (W59c) Sidebar routing — local state, Account settings by default.
+  const [page, setPage] = useState<SettingsPage>("account");
 
   useEffect(() => {
     if (isTauri()) {
@@ -93,140 +186,190 @@ export function SettingsView() {
 
   return (
     <div className="flex h-full min-h-0 gap-2 pb-4 pl-2 pr-4 pt-0">
-      {/* Account sidebar: item h=36 r6, selected #F0F6FF/#055FF0 14/500 (audit R6 màn 5) */}
+      {/* Account sidebar: item h=36 r6, selected #F0F6FF/#055FF0 14/500,
+          hover #F1EDED (audit R6 màn 5) */}
       <nav
         aria-label={t("settings.title")}
         className="card w-[270px] shrink-0 self-start p-3"
       >
-        <button
-          type="button"
-          aria-current="page"
-          className="flex h-9 w-full items-center rounded-md bg-[#F0F6FF] px-3 text-sm font-medium text-accent"
-        >
-          {t("settings.accountSettings")}
-        </button>
+        <ul className="space-y-0.5">
+          {NAV_ITEMS.map((item) => (
+            <li key={item.page}>
+              <button
+                type="button"
+                onClick={() => setPage(item.page)}
+                aria-current={page === item.page ? "page" : undefined}
+                className={`flex h-9 w-full items-center rounded-md px-3 text-sm ${
+                  page === item.page
+                    ? "bg-[#F0F6FF] font-medium text-accent"
+                    : "text-fg hover:bg-[#F1EDED]"
+                }`}
+              >
+                {t(item.labelKey)}
+              </button>
+            </li>
+          ))}
+          {BILLING_ITEMS.map((item) => (
+            <li key={item.labelKey}>
+              <button
+                type="button"
+                disabled
+                aria-disabled="true"
+                className="flex h-9 w-full cursor-not-allowed items-center gap-2 rounded-md px-3 text-sm text-fg opacity-50"
+              >
+                {t(item.labelKey)}
+                {item.beta && (
+                  <span className="rounded bg-[#FEEFC7] px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none text-[#B54708]">
+                    {t("settings.nav.beta")}
+                  </span>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
       </nav>
 
-      {/* Content card */}
+      {/* Content card — one page per nav item */}
       <div className="card min-h-0 flex-1 overflow-y-auto">
         <div className="max-w-2xl space-y-8 p-6">
-          <Section title={t("settings.interfaceTheme")}>
-            <ThemeCards value={mode} onChange={setMode} />
-          </Section>
+          {page === "account" && (
+            <>
+              <AccountInfoBlock />
 
-          <Section title={t("settings.profileBehavior")}>
-            <SettingRow
-              label={t("settings.autoClearCache")}
-              hint={t("settings.autoClearCacheHint")}
-            >
-              <Toggle
-                checked={autoClear}
-                onChange={handleAutoClear}
-                label={t("settings.autoClearCache")}
-              />
-            </SettingRow>
-          </Section>
+              <Section title={t("settings.interfaceTheme")}>
+                <ThemeCards value={mode} onChange={setMode} />
+              </Section>
 
-          <Section title={t("settings.localization")}>
-            <SettingRow
-              label={t("settings.language")}
-              hint={t("settings.languageHint")}
-            >
-              <select
-                aria-label={t("settings.language")}
-                className="input w-48 py-1.5 text-sm"
-                value={language}
-                onChange={(e) => setLocale(e.target.value)}
-              >
-                {SUPPORTED_LOCALES.map((l) => (
-                  <option key={l.code} value={l.code}>
-                    {l.label}
-                  </option>
-                ))}
-              </select>
-            </SettingRow>
-            <SettingRow
-              label={t("settings.dateFormat")}
-              hint={t("settings.comingSoon")}
-            >
-              <select
-                disabled
-                className="input w-48 cursor-not-allowed py-1.5 text-sm opacity-50"
-              >
-                <option>DD/MM/YYYY</option>
-              </select>
-            </SettingRow>
-          </Section>
+              <Section title={t("settings.profileBehavior")}>
+                <SettingRow
+                  label={t("settings.autoClearCache")}
+                  hint={t("settings.autoClearCacheHint")}
+                >
+                  <Toggle
+                    checked={autoClear}
+                    onChange={handleAutoClear}
+                    label={t("settings.autoClearCache")}
+                  />
+                </SettingRow>
+              </Section>
 
-          <Section title={t("backup.sectionTitle")}>
-            <SettingRow
-              label={t("backup.createLabel")}
-              hint={t("backup.createHint")}
-            >
-              <button
-                type="button"
-                disabled={!isTauri()}
-                onClick={() => setBackupDialog("create")}
-                className="btn-secondary h-9 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {t("backup.createButton")}
-              </button>
-            </SettingRow>
-            <SettingRow
-              label={t("backup.restoreLabel")}
-              hint={t("backup.restoreHint")}
-            >
-              <button
-                type="button"
-                disabled={!isTauri()}
-                onClick={() => setBackupDialog("restore")}
-                className="btn-secondary h-9 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {t("backup.restoreButton")}
-              </button>
-            </SettingRow>
-          </Section>
+              <Section title={t("settings.localization")}>
+                <SettingRow
+                  label={t("settings.language")}
+                  hint={t("settings.languageHint")}
+                >
+                  <select
+                    aria-label={t("settings.language")}
+                    className="input w-48 py-1.5 text-sm"
+                    value={language}
+                    onChange={(e) => setLocale(e.target.value)}
+                  >
+                    {SUPPORTED_LOCALES.map((l) => (
+                      <option key={l.code} value={l.code}>
+                        {l.label}
+                      </option>
+                    ))}
+                  </select>
+                </SettingRow>
+                <SettingRow
+                  label={t("settings.dateFormat")}
+                  hint={t("settings.comingSoon")}
+                >
+                  <select
+                    disabled
+                    className="input w-48 cursor-not-allowed py-1.5 text-sm opacity-50"
+                  >
+                    <option>DD/MM/YYYY</option>
+                  </select>
+                </SettingRow>
+              </Section>
+
+              {saveError && (
+                <p className="text-xs text-danger" role="alert">
+                  {t("settings.saveFailed")}
+                </p>
+              )}
+            </>
+          )}
+
+          {page === "backup" && (
+            <>
+              <Section title={t("backup.sectionTitle")}>
+                <SettingRow
+                  label={t("backup.createLabel")}
+                  hint={t("backup.createHint")}
+                >
+                  <button
+                    type="button"
+                    disabled={!isTauri()}
+                    onClick={() => setBackupDialog("create")}
+                    className="btn-secondary h-9 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {t("backup.createButton")}
+                  </button>
+                </SettingRow>
+                <SettingRow
+                  label={t("backup.restoreLabel")}
+                  hint={t("backup.restoreHint")}
+                >
+                  <button
+                    type="button"
+                    disabled={!isTauri()}
+                    onClick={() => setBackupDialog("restore")}
+                    className="btn-secondary h-9 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {t("backup.restoreButton")}
+                  </button>
+                </SettingRow>
+              </Section>
+
+              {/* (W52-E1) Recovery Key — export/import master key để khôi phục
+                  backup .bxa trên máy mới. */}
+              <Section title={t("recoveryKey.sectionTitle")}>
+                <RecoveryKeySection />
+              </Section>
+            </>
+          )}
 
           {/* (W51-B2) Cloud backup (Telegram) — primary destination config. */}
-          <Section title={t("telegram.sectionTitle")}>
-            <TelegramSyncSection />
-          </Section>
+          {page === "cloudSync" && (
+            <Section title={t("telegram.sectionTitle")}>
+              <TelegramSyncSection />
+            </Section>
+          )}
 
-          {/* (W52-E1) Recovery Key — export/import master key để khôi phục
-              backup .bxa trên máy mới. */}
-          <Section title={t("recoveryKey.sectionTitle")}>
-            <RecoveryKeySection />
-          </Section>
+          {page === "system" && (
+            <>
+              <Section title={t("system.title")}>
+                <p className="text-xs text-fg-muted">{t("system.hint")}</p>
+                <SystemPanel />
+              </Section>
 
-          <Section title={t("system.title")}>
-            <p className="text-xs text-fg-muted">{t("system.hint")}</p>
-            <SystemPanel />
-          </Section>
+              <Section title={t("settings.support")}>
+                <SettingRow
+                  label={t("settings.logs")}
+                  hint={t("settings.logsHint")}
+                >
+                  <button
+                    type="button"
+                    disabled={!isTauri()}
+                    onClick={() => {
+                      api.openLogsFolder().catch(() => {});
+                    }}
+                    className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {t("settings.openLogsFolder")}
+                  </button>
+                </SettingRow>
+              </Section>
+            </>
+          )}
 
-          <Section title={t("audit.title")}>
-            <p className="text-xs text-fg-muted">{t("audit.hint")}</p>
-            <AuditLog />
-          </Section>
-
-          <Section title={t("settings.support")}>
-            <SettingRow label={t("settings.logs")} hint={t("settings.logsHint")}>
-              <button
-                type="button"
-                disabled={!isTauri()}
-                onClick={() => {
-                  api.openLogsFolder().catch(() => {});
-                }}
-                className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {t("settings.openLogsFolder")}
-              </button>
-            </SettingRow>
-          </Section>
-
-          {saveError && (
-            <p className="text-xs text-danger" role="alert">
-              {t("settings.saveFailed")}
-            </p>
+          {page === "audit" && (
+            <Section title={t("audit.title")}>
+              <p className="text-xs text-fg-muted">{t("audit.hint")}</p>
+              <AuditLog />
+            </Section>
           )}
         </div>
       </div>
