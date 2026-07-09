@@ -897,6 +897,28 @@ mod tests {
         assert_eq!(count_key(&args, "--fingerprint-location"), 0);
     }
 
+    // (d) (W56b) KHÔNG proxy + geoip=true → GeoInfo từ OS-locale fallback vẫn
+    // điền tz/locale/toạ độ như GeoIP proxy (build_args không phân biệt nguồn).
+    #[test]
+    fn geoip_no_proxy_os_locale_fallback_fills_args() {
+        let mut p = base_profile();
+        p.geoip = true;
+        let geo = crate::geoip::geo_from_locale_parts(
+            Some("vi_VN.UTF-8"),
+            Some("Asia/Ho_Chi_Minh".into()),
+            &p.id,
+        );
+        let args = super::build_args(&p, None, 1, &[], Some(&geo));
+        assert_eq!(count_key(&args, "--proxy-server"), 0);
+        assert_eq!(
+            value_of(&args, "--fingerprint-timezone"),
+            Some("Asia/Ho_Chi_Minh")
+        );
+        assert_eq!(value_of(&args, "--lang"), Some("vi-VN"));
+        assert_eq!(value_of(&args, "--fingerprint-locale"), Some("vi-VN"));
+        assert_eq!(count_key(&args, "--fingerprint-location"), 1);
+    }
+
     // --- (W54) write_profile_name_prefs ---
 
     struct TempDir(std::path::PathBuf);

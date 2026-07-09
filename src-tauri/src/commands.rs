@@ -900,6 +900,8 @@ async fn launch_profile_inner(
     // (W35) GeoIP auto-match: geoip=true + có proxy + còn field trống → resolve
     // tz/locale/geo từ exit IP của proxy. Best-effort: lỗi mạng → launch tiếp
     // với giá trị profile như cũ. Thủ công thắng (xem launcher::build_args).
+    // (W56b) KHÔNG proxy + geoip=true + còn field trống → fallback offline từ
+    // OS locale + timezone thật của máy (deterministic theo profile id).
     let geo = match proxy_url.as_deref() {
         Some(url) if geoip::profile_needs_geoip(&profile) => {
             let g = geoip::resolve_geo(url).await;
@@ -909,6 +911,9 @@ async fn launch_profile_inner(
                 );
             }
             g
+        }
+        None if geoip::profile_needs_geoip(&profile) => {
+            Some(geoip::geo_from_os_locale(profile_id))
         }
         _ => None,
     };
