@@ -48,9 +48,16 @@ pub fn run() {
     tauri::Builder::default()
         // (W50F) External links (Help/Support/docs) qua opener plugin.
         .plugin(tauri_plugin_opener::init())
+        // (W60a) Restart app sau khi cài update.
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             use std::sync::Arc;
             use tauri::Manager;
+
+            // (W60a) Auto-update qua GitHub Releases — chỉ desktop.
+            #[cfg(desktop)]
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
 
             let db = Arc::new(db::Db::open_default()?);
 
