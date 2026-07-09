@@ -3,8 +3,10 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   api,
+  isTauri,
   type Extension,
   type Folder,
+  type Platform,
   type Profile,
   type ProfileInput,
   type ProfileTemplate,
@@ -38,6 +40,11 @@ type TabId = (typeof TABS)[number];
 
 const HOST_PLATFORM = detectHostPlatform();
 const DEFAULT_FOLDER_NAME = "Default folder";
+
+/** (W56) Random seed string for a new profile (same range as the 🎲 button). */
+function randomSeed(): string {
+  return String(Math.floor(Math.random() * 90000) + 10000);
+}
 
 function initialState(profile: Profile | null, defaultName: string): FormState {
   if (profile) {
@@ -86,7 +93,9 @@ function initialState(profile: Profile | null, defaultName: string): FormState {
   }
   return {
     name: defaultName,
-    fingerprint_seed: null,
+    // (W56) Create mode gets a visible random seed right away; GPU + screen
+    // are then suggested from it on mount (deterministic per platform+seed).
+    fingerprint_seed: randomSeed(),
     platform: HOST_PLATFORM,
     timezone: null,
     locale: null,
@@ -199,6 +208,50 @@ export function ProfileForm({
 
   const set: SetField = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  // (W56) Create mode: prefill GPU + screen consistent with (platform, seed).
+  // Values land in the form so the user can see and override them.
+  const suggestFingerprint = (platform: Platform, seed: string | null) => {
+    if (!isTauri()) return;
+    api
+      .suggestFingerprint(platform, seed ?? "")
+      .then((s) => {
+        setForm((prev) => ({
+          ...prev,
+          screen_width: s.screen_width,
+          screen_height: s.screen_height,
+          gpu_vendor: s.gpu?.vendor ?? prev.gpu_vendor,
+          gpu_renderer: s.gpu?.renderer ?? prev.gpu_renderer,
+        }));
+      })
+      .catch(() => {
+        // offline / non-Tauri: keep the current defaults
+      });
+  };
+
+  // (W56) On mount (create mode only): suggest from the initial random seed.
+  const suggestedOnMount = useRef(false);
+  useEffect(() => {
+    if (isEdit || suggestedOnMount.current) return;
+    suggestedOnMount.current = true;
+    suggestFingerprint(form.platform, form.fingerprint_seed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only
+  }, []);
+
+  // (W56) 🎲 seed: new seed + (create mode) re-suggest GPU + screen so the
+  // fingerprint stays consistent. Edit mode keeps the old set-seed-only flow.
+  const handleRerollSeed = () => {
+    const seed = randomSeed();
+    set("fingerprint_seed", seed);
+    if (!isEdit) suggestFingerprint(form.platform, seed);
+  };
+
+  // (W56) Platform switch in create mode re-suggests (a windows GPU pair is
+  // impossible on macOS and vice versa). Edit mode is unchanged.
+  const handlePlatformChange = (platform: Platform) => {
+    set("platform", platform);
+    if (!isEdit) suggestFingerprint(platform, form.fingerprint_seed);
   };
 
   // Re-sync when switching to a different profile.
@@ -643,7 +696,12 @@ export function ProfileForm({
               }}
             >
               <SectionHeading label={t("pform.tabs.fingerprint")} />
-              <FingerprintTab form={form} set={set} />
+              <FingerprintTab
+                form={form}
+                set={set}
+                onRerollSeed={handleRerollSeed}
+                onPlatformChange={handlePlatformChange}
+              />
             </section>
             <section
               id="pf-section-extra"

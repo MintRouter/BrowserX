@@ -21,25 +21,18 @@ import {
 interface FingerprintTabProps {
   form: FormState;
   set: SetField;
+  /** (W56) Create mode: reroll seed + re-suggest GPU/screen (ProfileForm). */
+  onRerollSeed?: () => void;
+  /** (W56) Create mode: switch platform + re-suggest GPU/screen (ProfileForm). */
+  onPlatformChange?: (platform: Platform) => void;
 }
 
-/** (W52-E2) Map the profile's fingerprint seed to the u64 `suggest_gpu` expects:
- *  numeric string as-is, other strings FNV-1a hashed, empty/null → random. */
-function seedToNumber(seed: string | null): number {
-  const s = (seed ?? "").trim();
-  if (/^\d+$/.test(s)) return Number(s);
-  if (s) {
-    let h = 0x811c9dc5;
-    for (let i = 0; i < s.length; i++) {
-      h ^= s.charCodeAt(i);
-      h = Math.imul(h, 0x01000193) >>> 0;
-    }
-    return h;
-  }
-  return Math.floor(Math.random() * 0xffffffff);
-}
-
-export function FingerprintTab({ form, set }: FingerprintTabProps) {
+export function FingerprintTab({
+  form,
+  set,
+  onRerollSeed,
+  onPlatformChange,
+}: FingerprintTabProps) {
   const { t } = useTranslation();
 
   // (W52-E2) Warn (non-blocking) when the platform ↔ GPU combo is impossible.
@@ -58,14 +51,16 @@ export function FingerprintTab({ form, set }: FingerprintTabProps) {
     };
   }, [form.platform, form.gpu_vendor, form.gpu_renderer]);
 
+  // (W56) Seed-string mapping now lives in the backend (`suggest_fingerprint`);
+  // this dice button only refreshes the GPU pair.
   const autoGpu = () => {
     if (!isTauri()) return;
     api
-      .suggestGpu(form.platform, seedToNumber(form.fingerprint_seed))
+      .suggestFingerprint(form.platform, form.fingerprint_seed ?? "")
       .then((s) => {
-        if (s) {
-          set("gpu_vendor", s.vendor);
-          set("gpu_renderer", s.renderer);
+        if (s.gpu) {
+          set("gpu_vendor", s.gpu.vendor);
+          set("gpu_renderer", s.gpu.renderer);
         }
       })
       .catch(() => {});
@@ -112,7 +107,12 @@ export function FingerprintTab({ form, set }: FingerprintTabProps) {
           <button
             type="button"
             onClick={() =>
-              set("fingerprint_seed", String(Math.floor(Math.random() * 90000) + 10000))
+              onRerollSeed
+                ? onRerollSeed()
+                : set(
+                    "fingerprint_seed",
+                    String(Math.floor(Math.random() * 90000) + 10000),
+                  )
             }
             className="btn-secondary px-2.5"
             aria-label={t("pform.randomizeSeed")}
@@ -133,7 +133,9 @@ export function FingerprintTab({ form, set }: FingerprintTabProps) {
             { value: "linux", label: "Linux" },
           ]}
           value={form.platform}
-          onChange={(v) => set("platform", v)}
+          onChange={(v) =>
+            onPlatformChange ? onPlatformChange(v) : set("platform", v)
+          }
           label={t("pform.operatingSystem")}
         />
       </div>

@@ -30,7 +30,7 @@ const MB: u64 = 1024 * 1024;
 /// Event nội bộ forward từ update-loop về main flow.
 enum PocEvent {
     Auth(AuthorizationState),
-    SendSucceeded { old_message_id: i64, message: types::Message },
+    SendSucceeded { old_message_id: i64, message: Box<types::Message> },
     SendFailed { old_message_id: i64, error: types::Error },
 }
 
@@ -110,7 +110,10 @@ async fn handle_update(update: Update, tx: &Sender<PocEvent>, upload_progress: &
         }
         Update::MessageSendSucceeded(u) => {
             let _ = tx
-                .send(PocEvent::SendSucceeded { old_message_id: u.old_message_id, message: u.message })
+                .send(PocEvent::SendSucceeded {
+                    old_message_id: u.old_message_id,
+                    message: Box::new(u.message),
+                })
                 .await;
         }
         Update::MessageSendFailed(u) => {

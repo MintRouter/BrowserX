@@ -684,6 +684,7 @@ CREATE TABLE IF NOT EXISTS cloud_upload_state (
 /// - `transport`: "bot_api" (mặc định — mọi row cũ là Bot API) | "userbot".
 /// - `chat_id`: chat_id private channel MTProto (NULL với bot_api — chat_id
 ///   Bot API nằm trong credentials); userbot cần nó cho getMessage/deleteMessages.
+///
 /// Userbot upload NGUYÊN file (không split) → 1 row/bản, `file_id` để chuỗi
 /// rỗng (getFile là khái niệm Bot API). ALTER TABLE không có IF NOT EXISTS —
 /// idempotency đảm bảo bởi guard `user_version < 16`.

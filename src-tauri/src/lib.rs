@@ -208,6 +208,7 @@ pub fn run() {
             commands::restore_app_db,
             commands::cancel_app_db_restore,
             commands::suggest_gpu,
+            commands::suggest_fingerprint,
             commands::check_gpu_consistency,
         ])
         .build(tauri::generate_context!())

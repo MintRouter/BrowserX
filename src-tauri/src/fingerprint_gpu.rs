@@ -67,6 +67,89 @@ pub fn pick_gpu(platform: &str, seed: u64) -> Option<&'static GpuEntry> {
     None
 }
 
+/// (W56) Map seed dạng STRING (như `Profile.fingerprint_seed`) sang u64 để
+/// pick GPU/screen — mapping thống nhất 1 nơi ở backend:
+/// - chuỗi toàn số: parse as-is (u64);
+/// - chuỗi khác: FNV-1a 64-bit;
+/// - rỗng/whitespace: random (mỗi lần gọi một giá trị mới).
+pub fn seed_to_u64(seed: &str) -> u64 {
+    let s = seed.trim();
+    if s.is_empty() {
+        return rand::random::<u64>();
+    }
+    if let Ok(n) = s.parse::<u64>() {
+        return n;
+    }
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in s.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+/// (W56) Pool screen resolution phổ biến per-platform (weighted, `(w, h, weight)`).
+/// mac dùng logical px (Retina scaled).
+const SCREENS_WINDOWS: &[(u32, u32, u32)] = &[
+    (1920, 1080, 35),
+    (1366, 768, 12),
+    (2560, 1440, 10),
+    (1536, 864, 8),
+    (1440, 900, 5),
+    (1600, 900, 4),
+    (3840, 2160, 4),
+    (1280, 720, 3),
+    (1680, 1050, 2),
+    (2560, 1080, 2),
+];
+const SCREENS_MAC: &[(u32, u32, u32)] = &[
+    (1440, 900, 20),
+    (1512, 982, 15),
+    (1728, 1117, 8),
+    (1680, 1050, 6),
+    (2560, 1440, 6),
+    (1920, 1080, 4),
+    (2560, 1600, 3),
+];
+const SCREENS_LINUX: &[(u32, u32, u32)] = &[
+    (1920, 1080, 30),
+    (2560, 1440, 8),
+    (1366, 768, 6),
+    (1600, 900, 3),
+    (3840, 2160, 3),
+    (1680, 1050, 2),
+];
+
+/// Trộn bit kiểu splitmix64 — để pick_screen KHÔNG tương quan thứ tự với
+/// pick_gpu dù cùng nhận 1 seed (cả hai đều `% total_weight`).
+fn splitmix64(mut x: u64) -> u64 {
+    x = x.wrapping_add(0x9E3779B97F4A7C15);
+    x = (x ^ (x >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94D049BB133111EB);
+    x ^ (x >> 31)
+}
+
+/// (W56) Chọn screen resolution cho `platform`, weighted-deterministic theo
+/// `seed` (đã trộn splitmix64). Platform lạ → fallback 1920×1080.
+pub fn pick_screen(platform: &str, seed: u64) -> (u32, u32) {
+    let pool = match normalize_platform(platform) {
+        "windows" => SCREENS_WINDOWS,
+        "mac" => SCREENS_MAC,
+        "linux" => SCREENS_LINUX,
+        _ => return (1920, 1080),
+    };
+    let total: u64 = pool.iter().map(|&(_, _, w)| w.max(1) as u64).sum();
+    let mut pick = splitmix64(seed) % total;
+    for &(w, h, weight) in pool {
+        let weight = weight.max(1) as u64;
+        if pick < weight {
+            return (w, h);
+        }
+        pick -= weight;
+    }
+    (1920, 1080)
+}
+
 /// Cảnh báo khi combo platform ↔ GPU renderer bất khả thi (KHÔNG chặn cứng,
 /// chỉ mô tả để FE hiển thị):
 /// - macOS/Linux + renderer Direct3D/D3D11 (chỉ Windows dùng D3D).
@@ -147,6 +230,59 @@ mod tests {
                 e.renderer
             );
         }
+    }
+
+    #[test]
+    fn seed_to_u64_numeric_fnv_empty() {
+        // Numeric string: parse as-is.
+        assert_eq!(seed_to_u64("12345"), 12345);
+        assert_eq!(seed_to_u64(" 42 "), 42);
+        // Non-numeric: FNV-1a 64 deterministic, khác nhau theo input.
+        assert_eq!(seed_to_u64("abc"), seed_to_u64("abc"));
+        assert_ne!(seed_to_u64("abc"), seed_to_u64("abd"));
+        // FNV-1a 64 reference: "a" → 0xaf63dc4c8601ec8c.
+        assert_eq!(seed_to_u64("a"), 0xaf63dc4c8601ec8c);
+        // Rỗng/whitespace: random — chỉ kiểm không panic (giá trị bất kỳ).
+        let _ = seed_to_u64("");
+        let _ = seed_to_u64("   ");
+    }
+
+    #[test]
+    fn pick_screen_deterministic_and_in_platform_pool() {
+        for (platform, pool) in [
+            ("windows", SCREENS_WINDOWS),
+            ("macos", SCREENS_MAC),
+            ("linux", SCREENS_LINUX),
+        ] {
+            for seed in [0u64, 1, 12345, u64::MAX] {
+                let (w, h) = pick_screen(platform, seed);
+                assert_eq!(pick_screen(platform, seed), (w, h), "deterministic");
+                assert!(
+                    pool.iter().any(|&(pw, ph, _)| (pw, ph) == (w, h)),
+                    "{platform} seed {seed}: {w}x{h} phải nằm trong pool"
+                );
+            }
+        }
+        // Platform lạ → fallback.
+        assert_eq!(pick_screen("plan9", 7), (1920, 1080));
+        // Phân bố: tồn tại 2 seed cho kết quả khác nhau.
+        let first = pick_screen("windows", 0);
+        assert!(
+            (1..200u64).any(|s| pick_screen("windows", s) != first),
+            "weighted pick phải trả >1 resolution khác nhau trên nhiều seed"
+        );
+    }
+
+    #[test]
+    fn pick_screen_independent_from_pick_gpu_order() {
+        // Cùng seed: pick_screen trộn splitmix64 nên vị trí trong pool không
+        // tương quan tuyến tính với pick_gpu (seed nhỏ liên tiếp không map
+        // cùng thứ tự đầu pool).
+        let picks: Vec<(u32, u32)> = (0..10).map(|s| pick_screen("windows", s)).collect();
+        assert!(
+            picks.iter().any(|&p| p != picks[0]),
+            "10 seed liên tiếp phải cho >1 resolution (đã trộn bit)"
+        );
     }
 
     #[test]

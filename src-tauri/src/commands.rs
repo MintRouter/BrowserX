@@ -3006,6 +3006,35 @@ pub fn suggest_gpu(platform: String, seed: u64) -> Option<crate::fingerprint_gpu
     })
 }
 
+/// (W56) Bộ gợi ý fingerprint create-mode: GPU + screen resolution nhất quán
+/// với `platform`, deterministic theo `seed` (string như trong form).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FingerprintSuggestion {
+    pub gpu: Option<crate::fingerprint_gpu::GpuSuggestion>,
+    pub screen_width: u32,
+    pub screen_height: u32,
+}
+
+/// (W56) Gợi ý GPU + screen cho profile mới. `seed` nhận string y như form
+/// (numeric as-is, chuỗi khác FNV-1a, rỗng → random); cùng (platform, seed)
+/// → cùng kết quả. Screen trộn splitmix64 nên độc lập với pick GPU.
+#[tauri::command]
+pub fn suggest_fingerprint(platform: String, seed: String) -> FingerprintSuggestion {
+    let seed = crate::fingerprint_gpu::seed_to_u64(&seed);
+    let gpu = crate::fingerprint_gpu::pick_gpu(&platform, seed).map(|e| {
+        crate::fingerprint_gpu::GpuSuggestion {
+            vendor: e.vendor.clone(),
+            renderer: e.renderer.clone(),
+        }
+    });
+    let (screen_width, screen_height) = crate::fingerprint_gpu::pick_screen(&platform, seed);
+    FingerprintSuggestion {
+        gpu,
+        screen_width,
+        screen_height,
+    }
+}
+
 /// Kiểm tra nhất quán platform ↔ GPU do user set thủ công. Trả cảnh báo (không
 /// chặn) khi combo bất khả thi (vd macOS + Direct3D11, Windows + Metal); None
 /// khi hợp lệ hoặc chưa set renderer (auto theo seed).

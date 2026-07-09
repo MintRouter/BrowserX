@@ -14,6 +14,7 @@
 //! 2. User restart app; [`apply_pending_restore`] chạy lúc STARTUP (trước khi
 //!    mở DB): DB hiện tại đổi tên `browserx.db.bak-cloud-restore-<ts>` (kèm
 //!    -wal/-shm — KHÔNG để SQLite áp WAL cũ lên DB mới) rồi staged vào chỗ.
+//!
 //! Kill giữa chừng: staged còn → lần startup sau áp tiếp; DB cũ luôn còn bản
 //! `.bak-cloud-restore-*` (giữ [`MAX_RESTORE_BAKS`] bản mới nhất).
 

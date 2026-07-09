@@ -545,6 +545,13 @@ export interface GpuSuggestion {
   renderer: string;
 }
 
+/** (W56) GPU + screen resolution suggested for a new profile. */
+export interface FingerprintSuggestion {
+  gpu: GpuSuggestion | null;
+  screen_width: number;
+  screen_height: number;
+}
+
 // --- Commands ---
 
 export const api = {
@@ -808,6 +815,10 @@ export const api = {
   /** Weighted-deterministic pick by seed; null when the platform has no pool entry. */
   suggestGpu: (platform: Platform, seed: number) =>
     invoke<GpuSuggestion | null>("suggest_gpu", { platform, seed }),
+  /** (W56) GPU + screen suggestion from the form seed string (numeric as-is,
+   *  other strings FNV-1a hashed, empty → random on the backend). */
+  suggestFingerprint: (platform: Platform, seed: string) =>
+    invoke<FingerprintSuggestion>("suggest_fingerprint", { platform, seed }),
   /** Warning message when the platform ↔ GPU combo is impossible; null when consistent. */
   checkGpuConsistency: (
     platform: Platform,
