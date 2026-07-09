@@ -35,8 +35,10 @@ Luồng chính: **Profile (SQLite) → fingerprint flags → `launch_persistent_
 
 ### 1.2 Cache & phân giải phiên bản
 
-- Cache mặc định `~/.cloakbrowser/` (override `CLOAKBROWSER_CACHE_DIR`) —
-  `config.py#L150-159`. Thư mục binary: `chromium-<v>` hoặc `chromium-<v>-pro`
+- Cache mặc định của wrapper gốc là `~/.cloakbrowser/` (override
+  `CLOAKBROWSER_CACHE_DIR`) — `config.py#L150-159`. **BrowserX đổi default sang
+  `~/.browserx/engine/`** (env override giữ nguyên; tự migrate dir cũ — docs/03
+  §3.1). Thư mục binary: `chromium-<v>` hoặc `chromium-<v>-pro`
   (`config.py#L162-166`); đường dẫn exe khác nhau theo OS (macOS `.app`, Windows
   `chrome.exe`, Linux `chrome`) — `config.py#L169-180`.
 - `get_effective_version()` đọc marker `latest_version_<tag>` / `latest_pro_version_<tag>`

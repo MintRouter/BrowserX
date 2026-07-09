@@ -69,7 +69,7 @@ flowchart TB
 
     DB[("SQLite file<br/>~/.browserx/browserx.db")]
     KEY["OS keychain<br/>(khoá mã hoá)"]
-    CACHE[("Binary cache<br/>~/.cloakbrowser/")]
+    CACHE[("Binary cache<br/>~/.browserx/engine/")]
 
     RUI <-->|"invoke() / events"| CMD
     CMD --> PSTORE & PXSTORE & LAUNCH & CDP
@@ -128,14 +128,18 @@ tại `~/.browserx/browserx.db`, và **bổ sung mã hoá at-rest** cho bí mậ
 
 Port trực tiếp từ `config.py get_binary_path()` (`config.py#L169-L181`):
 
-| OS | Đường dẫn executable (dưới `~/.cloakbrowser/chromium-<version>/`) | Ref |
+| OS | Đường dẫn executable (dưới `~/.browserx/engine/chromium-<version>/`) | Ref |
 |---|---|---|
 | macOS (Darwin) | `Chromium.app/Contents/MacOS/Chromium` | `config.py#L173-L175` |
 | Windows | `chrome.exe` | `config.py#L176-L177` |
 | Linux | `chrome` (binary phẳng) | `config.py#L178-L180` |
 
-Cache dir mặc định `~/.cloakbrowser/` (override `CLOAKBROWSER_CACHE_DIR` —
-`config.py#L150-L159`); phiên bản Chromium theo platform lấy từ
+Cache dir mặc định của BrowserX là **`~/.browserx/engine/`** (W58e — gom về data
+dir của app; env `CLOAKBROWSER_CACHE_DIR` vẫn override được). Wrapper Python gốc
+dùng `~/.cloakbrowser/` (`config.py#L150-L159`); app startup **tự migrate** dir cũ
+này sang dir mới bằng `fs::rename` (một lần, chỉ khi dir mới chưa tồn tại). Thư mục
+`engine/` bị **loại khỏi backup encrypted** (binary tải lại được). Phiên bản
+Chromium theo platform lấy từ
 `PLATFORM_CHROMIUM_VERSIONS` (`config.py#L20-L26`: `linux-x64`, `linux-arm64`,
 `darwin-arm64`, `darwin-x64`, `windows-x64`) và mapping `(system, machine) → tag`
 trong `SUPPORTED_PLATFORMS` (`config.py#L91-L98`). Rust tái hiện logic này bằng

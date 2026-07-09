@@ -189,5 +189,6 @@ rm -rf ~/.cloakbrowser-manager
 ```
 
 Volume dữ liệu ở `~/.cloakbrowser-manager` (`docker-compose.yml#L6-7`); binary engine
-cache mặc định ở `~/.cloakbrowser` (`refs/CloakBrowser/cloakbrowser/config.py#L150-159`).
-Không đụng gì vào `refs/`.
+cache của **wrapper gốc** mặc định ở `~/.cloakbrowser`
+(`refs/CloakBrowser/cloakbrowser/config.py#L150-159`) — riêng **BrowserX** dùng
+`~/.browserx/engine` (docs/03 §3.1). Không đụng gì vào `refs/`.

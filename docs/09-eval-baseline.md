@@ -12,8 +12,10 @@
 ## 1. Version engine
 
 - **Binary chạy baseline:** `chromium-145.0.7632.109.2` (cache tại
-  `~/.cloakbrowser/chromium-145.0.7632.109.2`), tức **Chromium 145** free-tier cho
-  macOS (arm64/x64), **26 patch** (`refs/CloakBrowser/README.md#L845`).
+  `~/.cloakbrowser/chromium-145.0.7632.109.2` — vị trí lúc đo, trước W58e; default
+  hiện tại là `~/.browserx/engine/`, dir cũ được app tự migrate — docs/03 §3.1),
+  tức **Chromium 145** free-tier cho macOS (arm64/x64), **26 patch**
+  (`refs/CloakBrowser/README.md#L845`).
 - **Bảng version theo platform** (`refs/CloakBrowser/cloakbrowser/config.py#L20-L26`):
   `darwin-arm64`/`darwin-x64` = `145.0.7632.109.2`; `linux-x64`/`windows-x64` =
   `146.0.7680.177.5`; `linux-arm64` = `146.0.7680.177.3`.

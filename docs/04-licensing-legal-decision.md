@@ -137,8 +137,8 @@ toàn duy nhất: **tải runtime**, chỉ ship **code + script tải** (đúng 
   áp dụng cho URL mirror tuỳ chỉnh, **không** bỏ qua được chữ ký kênh chính thức
   (`refs/CloakBrowser/README.md#L663`).
 - **Việc cần làm trong repo ta:**
-  - [ ] Thêm `refs/` và mọi thư mục cache binary (`~/.cloakbrowser/`, `*.tar`, `*.zip` chromium)
-        vào `.gitignore`.
+  - [ ] Thêm `refs/` và mọi thư mục cache binary (`~/.browserx/engine/` — hoặc
+        `~/.cloakbrowser/` cũ trước W58e — `*.tar`, `*.zip` chromium) vào `.gitignore`.
   - [ ] KHÔNG bake binary vào Docker image công khai phân phối cho bên thứ ba (đó là
         redistribution — `BINARY-LICENSE.md#L30`). Nếu build image **nội bộ**, được phép
         (`#L39`), nhưng **không push image kèm binary lên registry công khai**.
