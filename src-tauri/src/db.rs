@@ -705,24 +705,12 @@ const SCHEMA_V17: &str = "
 ALTER TABLE profiles ADD COLUMN engine_version TEXT NOT NULL DEFAULT '';
 ";
 
-/// Migration v17→v18 (W59b): TỰ-CHỮA-LÀNH — DB production từng bị đụng độ đánh
-/// số migration giữa các wave song song (v15/16/17 bị nhiều wave dùng) →
-/// user_version cao nhưng THIẾU DDL của bậc giữa; guard `version < N` bỏ qua
-/// vĩnh viễn nên "no such table: cloud_upload_state" ở runtime. Bậc này chạy
-/// lại DDL v15 (CREATE IF NOT EXISTS — copy đúng [`SCHEMA_V15`]); các cột từ
-/// ALTER TABLE của v16/v17 được chữa trong `migrate_inner` bằng
-/// [`column_exists`] (ALTER không có IF NOT EXISTS). Idempotent với cả DB
-/// lành mạnh lẫn DB thiếu DDL.
-const SCHEMA_V18: &str = "
-CREATE TABLE IF NOT EXISTS cloud_upload_state (
-    profile_id TEXT PRIMARY KEY,
-    status TEXT NOT NULL DEFAULT 'pending',
-    last_error TEXT,
-    last_error_at TEXT,
-    retry_count INTEGER NOT NULL DEFAULT 0,
-    updated_at TEXT NOT NULL
-);
-";
+// Migration v17→v18 (W59b): TỰ-CHỮA-LÀNH — DB production từng bị đụng độ đánh
+// số migration giữa các wave song song (v15/16/17 bị nhiều wave dùng) →
+// user_version cao nhưng THIẾU DDL của bậc giữa; guard `version < N` bỏ qua
+// vĩnh viễn nên "no such table: cloud_upload_state" ở runtime. DDL heal nằm
+// trong [`ensure_schema_integrity`] (W59d): bậc v18 gọi chung hàm đó, và hàm
+// đó CŨNG chạy vô điều kiện mỗi lần mở DB — hết phụ thuộc user_version.
 
 /// Kết nối SQLite của app. `Mutex<Connection>` để dùng được trong `tauri::State`
 /// (single-process, mọi thao tác tuần tự qua lock — đủ cho local app).
@@ -864,8 +852,11 @@ fn backup_db_file(db_path: &Path, version: i64) -> Result<()> {
 
 /// Migration idempotent theo `PRAGMA user_version`; chạy lại không lỗi
 /// (mọi CREATE đều `IF NOT EXISTS`). Migration tương lai: thêm nhánh `< 2`, `< 3`…
+/// (W59d) Sau migration, [`ensure_schema_integrity`] chạy VÔ ĐIỀU KIỆN — kể cả
+/// khi `migrate_inner` early-return vì version đã đủ — để chữa DB thiếu DDL.
 fn migrate(conn: &Connection) -> Result<()> {
-    migrate_inner(conn, |_| Ok(()))
+    migrate_inner(conn, |_| Ok(()))?;
+    ensure_schema_integrity(conn)
 }
 
 /// Toàn bộ chuỗi migration chạy trong MỘT transaction (BEGIN IMMEDIATE … COMMIT):
@@ -964,29 +955,9 @@ fn migrate_inner(conn: &Connection, checkpoint: impl Fn(i64) -> Result<()>) -> R
             checkpoint(17)?;
         }
         if version < 18 {
-            // (W59b) Tự-chữa-lành DDL v15–v17 bị thiếu do đụng số version:
-            // bảng qua CREATE IF NOT EXISTS, cột qua check PRAGMA table_info
-            // trước khi ALTER — DB lành mạnh không đổi gì ngoài version.
-            conn.execute_batch(SCHEMA_V18)?;
-            if !column_exists(conn, "cloud_backups", "transport")? {
-                conn.execute_batch(
-                    "ALTER TABLE cloud_backups ADD COLUMN transport TEXT NOT NULL DEFAULT 'bot_api';",
-                )?;
-            }
-            if !column_exists(conn, "cloud_backups", "chat_id")? {
-                conn.execute_batch("ALTER TABLE cloud_backups ADD COLUMN chat_id INTEGER;")?;
-            }
-            if !column_exists(conn, "profiles", "engine_version")? {
-                conn.execute_batch(
-                    "ALTER TABLE profiles ADD COLUMN engine_version TEXT NOT NULL DEFAULT '';",
-                )?;
-            }
-            // Backfill giống v17 cho row còn rỗng (cột vừa được thêm lại) —
-            // no-op với DB đã backfill.
-            conn.execute(
-                "UPDATE profiles SET engine_version = ?1 WHERE engine_version = ''",
-                params![crate::config::get_effective_version()],
-            )?;
+            // (W59b/W59d) Bậc tự-chữa-lành: DDL nằm trong ensure_schema_integrity
+            // (gọi chung để không duplicate) — bậc này chỉ còn để nâng version.
+            ensure_schema_integrity(conn)?;
             checkpoint(18)?;
         }
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -1002,6 +973,49 @@ fn migrate_inner(conn: &Connection, checkpoint: impl Fn(i64) -> Result<()>) -> R
             Err(e)
         }
     }
+}
+
+/// (W59d) Tự-chữa-lành schema — chạy VÔ ĐIỀU KIỆN mỗi lần mở DB (cuối
+/// [`migrate`]), KHÔNG phụ thuộc `user_version`: chữa cả DB đã ở version >= 18
+/// mà thiếu DDL (verifier W59 lỗ hổng 2 — early-return theo version bỏ qua
+/// vĩnh viễn). Phạm vi: DDL v14–v17 từng bị rủi ro đụng số migration giữa các
+/// wave song song — KHÔNG diff toàn schema. Phải RẺ (vài PRAGMA +
+/// CREATE IF NOT EXISTS) và idempotent tuyệt đối vì chạy mọi lần mở:
+/// - Bảng `cloud_backups` (copy đúng [`SCHEMA_V14`]) tạo TRƯỚC các column
+///   check — nếu thiếu bảng mà ALTER trước thì fail toàn migration (lỗ hổng 1).
+/// - Bảng `cloud_upload_state` (copy đúng [`SCHEMA_V15`]).
+/// - Cột v16 (`transport`/`chat_id`) + v17 (`engine_version`) qua
+///   [`column_exists`] (ALTER TABLE không có IF NOT EXISTS) — lỗ hổng 3.
+fn ensure_schema_integrity(conn: &Connection) -> Result<()> {
+    conn.execute_batch(SCHEMA_V14)?;
+    conn.execute_batch(SCHEMA_V15)?;
+    if !column_exists(conn, "cloud_backups", "transport")? {
+        conn.execute_batch(
+            "ALTER TABLE cloud_backups ADD COLUMN transport TEXT NOT NULL DEFAULT 'bot_api';",
+        )?;
+    }
+    if !column_exists(conn, "cloud_backups", "chat_id")? {
+        conn.execute_batch("ALTER TABLE cloud_backups ADD COLUMN chat_id INTEGER;")?;
+    }
+    if !column_exists(conn, "profiles", "engine_version")? {
+        conn.execute_batch(
+            "ALTER TABLE profiles ADD COLUMN engine_version TEXT NOT NULL DEFAULT '';",
+        )?;
+    }
+    // Backfill giống v17 cho row còn rỗng (cột vừa được thêm lại) — gate bằng
+    // EXISTS để lần mở bình thường khỏi resolve effective version (đọc đĩa).
+    let needs_backfill: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM profiles WHERE engine_version = '')",
+        [],
+        |r| r.get(0),
+    )?;
+    if needs_backfill {
+        conn.execute(
+            "UPDATE profiles SET engine_version = ?1 WHERE engine_version = ''",
+            params![crate::config::get_effective_version()],
+        )?;
+    }
+    Ok(())
 }
 
 /// (W59b) Cột `col` có tồn tại trong bảng `table` không (PRAGMA table_info) —
@@ -3494,6 +3508,84 @@ mod tests {
         // Cột v17 được thêm + backfill effective default.
         let old = db.get_profile("old-1").unwrap();
         assert_eq!(old.engine_version, crate::config::get_effective_version());
+    }
+
+    /// (W59d DoD 1 — lỗ hổng 1) DB version=17 thiếu CẢ cloud_backups (v14)
+    /// LẪN cloud_upload_state (v15): trước đây ALTER transport trong bậc v18
+    /// fail "no such table: cloud_backups" → toàn migration fail. Nay
+    /// ensure_schema_integrity tạo bảng v14 TRƯỚC column check → mở DB thành
+    /// công, cả 2 bảng được tạo, version=18.
+    #[test]
+    fn schema_heal_recreates_missing_cloud_backups_and_upload_state_at_v17() {
+        let dir = std::env::temp_dir().join(format!("browserx-db-test-{}", uuid::Uuid::new_v4()));
+        let _guard = TempDir(dir.clone());
+        std::fs::create_dir_all(&dir).unwrap();
+        {
+            let db = Db::open_at_dir(&dir).unwrap();
+            let conn = db.lock();
+            conn.execute_batch("DROP TABLE cloud_backups; DROP TABLE cloud_upload_state;")
+                .unwrap();
+            conn.pragma_update(None, "user_version", 17).unwrap();
+        }
+
+        let db = Db::open_at_dir(&dir).unwrap();
+        let version: i64 = db
+            .lock()
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 18);
+        // cloud_backups được tạo lại kèm cột v16 (transport/chat_id).
+        db.insert_cloud_backup_with_transport(
+            "p1",
+            "sha",
+            "2026-01-01T00:00:00Z",
+            "userbot",
+            Some(-100),
+            &[CloudBackupPartInput {
+                message_id: 1,
+                file_id: String::new(),
+                size: 10,
+                part_index: 0,
+            }],
+        )
+        .unwrap();
+        assert_eq!(db.list_cloud_backups(Some("p1")).unwrap().len(), 1);
+        // cloud_upload_state được tạo lại.
+        db.set_cloud_upload_started("p1", "pending").unwrap();
+        assert_eq!(
+            db.get_cloud_upload_state("p1").unwrap().unwrap().status,
+            "pending"
+        );
+    }
+
+    /// (W59d DoD 2 — lỗ hổng 2) DB đã ở version=18 nhưng thiếu
+    /// cloud_upload_state: migrate_inner early-return theo version, nhưng
+    /// self-heal chạy VÔ ĐIỀU KIỆN mỗi lần mở → bảng vẫn được tạo lại
+    /// (chứng minh heal không phụ thuộc user_version).
+    #[test]
+    fn schema_heal_runs_even_when_version_already_18() {
+        let dir = std::env::temp_dir().join(format!("browserx-db-test-{}", uuid::Uuid::new_v4()));
+        let _guard = TempDir(dir.clone());
+        std::fs::create_dir_all(&dir).unwrap();
+        {
+            let db = Db::open_at_dir(&dir).unwrap();
+            // user_version giữ nguyên = 18 (SCHEMA_VERSION) — chỉ DROP bảng.
+            db.lock()
+                .execute_batch("DROP TABLE cloud_upload_state")
+                .unwrap();
+        }
+
+        let db = Db::open_at_dir(&dir).unwrap();
+        let version: i64 = db
+            .lock()
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 18);
+        db.set_cloud_upload_started("p1", "pending").unwrap();
+        assert_eq!(
+            db.get_cloud_upload_state("p1").unwrap().unwrap().status,
+            "pending"
+        );
     }
 
     #[test]
