@@ -103,6 +103,9 @@ pub struct Profile {
     /// (W44) Chiều cao taskbar (px), ảnh hưởng `screen.availHeight`. None = default
     /// binary theo platform (Win 48 / Mac 95 / Linux 0). → `--fingerprint-taskbar-height`.
     pub taskbar_height: Option<u32>,
+    /// (W58d) Engine version được pin — launch luôn dùng đúng binary version này
+    /// (tải lại nếu thiếu). Đổi qua command `upgrade_profile_engine`.
+    pub engine_version: String,
 }
 
 /// (P3-1a) Extension trong kho trung tâm (bảng `extensions`), gán N-N với

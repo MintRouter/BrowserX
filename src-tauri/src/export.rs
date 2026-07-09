@@ -290,6 +290,8 @@ pub fn import_profile_json(db: &Db, json: &str) -> Result<Profile> {
         rotate_on_launch: None,
         // (W44) File export không mang taskbar_height → default binary (NULL).
         taskbar_height: None,
+        // (W58d) File export không mang engine pin → effective default lúc import.
+        engine_version: None,
     })?;
 
     // Folder khớp theo TÊN (id không mang qua máy khác); không có → bỏ qua.

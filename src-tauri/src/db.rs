@@ -95,6 +95,8 @@ pub struct ProfileInput {
     pub rotate_on_launch: Option<bool>,
     /// (W44) Chiều cao taskbar (px) → `--fingerprint-taskbar-height`. None = default binary.
     pub taskbar_height: Option<u32>,
+    /// (W58d) Pin engine version. None/rỗng → effective default lúc tạo.
+    pub engine_version: Option<String>,
 }
 
 /// (W46) Serde helper phân biệt field VẮNG MẶT với field = `null` trong JSON
@@ -399,7 +401,7 @@ pub struct CloudUploadState {
 // ---------------------------------------------------------------------------
 
 /// Schema version hiện tại (PRAGMA user_version).
-pub(crate) const SCHEMA_VERSION: i64 = 16;
+pub(crate) const SCHEMA_VERSION: i64 = 17;
 
 const SCHEMA_V1: &str = "
 CREATE TABLE IF NOT EXISTS profiles (
@@ -693,6 +695,16 @@ ALTER TABLE cloud_backups ADD COLUMN transport TEXT NOT NULL DEFAULT 'bot_api';
 ALTER TABLE cloud_backups ADD COLUMN chat_id INTEGER;
 ";
 
+/// Migration v16→v17 (W58d): pin engine version theo profile — launch luôn
+/// dùng đúng `engine_version` của profile (đổi qua `upgrade_profile_engine`).
+/// DEFAULT '' chỉ là placeholder cho ALTER TABLE (cột NOT NULL bắt buộc có
+/// default); giá trị thật backfill trong `migrate_inner` = default hiệu lực
+/// của platform lúc migrate — đúng version profile cũ vẫn đang launch.
+/// ALTER TABLE không có IF NOT EXISTS — idempotency đảm bảo bởi guard `user_version < 17`.
+const SCHEMA_V17: &str = "
+ALTER TABLE profiles ADD COLUMN engine_version TEXT NOT NULL DEFAULT '';
+";
+
 /// Kết nối SQLite của app. `Mutex<Connection>` để dùng được trong `tauri::State`
 /// (single-process, mọi thao tác tuần tự qua lock — đủ cho local app).
 pub struct Db {
@@ -921,6 +933,17 @@ fn migrate_inner(conn: &Connection, checkpoint: impl Fn(i64) -> Result<()>) -> R
             conn.execute_batch(SCHEMA_V16)?;
             checkpoint(16)?;
         }
+        if version < 17 {
+            conn.execute_batch(SCHEMA_V17)?;
+            // (W58d) Backfill = default hiệu lực lúc migrate (marker auto-update
+            // nếu hợp lệ, fallback hardcode) — đúng version mà profile cũ vẫn
+            // đang launch qua ensure_binary trước migration này.
+            conn.execute(
+                "UPDATE profiles SET engine_version = ?1 WHERE engine_version = ''",
+                params![crate::config::get_effective_version()],
+            )?;
+            checkpoint(17)?;
+        }
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         Ok(())
     })();
@@ -1062,6 +1085,7 @@ fn row_to_profile(row: &Row) -> rusqlite::Result<Profile> {
         storage_quota: row.get("storage_quota")?,
         rotate_on_launch: row.get("rotate_on_launch")?,
         taskbar_height: row.get("taskbar_height")?,
+        engine_version: row.get("engine_version")?,
     })
 }
 
@@ -1136,8 +1160,9 @@ fn insert_profile_tx(
             fp_noise, webrtc_mode, webrtc_ip, geolocation_mode, geo_latitude, geo_longitude,
             store_history, store_passwords, store_sw_cache, extensions,
             nav_brand, nav_brand_version, platform_version, device_memory, fonts_dir,
-            windows_font_metrics, storage_quota, rotate_on_launch, taskbar_height
-        ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,?36,?37,?38,?39,?40,?41,?42,?43)",
+            windows_font_metrics, storage_quota, rotate_on_launch, taskbar_height,
+            engine_version
+        ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,?36,?37,?38,?39,?40,?41,?42,?43,?44)",
         params![
             id,
             input.name,
@@ -1182,6 +1207,15 @@ fn insert_profile_tx(
             input.storage_quota,
             input.rotate_on_launch.unwrap_or(false),
             input.taskbar_height,
+            // (W58d) Profile mới pin effective default (marker auto-update nếu
+            // hợp lệ, fallback hardcode) trừ khi caller pin tường minh.
+            input
+                .engine_version
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(crate::config::get_effective_version),
         ],
     )?;
     if let Some(tags) = &input.tags {
@@ -1608,6 +1642,41 @@ impl Db {
         let conn = self.lock();
         let n = conn.execute("DELETE FROM profiles WHERE id = ?1", params![id])?;
         Ok(n > 0)
+    }
+
+    /// (W58d) Đổi pin engine version của 1 profile. KHÔNG check phiên đang chạy
+    /// ở layer này — `upgrade_profile_engine` (commands) chịu trách nhiệm đó.
+    pub fn set_profile_engine_version(&self, id: &str, version: &str) -> Result<Profile> {
+        let version = version.trim();
+        if version.is_empty() {
+            return Err(AppError::InvalidInput(
+                "engine version must not be empty".into(),
+            ));
+        }
+        {
+            let conn = self.lock();
+            let n = conn.execute(
+                "UPDATE profiles SET engine_version = ?1, updated_at = ?2 WHERE id = ?3",
+                params![version, now(), id],
+            )?;
+            if n == 0 {
+                return Err(AppError::NotFound(format!("profile {id}")));
+            }
+        }
+        self.get_profile(id)
+    }
+
+    /// (W58d) Mọi engine_version distinct trong bảng profiles (gồm cả profile
+    /// trong trash — restore được nên binary phải giữ). Dùng cho keep-set của
+    /// engine cleanup; bỏ chuỗi rỗng (chưa backfill).
+    pub fn distinct_engine_versions(&self) -> Result<Vec<String>> {
+        let conn = self.lock();
+        let mut stmt = conn
+            .prepare("SELECT DISTINCT engine_version FROM profiles WHERE engine_version <> ''")?;
+        let versions = stmt
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(versions)
     }
 }
 
@@ -3202,6 +3271,77 @@ mod tests {
         assert_eq!(db.list_profiles().unwrap().len(), 1);
         // Gọi migrate thẳng thêm lần nữa cũng không lỗi.
         migrate(&db.lock()).unwrap();
+    }
+
+    #[test]
+    fn migration_v17_backfills_engine_version() {
+        let dir = std::env::temp_dir().join(format!("browserx-db-test-{}", uuid::Uuid::new_v4()));
+        let _guard = TempDir(dir.clone());
+        std::fs::create_dir_all(&dir).unwrap();
+        {
+            // DB "cũ" schema v1 + 1 profile → upgrade thẳng v1→v17.
+            let conn = Connection::open(dir.join("browserx.db")).unwrap();
+            conn.execute_batch(SCHEMA_V1).unwrap();
+            conn.pragma_update(None, "user_version", 1).unwrap();
+            conn.execute(
+                "INSERT INTO profiles (id, name, fingerprint_seed, user_data_dir, created_at, updated_at)
+                 VALUES ('old-1', 'old profile', '42', '/tmp/x', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+        }
+
+        let db = Db::open_at_dir(&dir).unwrap();
+        // Profile cũ backfill = default hiệu lực lúc migrate (không rỗng).
+        let old = db.get_profile("old-1").unwrap();
+        assert!(!old.engine_version.is_empty());
+        assert_eq!(old.engine_version, crate::config::get_effective_version());
+        // Profile mới nhận effective default lúc tạo (không đi qua backfill).
+        let fresh = db
+            .create_profile(ProfileInput {
+                name: "fresh".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(fresh.engine_version, crate::config::get_effective_version());
+        // Pin tường minh được tôn trọng.
+        let pinned = db
+            .create_profile(ProfileInput {
+                name: "pinned".into(),
+                engine_version: Some("145.0.7632.109.2".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(pinned.engine_version, "145.0.7632.109.2");
+    }
+
+    #[test]
+    fn set_profile_engine_version_and_distinct_versions() {
+        let db = Db::open_in_memory().unwrap();
+        let p = db
+            .create_profile(ProfileInput {
+                name: "p".into(),
+                engine_version: Some("100.0.0.0".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        let q = db
+            .create_profile(ProfileInput {
+                name: "q".into(),
+                engine_version: Some("101.0.0.0".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        // Distinct gồm cả profile trong trash (restore được → binary phải giữ).
+        db.trash_profiles(std::slice::from_ref(&q.id)).unwrap();
+        let mut versions = db.distinct_engine_versions().unwrap();
+        versions.sort();
+        assert_eq!(versions, vec!["100.0.0.0", "101.0.0.0"]);
+
+        let updated = db.set_profile_engine_version(&p.id, "102.0.0.0").unwrap();
+        assert_eq!(updated.engine_version, "102.0.0.0");
+        assert!(db.set_profile_engine_version(&p.id, "  ").is_err());
+        assert!(db.set_profile_engine_version("missing", "1.0.0.0").is_err());
     }
 
     #[test]

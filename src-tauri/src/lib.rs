@@ -53,6 +53,13 @@ pub fn run() {
 
             let db = Arc::new(db::Db::open_default()?);
 
+            // (W58d) Engine cleanup giữ mọi version đang được profile pin —
+            // binary.rs không phụ thuộc db.rs nên inject provider ở đây.
+            {
+                let db = Arc::clone(&db);
+                binary::set_pinned_versions_provider(move || db.distinct_engine_versions());
+            }
+
             // (W58e) Di trú engine cache cũ `~/.cloakbrowser` → cache dir mới
             // (mặc định `~/.browserx/engine`) — SAU open_default để không tạo
             // `~/.browserx` trước khi recovery restore (W25b) chạy. Lỗi chỉ
@@ -159,6 +166,7 @@ pub fn run() {
             commands::bring_to_front,
             commands::get_cdp_ws_url,
             commands::ensure_binary,
+            commands::upgrade_profile_engine,
             commands::get_settings,
             commands::set_setting,
             commands::list_tags,

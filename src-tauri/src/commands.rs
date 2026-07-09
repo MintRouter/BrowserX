@@ -891,7 +891,9 @@ async fn launch_profile_inner(
             },
         );
     };
-    let binary_path = binary::ensure_binary(None, Some(&progress)).await?;
+    // (W58d) Launch dùng đúng engine version profile đang pin — binary thiếu
+    // trên đĩa (bị dọn/máy mới) → ensure_binary tự tải lại đúng version đó.
+    let binary_path = binary::ensure_binary(Some(&profile.engine_version), Some(&progress)).await?;
 
     let cdp_port = state.procs.allocate_cdp_port()?;
     // (P3-1a) Extension gán từ kho trung tâm (chỉ enabled) — merge với legacy
@@ -1928,7 +1930,8 @@ async fn open_cookie_session(
         return Ok((s.cdp_port, None));
     }
 
-    let binary_path = binary::ensure_binary(None, None).await?;
+    // (W58d) Phiên tạm cũng dùng đúng engine version profile đang pin.
+    let binary_path = binary::ensure_binary(Some(&profile.engine_version), None).await?;
     let cdp_port = state.procs.allocate_cdp_port()?;
 
     let mut p = profile.clone();
@@ -2193,6 +2196,54 @@ pub async fn ensure_binary(app: AppHandle, version: Option<String>) -> Result<St
     let version = version.unwrap_or_else(config::get_effective_version);
     let path = binary::ensure_binary(Some(&version), Some(&progress)).await?;
     Ok(path.to_string_lossy().into_owned())
+}
+
+/// (W58d) Đổi pin engine của 1 profile: từ chối khi profile đang chạy (đổi
+/// engine giữa phiên → 2 version ghi cùng user-data-dir); đảm bảo binary
+/// version đích tồn tại (tải + verify nếu thiếu, progress `binary://progress`)
+/// TRƯỚC khi ghi DB — tải fail thì pin giữ nguyên. FE hiện dialog cảnh báo
+/// (fingerprint có thể đổi + Chromium migrate profile-data một chiều) TRƯỚC khi gọi.
+#[tauri::command]
+pub async fn upgrade_profile_engine(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    profile_id: String,
+    version: String,
+) -> Result<Profile> {
+    if state.procs.is_running(&profile_id).await {
+        return Err(AppError::InvalidInput(format!(
+            "profile {profile_id} đang chạy — stop trước khi đổi engine"
+        )));
+    }
+    let profile = state.db.get_profile(&profile_id)?;
+    let version = version.trim().to_string();
+    if version.is_empty() {
+        return Err(AppError::InvalidInput(
+            "engine version must not be empty".into(),
+        ));
+    }
+
+    let progress_app = app.clone();
+    let progress = move |phase: &str, pct: u8, downloaded_bytes: u64, total_bytes: u64| {
+        let _ = progress_app.emit(
+            "binary://progress",
+            BinaryProgressEvent {
+                phase: phase.to_string(),
+                pct,
+                downloaded_bytes,
+                total_bytes,
+            },
+        );
+    };
+    binary::ensure_binary(Some(&version), Some(&progress)).await?;
+
+    let updated = state.db.set_profile_engine_version(&profile_id, &version)?;
+    state.db.insert_audit(
+        "profile.engine_upgrade",
+        Some(&profile_id),
+        Some(&json!({ "from": profile.engine_version, "to": version })),
+    )?;
+    Ok(updated)
 }
 
 // ---------------------------------------------------------------------------

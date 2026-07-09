@@ -16,6 +16,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use base64::engine::general_purpose::STANDARD as B64;
@@ -156,15 +157,16 @@ async fn download_and_extract(
         }
 
         // (W57b) Dọn engine versions cũ SAU khi version mới đã tải + verify + extract
-        // thành công — best-effort, không bao giờ fail download.
+        // thành công — best-effort, không bao giờ fail download. (W58d) Keep-set
+        // gồm cả mọi version đang được profile pin; provider lỗi → skip cleanup.
         let default_version = config::get_chromium_version();
         let requested_version = version
             .map(str::to_string)
             .unwrap_or_else(|| default_version.clone());
-        cleanup_old_engine_versions(
-            &config::get_cache_dir(),
-            &[requested_version.as_str(), default_version.as_str()],
-        );
+        if let Some(keep) = cleanup_keep_versions(&requested_version, &default_version) {
+            let keep_refs: Vec<&str> = keep.iter().map(String::as_str).collect();
+            cleanup_old_engine_versions(&config::get_cache_dir(), &keep_refs);
+        }
         Ok(())
     }
     .await;
@@ -516,6 +518,50 @@ fn cached_binary_is_valid(binary_dir: &Path, binary_path: &Path) -> Result<bool>
 // (W57b) Cleanup engine versions cũ — mỗi version 1 dir `chromium-<v>` trong
 // cache dir; đổi version thì dir cũ (~vài trăm MB) nằm lại vĩnh viễn nếu không dọn.
 // ---------------------------------------------------------------------------
+
+/// (W58d) Provider trả mọi engine_version đang được profile pin (distinct trong
+/// DB, gồm cả trash). binary.rs không phụ thuộc db.rs → lib.rs đăng ký closure
+/// lúc setup, sau khi Db mở xong.
+type PinnedVersionsFn = Box<dyn Fn() -> Result<Vec<String>> + Send + Sync>;
+
+static PINNED_VERSIONS_PROVIDER: OnceLock<PinnedVersionsFn> = OnceLock::new();
+
+/// Đăng ký provider pinned versions (gọi 1 lần trong lib.rs setup; lần gọi sau
+/// bị bỏ qua). Chưa đăng ký (unit test / early startup) → keep-set chỉ gồm
+/// requested + default như W57b cũ.
+pub fn set_pinned_versions_provider(f: impl Fn() -> Result<Vec<String>> + Send + Sync + 'static) {
+    let _ = PINNED_VERSIONS_PROVIDER.set(Box::new(f));
+}
+
+/// (W58d) Dựng keep-set cho cleanup: {requested, default} + mọi version đang
+/// được profile pin. Provider LỖI → trả `None` = SKIP cleanup (thà giữ dir
+/// thừa còn hơn xoá nhầm binary mà profile đang pin).
+fn cleanup_keep_versions(requested: &str, default_version: &str) -> Option<Vec<String>> {
+    cleanup_keep_versions_with(requested, default_version, PINNED_VERSIONS_PROVIDER.get())
+}
+
+/// Lõi tách provider ra tham số để unit-test không đụng OnceLock global.
+fn cleanup_keep_versions_with(
+    requested: &str,
+    default_version: &str,
+    provider: Option<&PinnedVersionsFn>,
+) -> Option<Vec<String>> {
+    let mut keep = vec![requested.to_string(), default_version.to_string()];
+    if let Some(provider) = provider {
+        match provider() {
+            Ok(pinned) => keep.extend(pinned),
+            Err(e) => {
+                tracing::warn!(
+                    "Engine cleanup: cannot read pinned versions from DB — skipping cleanup: {e}"
+                );
+                return None;
+            }
+        }
+    }
+    keep.sort();
+    keep.dedup();
+    Some(keep)
+}
 
 /// Xoá các dir `chromium-<v>` trong `cache_dir` có version KHÔNG nằm trong
 /// `keep_versions`. Trả số dir đã xoá. Best-effort: mọi lỗi (đọc dir, xoá) chỉ
@@ -872,6 +918,29 @@ mod tests {
         assert!(cache.join("profiles").exists());
         assert!(cache.join("chromium-").exists());
         let _ = std::fs::remove_dir_all(&cache);
+    }
+
+    #[test]
+    fn keep_versions_without_provider_is_requested_plus_default() {
+        let keep = cleanup_keep_versions_with("2.0.0.0", "3.0.0.0", None).unwrap();
+        assert_eq!(keep, vec!["2.0.0.0", "3.0.0.0"]);
+        // requested == default → dedup còn 1 entry.
+        let keep = cleanup_keep_versions_with("3.0.0.0", "3.0.0.0", None).unwrap();
+        assert_eq!(keep, vec!["3.0.0.0"]);
+    }
+
+    #[test]
+    fn keep_versions_includes_pinned_from_provider() {
+        let provider: PinnedVersionsFn =
+            Box::new(|| Ok(vec!["1.0.0.0".into(), "3.0.0.0".into()]));
+        let keep = cleanup_keep_versions_with("2.0.0.0", "3.0.0.0", Some(&provider)).unwrap();
+        assert_eq!(keep, vec!["1.0.0.0", "2.0.0.0", "3.0.0.0"]);
+    }
+
+    #[test]
+    fn keep_versions_provider_error_skips_cleanup() {
+        let provider: PinnedVersionsFn = Box::new(|| Err(binary_err("db unavailable")));
+        assert!(cleanup_keep_versions_with("2.0.0.0", "3.0.0.0", Some(&provider)).is_none());
     }
 
     #[test]

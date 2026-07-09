@@ -436,6 +436,7 @@ pub(crate) fn test_profile() -> Profile {
         storage_quota: None,
         rotate_on_launch: false,
         taskbar_height: None,
+        engine_version: "1.0.0.0".into(),
     }
 }
 
