@@ -7,6 +7,7 @@ import {
 } from "./components/EngineSetup";
 import { CloudSyncView } from "./components/CloudSyncView";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { EngineUpdateBanner } from "./components/EngineUpdateBanner";
 import { ExtensionsView } from "./components/ExtensionsView";
 import { ProfileForm } from "./components/ProfileForm";
 import { ProfileList } from "./components/ProfileList";
@@ -27,6 +28,7 @@ import {
   onBinaryProgress,
   onExitRequested,
   onProfileStatus,
+  parseEngineVersionFromPath,
   type CloudBackupInfo,
   type Extension,
   type Folder,
@@ -81,6 +83,12 @@ export default function App() {
   const [engine, setEngine] = useState<EngineState>(() =>
     initialEngineState(!isTauri()),
   );
+  /** (W58c) Default engine version for new profiles — derived from the ensured
+   * binary path, bumped after a successful global engine update. Drives the
+   * per-profile "outdated → Upgrade" affordance in the profile editor. */
+  const [defaultEngineVersion, setDefaultEngineVersion] = useState<string | null>(
+    null,
+  );
 
   /** Engine cache probe/download in flight — hold off launches to avoid concurrent downloads. */
   const engineBusy = engine.status === "checking" || engine.status === "downloading";
@@ -90,7 +98,9 @@ export default function App() {
     if (!isTauri()) return;
     setEngine((e) => ({ ...e, status: "checking", error: null }));
     try {
-      await api.ensureBinary();
+      const path = await api.ensureBinary();
+      const version = parseEngineVersionFromPath(path);
+      if (version) setDefaultEngineVersion(version);
       setEngine((e) => ({ ...e, status: "ready", error: null }));
     } catch (err) {
       setEngine((e) => ({ ...e, status: "error", error: errMsg(err) }));
@@ -762,6 +772,10 @@ export default function App() {
         />
         <main className="flex-1 min-w-0 overflow-auto bg-surface-0">
           <EngineSetup engine={engine} onRetry={() => void ensureEngine()} />
+          <EngineUpdateBanner
+            engineReady={engine.status === "ready"}
+            onApplied={(version) => setDefaultEngineVersion(version)}
+          />
           {loadError && (
             <p className="text-warning text-xs px-4 py-2 bg-warning/10 border-b border-warning/30" role="alert">
               {t("errors.loadFailed")}
@@ -796,6 +810,8 @@ export default function App() {
               profile={editing === "new" ? null : editing}
               proxies={proxies}
               folders={folders}
+              defaultEngineVersion={defaultEngineVersion}
+              isRunning={editing !== "new" && runningIds.has(editing.id)}
               onSave={handleSaveProfile}
               onDelete={editing !== "new" ? handleDeleteProfile : undefined}
               onCancel={() => setEditing(null)}
@@ -803,6 +819,7 @@ export default function App() {
                 await refetch(refetchProfiles(), refetchFolders(), refetchTrash());
               }}
               onProxiesChanged={refetchProxies}
+              onEngineUpgraded={refetchProfiles}
             />
           ) : view === "profiles" || view === "favorites" || view === "running" ? (
             <ProfileList

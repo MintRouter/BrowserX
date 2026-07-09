@@ -93,6 +93,8 @@ export interface Profile {
   rotate_on_launch: boolean;
   /** (W44) Taskbar height in px (affects screen.availHeight). Null = binary default (Win 48 / Mac 95 / Linux 0). → --fingerprint-taskbar-height. */
   taskbar_height: number | null;
+  /** (W58c/d) Pinned browser-engine version — launch uses exactly this build. Change via upgrade_profile_engine. */
+  engine_version: string;
 }
 
 export interface Folder {
@@ -336,6 +338,18 @@ export interface BinaryProgressEvent {
   downloadedBytes: number;
   /** Total bytes to download (0 when the server sends no Content-Length). */
   totalBytes: number;
+}
+
+/** (W58c) Result of check_engine_update — null when no newer engine is available. */
+export interface EngineUpdateInfo {
+  /** Default engine version currently applied to new profiles. */
+  current: string;
+  /** Newest engine version with a downloadable build for this platform. */
+  latest: string;
+  /** GitHub release page (changelog) for the latest version. */
+  release_url: string;
+  /** Release publish timestamp (ISO 8601), when the API reports it. */
+  published_at: string | null;
 }
 
 /** (W25a) Payload of `backup://progress` during create/restore backup. */
@@ -614,6 +628,16 @@ export const api = {
   // Binary
   ensureBinary: () => invoke<string>("ensure_binary"),
 
+  // Engine auto-update (W58) — metadata check on app load; apply downloads +
+  // verifies the new build (progress on `engine-update://progress`) and makes
+  // it the default for NEW profiles. upgradeProfileEngine re-pins one profile.
+  checkEngineUpdate: () =>
+    invoke<EngineUpdateInfo | null>("check_engine_update"),
+  applyEngineUpdate: (version: string) =>
+    invoke<string>("apply_engine_update", { version }),
+  upgradeProfileEngine: (profileId: string, version: string) =>
+    invoke<Profile>("upgrade_profile_engine", { profileId, version }),
+
   // Settings & tags
   getSettings: () => invoke<Record<string, string>>("get_settings"),
   setSetting: (key: string, value: string) =>
@@ -848,6 +872,15 @@ export function onBinaryProgress(
   );
 }
 
+/** (W58c) Progress of apply_engine_update — same payload shape as `binary://progress`. */
+export function onEngineUpdateProgress(
+  cb: (e: BinaryProgressEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<BinaryProgressEvent>("engine-update://progress", (ev) =>
+    cb(ev.payload),
+  );
+}
+
 /** (W25a) Progress of create/restore backup. */
 export function onBackupProgress(
   cb: (e: BackupProgressEvent) => void,
@@ -894,6 +927,38 @@ export function onExitRequested(
 /** True when running inside the Tauri WebView (invoke available). */
 export function isTauri(): boolean {
   return "__TAURI_INTERNALS__" in window;
+}
+
+/**
+ * (W58c) Extract the engine version from an ensure_binary() path. The binary
+ * lives under `<cache>/chromium-<version>/...`, so the version is the segment
+ * after `chromium-`. Null when the path has no such segment.
+ */
+export function parseEngineVersionFromPath(path: string): string | null {
+  const m = /chromium-([0-9][0-9.]*)/.exec(path);
+  return m?.[1] ?? null;
+}
+
+/**
+ * (W58c) True when engine version `a` is strictly newer than `b` — mirrors the
+ * backend `version_newer` (numeric dotted-tuple compare; a shorter prefix is
+ * older). Non-numeric segments make the comparison false.
+ */
+export function engineVersionNewer(a: string, b: string): boolean {
+  const parse = (v: string): number[] | null => {
+    const parts = v.split(".").map((x) => Number(x));
+    return parts.every((n) => Number.isInteger(n) && n >= 0) ? parts : null;
+  };
+  const ta = parse(a);
+  const tb = parse(b);
+  if (!ta || !tb) return false;
+  const len = Math.max(ta.length, tb.length);
+  for (let i = 0; i < len; i++) {
+    const x = ta[i] ?? 0;
+    const y = tb[i] ?? 0;
+    if (x !== y) return x > y;
+  }
+  return false;
 }
 
 /** (W50F) Docs/support URL — tạm dùng repo cho tới khi có trang docs riêng. */

@@ -741,6 +741,23 @@
     "retry": "Retry",
     "notReadyLaunch": "The browser engine is still downloading — you can launch profiles once it finishes."
   },
+  "engineUpdate": {
+    "title": "Engine update",
+    "available": "A new browser engine is available ({{current}} → {{latest}}).",
+    "update": "Update",
+    "dismiss": "Dismiss",
+    "done": "Update applied — new profiles will use the new engine. Upgrade existing profiles from the profile editor.",
+    "errorTitle": "Engine update failed",
+    "retry": "Retry"
+  },
+  "engineUpgrade": {
+    "label": "Browser engine",
+    "outdated": "A newer engine ({{latest}}) is available for new profiles.",
+    "button": "Upgrade engine",
+    "runningHint": "Stop the profile before upgrading its engine.",
+    "confirmTitle": "Upgrade browser engine?",
+    "confirmMessage": "This profile will switch to engine {{latest}}. Its fingerprint may change and Chromium migrates profile data one way — you cannot go back to the old engine afterwards. Continue?"
+  },
   "errors": {
     "loadFailed": "Failed to load data — is the Tauri backend ready?"
   },

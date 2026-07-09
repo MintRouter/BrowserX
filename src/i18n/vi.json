@@ -733,6 +733,23 @@
     "retry": "Thử lại",
     "notReadyLaunch": "Engine trình duyệt đang được tải — có thể mở profile sau khi tải xong."
   },
+  "engineUpdate": {
+    "title": "Cập nhật engine",
+    "available": "Đã có engine trình duyệt mới ({{current}} → {{latest}}).",
+    "update": "Cập nhật",
+    "dismiss": "Đóng",
+    "done": "Đã áp dụng bản mới — profile tạo mới sẽ dùng engine mới. Nâng cấp profile cũ trong phần sửa profile.",
+    "errorTitle": "Cập nhật engine thất bại",
+    "retry": "Thử lại"
+  },
+  "engineUpgrade": {
+    "label": "Engine trình duyệt",
+    "outdated": "Đã có engine mới hơn ({{latest}}) cho profile tạo mới.",
+    "button": "Nâng cấp engine",
+    "runningHint": "Dừng profile trước khi nâng cấp engine.",
+    "confirmTitle": "Nâng cấp engine trình duyệt?",
+    "confirmMessage": "Profile này sẽ chuyển sang engine {{latest}}. Fingerprint có thể thay đổi và Chromium di trú dữ liệu profile một chiều — sau đó bạn không quay lại engine cũ được. Tiếp tục?"
+  },
   "errors": {
     "loadFailed": "Không tải được dữ liệu — backend Tauri chưa sẵn sàng?"
   },

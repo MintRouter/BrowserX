@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   api,
+  engineVersionNewer,
   isTauri,
   type Extension,
   type Folder,
@@ -33,6 +34,13 @@ interface ProfileFormProps {
   folders?: Folder[];
   /** (P3-3b) Refetch proxies after "use template" creates one server-side. */
   onProxiesChanged?: () => void | Promise<void>;
+  /** (W58c) Default engine version for new profiles — enables the per-profile
+   * "outdated → Upgrade engine" affordance when this profile pins an older build. */
+  defaultEngineVersion?: string | null;
+  /** (W58c) True when this profile has a live session — upgrade is disabled. */
+  isRunning?: boolean;
+  /** (W58c) Refetch profiles after a successful engine upgrade. */
+  onEngineUpgraded?: () => void | Promise<void>;
 }
 
 const TABS = ["general", "proxy", "fingerprint", "extra"] as const;
@@ -171,6 +179,9 @@ export function ProfileForm({
   onTrashed,
   folders: foldersProp,
   onProxiesChanged,
+  defaultEngineVersion,
+  isRunning = false,
+  onEngineUpgraded,
 }: ProfileFormProps) {
   const { t } = useTranslation();
   const isEdit = profile !== null;
@@ -188,6 +199,13 @@ export function ProfileForm({
   const [trashing, setTrashing] = useState(false);
   /** (W47) In-app confirmation before move-to-trash (window.confirm is a no-op in Tauri). */
   const [trashConfirm, setTrashConfirm] = useState(false);
+  /** (W58c) Live engine version for this profile (updated after an upgrade). */
+  const [engineVersion, setEngineVersion] = useState<string | null>(
+    profile?.engine_version ?? null,
+  );
+  /** (W58c) Upgrade-engine confirmation dialog (fingerprint may change, one-way). */
+  const [engineUpgradeConfirm, setEngineUpgradeConfirm] = useState(false);
+  const [engineUpgrading, setEngineUpgrading] = useState(false);
   const [folders, setFolders] = useState<Folder[]>(foldersProp ?? []);
   const [allTags, setAllTags] = useState<string[]>([]);
   // (W20b) Profile templates: dropdown fills the form in create mode;
@@ -545,6 +563,33 @@ export function ProfileForm({
     }
   };
 
+  // (W58c) Re-pin this profile to the current default engine after the
+  // fingerprint-change warning is confirmed. Backend rejects a running profile.
+  const handleEngineUpgrade = async () => {
+    if (!profile || !defaultEngineVersion) return;
+    setEngineUpgrading(true);
+    try {
+      const updated = await api.upgradeProfileEngine(
+        profile.id,
+        defaultEngineVersion,
+      );
+      setEngineVersion(updated.engine_version);
+      setEngineUpgradeConfirm(false);
+      await onEngineUpgraded?.();
+    } catch {
+      // Surface nothing extra here — the dialog stays open so the user retries.
+    } finally {
+      setEngineUpgrading(false);
+    }
+  };
+
+  // (W58c) Profile pins an engine older than the current default → offer upgrade.
+  const engineOutdated =
+    isEdit &&
+    engineVersion !== null &&
+    !!defaultEngineVersion &&
+    engineVersionNewer(defaultEngineVersion, engineVersion);
+
   // (W50G) Anchor-tab click: smooth-scroll the section to the top of the page.
   const scrollToSection = (tab: TabId) => {
     setActiveTab(tab);
@@ -728,6 +773,41 @@ export function ProfileForm({
             className="w-full shrink-0 lg:sticky lg:top-0 lg:w-[340px]"
           >
             <OverviewPanel form={form} proxies={proxies} />
+            {isEdit && engineVersion !== null && (
+              <div className="mt-4 rounded-lg border border-border bg-surface-1 px-4 py-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-fg-muted">
+                    {t("engineUpgrade.label")}
+                  </span>
+                  <span className="rounded bg-surface-2 px-2 py-0.5 text-xs font-medium text-fg">
+                    {engineVersion}
+                  </span>
+                </div>
+                {engineOutdated && (
+                  <>
+                    <p className="mt-2 text-xs text-fg-muted">
+                      {t("engineUpgrade.outdated", {
+                        latest: defaultEngineVersion,
+                      })}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setEngineUpgradeConfirm(true)}
+                      disabled={isRunning}
+                      title={isRunning ? t("engineUpgrade.runningHint") : ""}
+                      className="btn-secondary mt-2 h-9 w-full px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {t("engineUpgrade.button")}
+                    </button>
+                    {isRunning && (
+                      <p className="mt-1.5 text-xs text-warning">
+                        {t("engineUpgrade.runningHint")}
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </aside>
         </div>
       </div>
@@ -767,6 +847,18 @@ export function ProfileForm({
           busy={trashing}
           onConfirm={() => void handleTrash()}
           onCancel={() => setTrashConfirm(false)}
+        />
+      )}
+      {engineUpgradeConfirm && (
+        <ConfirmDialog
+          title={t("engineUpgrade.confirmTitle")}
+          message={t("engineUpgrade.confirmMessage", {
+            latest: defaultEngineVersion ?? "",
+          })}
+          confirmLabel={t("engineUpgrade.button")}
+          busy={engineUpgrading}
+          onConfirm={() => void handleEngineUpgrade()}
+          onCancel={() => setEngineUpgradeConfirm(false)}
         />
       )}
     </form>
