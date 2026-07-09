@@ -6,6 +6,8 @@
 //! - BINARY_SIGNING_PUBKEYS (#L37-L39, pin nguyên văn)
 //! - get_cache_dir (#L150-L159), get_binary_path (#L169-L181)
 //! - get_default_stealth_args (#L54-L76), get_download_url (#L274-L283)
+//! - (W58a) version_newer + get_effective_version (#L202-L248),
+//!   marker `latest_version_{platform}` atomic (download.py#L965-L973)
 
 use std::path::{Path, PathBuf};
 
@@ -241,6 +243,80 @@ pub fn get_local_binary_override() -> Option<String> {
         .filter(|s| !s.trim().is_empty())
 }
 
+// ---------------------------------------------------------------------------
+// (W58a) So sánh version + marker "default version" cho auto-update engine
+// (config.py#L202-L248, download.py#L965-L973)
+// ---------------------------------------------------------------------------
+
+/// Parse "145.0.7718.0" → [145, 0, 7718, 0]; None nếu có đoạn không phải số
+/// (config.py#L240-L242).
+fn version_tuple(v: &str) -> Option<Vec<u64>> {
+    v.split('.').map(|x| x.parse::<u64>().ok()).collect()
+}
+
+/// `a` MỚI HƠN `b` (strictly)? So sánh tuple số như Python (prefix ngắn hơn
+/// = cũ hơn). Chuỗi không parse được → false (config.py#L245-L248).
+pub fn version_newer(a: &str, b: &str) -> bool {
+    match (version_tuple(a), version_tuple(b)) {
+        (Some(ta), Some(tb)) => ta > tb,
+        _ => false,
+    }
+}
+
+/// Tên file marker version mới nhất cho một platform tag (download.py#L969).
+fn version_marker_name(tag: &str) -> String {
+    format!("latest_version_{tag}")
+}
+
+/// Đọc marker trong `cache` — pure trên path, testable. None nếu thiếu/rỗng.
+pub fn read_version_marker_in(cache: &Path, tag: &str) -> Option<String> {
+    let s = std::fs::read_to_string(cache.join(version_marker_name(tag))).ok()?;
+    let v = s.trim().to_string();
+    (!v.is_empty()).then_some(v)
+}
+
+/// Ghi marker ATOMIC (tmp + rename — download.py#L965-L973) — pure trên path.
+/// `std::fs::rename` đè file đích trên cả Unix lẫn Windows (MOVEFILE_REPLACE_EXISTING).
+pub fn write_version_marker_in(cache: &Path, tag: &str, version: &str) -> std::io::Result<()> {
+    std::fs::create_dir_all(cache)?;
+    let name = version_marker_name(tag);
+    let tmp = cache.join(format!("{name}.tmp"));
+    std::fs::write(&tmp, version)?;
+    std::fs::rename(&tmp, cache.join(name))?;
+    Ok(())
+}
+
+/// Ghi marker cho host hiện tại (gọi sau khi apply update thành công — W58b).
+pub fn write_version_marker(version: &str) -> Result<()> {
+    write_version_marker_in(&get_cache_dir(), get_platform_tag()?, version)?;
+    Ok(())
+}
+
+/// Version hiệu lực trong `cache` — pure trên path, testable
+/// (config.py#L202-L237, bỏ Pro tier + legacy marker không platform-scoped —
+/// BrowserX chưa từng ghi marker legacy): marker hợp lệ + MỚI HƠN `base`
+/// + binary version đó có trên đĩa → dùng marker; ngược lại → `base`.
+pub fn effective_version_in(cache: &Path, tag: &str, base: &str, os: &str) -> String {
+    if let Some(v) = read_version_marker_in(cache, tag) {
+        if version_newer(&v, base)
+            && binary_path_in(&cache.join(format!("chromium-{v}")), os).exists()
+        {
+            return v;
+        }
+    }
+    base.to_string()
+}
+
+/// Default version hiệu lực cho profile MỚI trên host: marker auto-update nếu
+/// hợp lệ, ngược lại fallback hardcode `get_chromium_version()`.
+pub fn get_effective_version() -> String {
+    let base = get_chromium_version();
+    match get_platform_tag() {
+        Ok(tag) => effective_version_in(&get_cache_dir(), tag, &base, std::env::consts::OS),
+        Err(_) => base,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -377,6 +453,79 @@ mod tests {
         let fb = get_fallback_download_url(Some("145.0.7632.109.2")).unwrap();
         assert!(fb.starts_with(GITHUB_DOWNLOAD_BASE_URL));
         assert!(fb.contains("/chromium-v145.0.7632.109.2/"));
+    }
+
+    /// (W58a) So sánh version kiểu tuple số: bằng nhau, mới/cũ hơn, độ dài
+    /// khác nhau, so theo SỐ không phải chuỗi, chuỗi rác → false.
+    #[test]
+    fn version_newer_comparisons() {
+        assert!(!version_newer("146.0.7680.177.5", "146.0.7680.177.5"));
+        assert!(version_newer("146.0.7680.178.0", "146.0.7680.177.5"));
+        assert!(version_newer("147.0.0.0.0", "146.0.7680.177.5"));
+        assert!(!version_newer("145.0.7632.109.2", "146.0.7680.177.5"));
+        // Độ dài khác: tuple ngắn hơn là prefix → bản dài hơn mới hơn.
+        assert!(version_newer("146.0.7680.177.5", "146.0.7680.177"));
+        assert!(!version_newer("146.0.7680.177", "146.0.7680.177.5"));
+        // 10 > 9 theo số (so chuỗi sẽ sai).
+        assert!(version_newer("146.0.7680.177.10", "146.0.7680.177.9"));
+        // Chuỗi rác → false cả hai chiều, kể cả rác một phía.
+        assert!(!version_newer("garbage", "146.0.7680.177.5"));
+        assert!(!version_newer("146.0.7680.177.5", "garbage"));
+        assert!(!version_newer("1.2.x.4", "1.2.3.4"));
+        assert!(!version_newer("", "1.2.3.4"));
+    }
+
+    /// (W58a) get_effective_version logic trên temp cache dir: không marker /
+    /// marker trỏ version chưa có binary / marker hợp lệ / marker cũ hơn base /
+    /// marker rác. Marker ghi atomic (tmp không sót lại).
+    #[test]
+    fn effective_version_marker_logic() {
+        use std::fs;
+        let cache = std::env::temp_dir().join(format!("bx-effver-{}", uuid::Uuid::new_v4()));
+        let tag = "darwin-arm64";
+        let base = "145.0.7632.109.2";
+
+        // Không marker → base.
+        assert_eq!(effective_version_in(&cache, tag, base, "linux"), base);
+
+        // Marker mới hơn nhưng binary CHƯA có trên đĩa → base.
+        write_version_marker_in(&cache, tag, "146.0.7700.0.1").unwrap();
+        assert_eq!(effective_version_in(&cache, tag, base, "linux"), base);
+        // Ghi atomic: file .tmp không còn sót, marker đọc lại đúng.
+        assert!(!cache.join("latest_version_darwin-arm64.tmp").exists());
+        assert_eq!(
+            read_version_marker_in(&cache, tag).as_deref(),
+            Some("146.0.7700.0.1")
+        );
+
+        // Binary tồn tại → dùng marker.
+        let bin = binary_path_in(&cache.join("chromium-146.0.7700.0.1"), "linux");
+        fs::create_dir_all(bin.parent().unwrap()).unwrap();
+        fs::write(&bin, b"x").unwrap();
+        assert_eq!(
+            effective_version_in(&cache, tag, base, "linux"),
+            "146.0.7700.0.1"
+        );
+
+        // Ghi đè marker (rename đè file cũ) trỏ version CŨ hơn base → base
+        // dù binary có (chống downgrade default).
+        write_version_marker_in(&cache, tag, "144.0.0.0.0").unwrap();
+        let old = binary_path_in(&cache.join("chromium-144.0.0.0.0"), "linux");
+        fs::create_dir_all(old.parent().unwrap()).unwrap();
+        fs::write(&old, b"x").unwrap();
+        assert_eq!(effective_version_in(&cache, tag, base, "linux"), base);
+
+        // Marker rác / rỗng → base.
+        write_version_marker_in(&cache, tag, "not-a-version").unwrap();
+        assert_eq!(effective_version_in(&cache, tag, base, "linux"), base);
+        write_version_marker_in(&cache, tag, "  ").unwrap();
+        assert_eq!(read_version_marker_in(&cache, tag), None);
+        assert_eq!(effective_version_in(&cache, tag, base, "linux"), base);
+
+        // Marker của tag KHÁC không ảnh hưởng.
+        assert_eq!(read_version_marker_in(&cache, "linux-x64"), None);
+
+        let _ = fs::remove_dir_all(&cache);
     }
 
     #[test]

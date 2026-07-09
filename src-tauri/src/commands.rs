@@ -37,7 +37,7 @@ use crate::metrics::LaunchMetrics;
 use crate::process::ProcessManager;
 use crate::proxy_check::{self, ProxyCheckResult};
 use crate::{
-    app_db_backup, archive, binary, cdp, cloud_transport, cookierobot, cookies, crypto,
+    app_db_backup, archive, binary, cdp, cloud_transport, config, cookierobot, cookies, crypto,
     extensions, geoip, launcher, profile_lock, storage, telegram_sync, userbot,
 };
 
@@ -2188,7 +2188,10 @@ pub async fn ensure_binary(app: AppHandle, version: Option<String>) -> Result<St
             },
         );
     };
-    let path = binary::ensure_binary(version.as_deref(), Some(&progress)).await?;
+    // (W58a) Không pin version → pre-warm bản default HIỆU LỰC (marker
+    // auto-update nếu hợp lệ, fallback hardcode).
+    let version = version.unwrap_or_else(config::get_effective_version);
+    let path = binary::ensure_binary(Some(&version), Some(&progress)).await?;
     Ok(path.to_string_lossy().into_owned())
 }
 
