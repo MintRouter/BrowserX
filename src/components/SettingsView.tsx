@@ -91,11 +91,40 @@ function AccountInfoBlock() {
     }
   }, []);
 
+  // (W59e) Auto-reset the copied indicator after ~2s.
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(timer);
+  }, [copied]);
+
   const handleCopy = () => {
-    navigator.clipboard
-      .writeText(DATA_FOLDER)
-      .then(() => setCopied(true))
-      .catch(() => {});
+    // (W59e) navigator.clipboard is undefined in insecure contexts —
+    // guard it and fall back to the legacy execCommand path.
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(DATA_FOLDER)
+        .then(() => setCopied(true))
+        .catch(() => {});
+      return;
+    }
+    try {
+      const textarea = document.createElement("textarea");
+      textarea.value = DATA_FOLDER;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const ok = document.execCommand("copy");
+      textarea.remove();
+      if (ok) {
+        setCopied(true);
+      } else {
+        console.warn("Clipboard copy is not supported in this context");
+      }
+    } catch {
+      console.warn("Clipboard copy is not supported in this context");
+    }
   };
 
   return (
